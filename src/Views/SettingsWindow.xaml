@@ -65,13 +65,21 @@
                 <TextBox x:Name="AesKeyBox" Padding="8" Background="#20222E" BorderBrush="{StaticResource CardBorderBrush}"
                          Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,16"/>
 
-                <CheckBox x:Name="AutoCheckBox" Content="Automatically check for UE4SS updates on startup" Margin="0,0,0,16"/>
+                <CheckBox x:Name="AutoCheckBox" Content="Automatically check for UE4SS updates on startup" Margin="0,0,0,8"/>
+                <CheckBox x:Name="AutoCheckAppUpdateBox" Content="Automatically check for DDS2 Mod Manager updates on startup" Margin="0,0,0,6"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                    <Button Content="Check for Updates Now" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
+                            Click="CheckForAppUpdate_Click" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="AppVersionText" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                </StackPanel>
 
                 <TextBlock Text="Windows integration" FontWeight="SemiBold" Margin="0,0,0,6"/>
                 <CheckBox x:Name="ContextMenuBox" Content="Add 'Open with DDS2 Mod Manager' to the right-click menu for .zip/.7z/.rar files"
                           Margin="0,0,0,8" Click="ContextMenu_Toggled"/>
                 <CheckBox x:Name="StartMenuBox" Content="Add a Start Menu shortcut"
-                          Margin="0,0,0,4" Click="StartMenu_Toggled"/>
+                          Margin="0,0,0,8" Click="StartMenu_Toggled"/>
+                <CheckBox x:Name="DesktopShortcutBox" Content="Add a Desktop shortcut"
+                          Margin="0,0,0,4" Click="DesktopShortcut_Toggled"/>
                 <TextBlock Text="These write only to your user account (no admin needed). Toggling off removes them."
                            FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,16" TextWrapping="Wrap"/>
 
@@ -85,7 +93,17 @@
                 <TextBlock x:Name="LogsPathText" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,16" TextWrapping="Wrap"/>
 
                 <Button Content="Reset All Settings to Defaults" Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
-                        Padding="10,5" FontSize="12" Click="ResetDefaults_Click"/>
+                        Padding="10,5" FontSize="12" Click="ResetDefaults_Click" Margin="0,0,0,8"/>
+
+                <TextBlock Text="If the app won't start, or is behaving strangely, clearing its saved state and cache " Margin="0,8,0,0"
+                           FontSize="10" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"/>
+                <TextBlock Text="usually fixes it. This never touches your installed mods or the game itself - see confirmation for details."
+                           FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                <Button Content="Reset App Data..." Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
+                        Foreground="{StaticResource ErrorBrush}" Padding="10,5" FontSize="12" Click="ResetAppData_Click" Margin="0,0,0,8"/>
+
+                <Button Content="Uninstall DDS2 Mod Manager..." Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
+                        Foreground="{StaticResource ErrorBrush}" Padding="10,5" FontSize="12" Click="Uninstall_Click"/>
             </StackPanel>
         </ScrollViewer>
 

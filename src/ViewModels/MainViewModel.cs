@@ -17,12 +17,13 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string gamePathDisplay = "Not detected";
 
     public ObservableCollection<ModInfo> Mods { get; } = new();
-    public ObservableCollection<ModConflict> Conflicts { get; } = new();
+    public ObservableCollection<ModConflictGroup> Conflicts { get; } = new();
     public ObservableCollection<LogEntry> LogEntries => LoggingService.Instance.Entries;
 
     private readonly GameDetectionService _gameDetection = new();
     private readonly UE4SSManagerService _ue4ss = new();
     private readonly CompatibilityCheckerService _compat = new();
+    private readonly AppUpdateService _appUpdater = new();
 
     private ModRegistryService? _registry;
     private ModAnalyzerService? _analyzer;
@@ -46,6 +47,7 @@ public partial class MainViewModel : ObservableObject
     public IRelayCommand ToggleLogCommand { get; }
     public IRelayCommand SaveLogCommand { get; }
     public IRelayCommand OpenSettingsCommand { get; }
+    public IAsyncRelayCommand CheckForAppUpdateCommand { get; }
 
     public MainViewModel()
     {
@@ -64,10 +66,17 @@ public partial class MainViewModel : ObservableObject
         ToggleLogCommand = new RelayCommand(() => IsLogVisible = !IsLogVisible);
         SaveLogCommand = new RelayCommand(SaveLog);
         OpenSettingsCommand = new RelayCommand(OpenSettings);
+        CheckForAppUpdateCommand = new AsyncRelayCommand(() => CheckForAppUpdateAsync(manual: true));
     }
 
     private async Task InitializeAsync()
     {
+        // Independent of game detection below - the manager itself may have an update even if
+        // the game isn't found yet. Fire-and-forget so a slow/unreachable GitHub never blocks
+        // startup; failures are logged and otherwise silent (see AppUpdateService).
+        if (AppSettingsService.Instance.Current.CheckForAppUpdatesOnStartup)
+            _ = CheckForAppUpdateAsync();
+
         IsBusy = true;
         StatusMessage = "Detecting game installation...";
         try
@@ -411,6 +420,51 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             LoggingService.Instance.Error($"Failed to save log: {ex.Message}");
+        }
+    }
+
+    /// Checks GitHub for a newer DDS2ModManager release (not to be confused with
+    /// CheckUE4SSUpdateAsync below, which checks UE4SS-RE's release instead). Prompts to update
+    /// on launch (manual=false, silent when up to date) or reports either way when triggered
+    /// from Settings' "Check for Updates" button (manual=true).
+    private async Task CheckForAppUpdateAsync(bool manual = false)
+    {
+        var log = LoggingService.Instance;
+        try
+        {
+            var check = await _appUpdater.CheckForUpdateAsync();
+            if (check.NewerRelease == null)
+            {
+                // Failure is already logged inside GitHubReleaseService with the specific reason -
+                // only report "you're up to date" when we actually got a real answer from GitHub.
+                if (manual && check.Succeeded) log.Info($"You're on the latest version (v{AppUpdateService.GetCurrentVersion()}).");
+                return;
+            }
+
+            var release = check.NewerRelease;
+            var asset = _appUpdater.FindAsset(release)!;
+            log.Info($"DDS2 Mod Manager {release.TagName} is available (you have v{AppUpdateService.GetCurrentVersion()}).");
+
+            var result = System.Windows.MessageBox.Show(
+                $"A new version is available: {release.TagName} (you have v{AppUpdateService.GetCurrentVersion()}).\n\n" +
+                "Update now? The app will download it and restart.",
+                "Update Available", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Information);
+            if (result != System.Windows.MessageBoxResult.Yes) return;
+
+            IsBusy = true;
+            StatusMessage = $"Downloading {release.TagName}...";
+            await _appUpdater.DownloadAndApplyAsync(asset, new Progress<double>(p => ProgressValue = p));
+
+            // SelfReplaceHelper is already waiting for this process to exit and will relaunch us.
+            System.Windows.Application.Current.Shutdown();
+        }
+        catch (Exception ex)
+        {
+            log.Error($"App update check failed: {ex.Message}");
+        }
+        finally
+        {
+            IsBusy = false;
         }
     }
 

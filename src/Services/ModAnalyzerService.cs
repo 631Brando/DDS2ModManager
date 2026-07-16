@@ -29,7 +29,10 @@ public class ModAnalysisResult
 /// present, CUE4Parse mounts it but resolves ZERO files (the "found 0 files" failure). So we
 /// must analyze the mod IN THE CONTEXT OF THE REAL GAME: we mount the game's Content\Paks
 /// directory (which loads global.utoc + all base containers), with the mod's own files present
-/// in that same directory, then read back just the entries the mod contributes.
+/// in that same directory, then read directly from the mod's own archive reader(s) (not a diff
+/// against the rest of the mount - a path the mod legitimately overrides, or that a previous
+/// install/another mod also touches, would otherwise vanish from the "new" set even though the
+/// mod mounted and read just fine).
 public class ModAnalyzerService
 {
     private readonly GameInstallation _game;
@@ -79,8 +82,8 @@ public class ModAnalyzerService
             .ToList();
 
         var stagedInGame = new List<string>();
-        DefaultFileProvider? baseProvider = null;
-        DefaultFileProvider? modProvider = null;
+        var stagedArchiveNames = new List<string>();
+        DefaultFileProvider? provider = null;
 
         try
         {
@@ -88,23 +91,22 @@ public class ModAnalyzerService
                 throw new DirectoryNotFoundException(
                     $"Game Paks folder not found at {_game.PaksPath}. Can't analyze IoStore mods without the game's global.utoc.");
 
-            // Pass 1: mount the game as-is to get the baseline set of paths (before the mod).
-            var baseline = MountAndListPaths(out baseProvider);
-
-            // Stage the mod's files into the real Content\Paks so they mount alongside global.utoc.
-            // Prefixed so they're unmistakable, and always removed in the finally block.
+            // Stage the mod's files into the real Content\Paks so its IoStore container(s) mount
+            // alongside global.utoc. Prefixed so they're unmistakable, and always removed below.
             foreach (var f in modFiles)
             {
                 var staged = Path.Combine(_game.PaksPath, "__DDS2MM_analyze__" + Path.GetFileName(f));
                 File.Copy(f, staged, true);
                 stagedInGame.Add(staged);
+
+                // Only .pak/.utoc get registered as their own archive reader - .ucas is just the
+                // companion data stream the .utoc reader opens, never a reader on its own.
+                var ext = Path.GetExtension(staged);
+                if (ext.Equals(".pak", StringComparison.OrdinalIgnoreCase) || ext.Equals(".utoc", StringComparison.OrdinalIgnoreCase))
+                    stagedArchiveNames.Add(Path.GetFileName(staged));
             }
 
-            // Pass 2: mount again with the mod present, and diff against the baseline. Whatever's
-            // new is what the mod contributes - no dependency on VFS-reader internals.
-            var withMod = MountAndListPaths(out modProvider);
-
-            var modPaths = withMod.Except(baseline, StringComparer.OrdinalIgnoreCase).ToList();
+            var modPaths = MountAndReadArchives(stagedArchiveNames, out provider);
 
             foreach (var path in modPaths)
             {
@@ -115,12 +117,12 @@ public class ModAnalyzerService
             if (modPaths.Count == 0)
             {
                 throw new InvalidOperationException(
-                    "Mounted the mod against the game but it added no new files. This usually means the Unreal Engine " +
-                    "version (Settings > EGame) doesn't match (DDS2 is GAME_UE5_3), Oodle isn't available (see startup " +
-                    "log), or the container format isn't supported.");
+                    "Mounted the mod's container(s) against the game but couldn't read any files from them. This " +
+                    "usually means the Unreal Engine version (Settings > EGame) doesn't match (DDS2 is GAME_UE5_3), " +
+                    "Oodle isn't available (see startup log), or the container format isn't supported.");
             }
 
-            result.AssetPaths = modPaths;
+            result.AssetPaths = modPaths.ToList();
             result.Type = result.HasModActor ? ModType.LogicMod : ModType.PatchMod;
             log.Info($"CUE4Parse read {modPaths.Count} asset path(s) from '{Path.GetFileName(modFolderPath)}'" +
                      (result.HasModActor ? " (ModActor.uasset found -> LogicMod)." : " (no ModActor -> PatchMod)."));
@@ -141,8 +143,7 @@ public class ModAnalyzerService
         }
         finally
         {
-            (baseProvider as IDisposable)?.Dispose();
-            (modProvider as IDisposable)?.Dispose();
+            (provider as IDisposable)?.Dispose();
 
             // Always remove the temporarily-staged mod files from the game folder.
             foreach (var staged in stagedInGame)
@@ -155,8 +156,15 @@ public class ModAnalyzerService
         return result;
     }
 
-    /// Mounts the game Paks folder and returns the set of all asset paths it exposes.
-    private HashSet<string> MountAndListPaths(out DefaultFileProvider provider)
+    /// Mounts the game Paks folder and returns the union of asset paths contributed by exactly
+    /// the named archives (by file name) - NOT a diff against some other mount. A diff-based
+    /// approach breaks the moment a path is contributed by more than one source, which is exactly
+    /// what happens for a legitimate override mod, a mod being re-analyzed while its own previous
+    /// copy is still installed, or two mods that genuinely conflict: the "new" set comes back
+    /// empty even though everything mounted and read correctly. Each archive reader keeps its own
+    /// Files dictionary independent of anything else mounted, so reading directly from the
+    /// specific reader(s) we staged is both simpler and correct in all of those cases.
+    private HashSet<string> MountAndReadArchives(IReadOnlyCollection<string> archiveNames, out DefaultFileProvider provider)
     {
         // NOTE: CUE4Parse marked this 4-arg constructor obsolete in favor of one taking an explicit
         // StringComparer, but the replacement's exact parameter order varies between library versions.
@@ -177,16 +185,26 @@ public class ModAnalyzerService
 
         if (!string.IsNullOrWhiteSpace(_aesKeyHex))
         {
+            // Mounts only the archives whose EncryptionKeyGuid matches this guid - irrelevant to
+            // DDS2, which has no AES encryption at all, but harmless to keep for games that do.
             try { provider.SubmitKey(new CUE4Parse.UE4.Objects.Core.Misc.FGuid(), new FAesKey(_aesKeyHex)); }
             catch (Exception ex) { LoggingService.Instance.Warn($"Failed to submit AES key: {ex.Message}"); }
         }
 
-        // Initialize() only registers archives into UnloadedVfs - it does not actually mount them
-        // into Files. That final mount pass happens in PostMount(), which must run even when the
-        // game has no AES encryption at all. Skipping it is why mounts always looked like they
-        // produced zero files, independent of the Oodle/EGame/AES checks in the error message below.
-        provider.PostMount();
+        // Initialize() only scans the directory and registers each .pak/.utoc into UnloadedVfs - it
+        // never mounts anything into Files, and neither does PostMount() (that one only reconciles a
+        // DefaultGame.EncryptionKeyGuid ini edge case, unrelated to normal mounting). The call that
+        // actually mounts unencrypted archives into Files is Mount()/MountAsync() - SubmitKey above
+        // only covers archives that need a specific AES key, which DDS2 has none of, so without this
+        // call every mount produced zero files regardless of Oodle/EGame/AES being correct.
+        provider.Mount();
 
-        return provider.Files.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in archiveNames)
+        {
+            if (provider.TryGetArchive(name, out var archive))
+                foreach (var p in archive.Files.Keys) paths.Add(p);
+        }
+        return paths;
     }
 }

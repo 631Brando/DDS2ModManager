@@ -29,10 +29,16 @@ public class GitHubReleaseService
         return c;
     }
 
-    public async Task<GitHubReleaseInfo?> GetReleaseByTagAsync(string owner, string repo, string tag)
+    public Task<GitHubReleaseInfo?> GetReleaseByTagAsync(string owner, string repo, string tag) =>
+        GetReleaseAsync($"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}", $"{owner}/{repo}@{tag}");
+
+    /// The most recent non-prerelease, non-draft release - what GitHub's own "Latest" badge points to.
+    public Task<GitHubReleaseInfo?> GetLatestReleaseAsync(string owner, string repo) =>
+        GetReleaseAsync($"https://api.github.com/repos/{owner}/{repo}/releases/latest", $"{owner}/{repo}@latest");
+
+    private async Task<GitHubReleaseInfo?> GetReleaseAsync(string url, string logLabel)
     {
         var log = LoggingService.Instance;
-        var url = $"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}";
         try
         {
             using var resp = await _http.GetAsync(url);
@@ -61,7 +67,7 @@ public class GitHubReleaseService
         }
         catch (Exception ex)
         {
-            log.Error($"Failed to query GitHub ({owner}/{repo}@{tag}): {ex.Message}");
+            log.Error($"Failed to query GitHub ({logLabel}): {ex.Message}");
             return null;
         }
     }

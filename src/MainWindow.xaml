@@ -186,16 +186,25 @@
                                     <Border Background="#241A2E" BorderBrush="{StaticResource WarningBrush}" BorderThickness="1"
                                             CornerRadius="6" Padding="10" Margin="0,0,0,8">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding AssetPath}" FontSize="11" TextWrapping="Wrap"
-                                                       Foreground="{StaticResource TextMutedBrush}"/>
-                                            <TextBlock TextWrapping="Wrap" Margin="0,4,0,0" FontSize="12">
-                                                <Run Text="Conflict between: "/>
-                                                <Run Text="{Binding ConflictingModNames}" FontWeight="SemiBold"/>
-                                            </TextBlock>
+                                            <TextBlock Text="{Binding ModNamesDisplay}" FontWeight="Bold" FontSize="13"
+                                                       TextWrapping="Wrap"/>
                                             <TextBlock Margin="0,4,0,0" FontSize="11" Foreground="{StaticResource WarningBrush}">
                                                 <Run Text="Likely wins (last loaded): "/>
-                                                <Run Text="{Binding LikelyWinningModName}" FontWeight="SemiBold"/>
+                                                <Run Text="{Binding LikelyWinningModName, Mode=OneWay}" FontWeight="SemiBold"/>
                                             </TextBlock>
+                                            <TextBlock Margin="0,6,0,0" FontSize="11" Foreground="{StaticResource TextMutedBrush}">
+                                                <Run Text="Conflicting on "/>
+                                                <Run Text="{Binding AssetPaths.Count, Mode=OneWay}"/>
+                                                <Run Text=" file(s):"/>
+                                            </TextBlock>
+                                            <ItemsControl ItemsSource="{Binding AssetPaths}" Margin="0,2,0,0">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding}" FontSize="11" TextWrapping="Wrap"
+                                                                   Foreground="{StaticResource TextMutedBrush}"/>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>
@@ -232,9 +241,9 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <TextBlock FontFamily="Consolas" FontSize="12" TextWrapping="Wrap">
-                                <Run Text="{Binding Timestamp, StringFormat=HH:mm:ss}" Foreground="{StaticResource TextMutedBrush}"/>
+                                <Run Text="{Binding Timestamp, StringFormat=HH:mm:ss, Mode=OneWay}" Foreground="{StaticResource TextMutedBrush}"/>
                                 <Run Text="  "/>
-                                <Run Text="{Binding Message}" Foreground="{Binding Level, Converter={StaticResource LogLevelToBrush}}"/>
+                                <Run Text="{Binding Message, Mode=OneWay}" Foreground="{Binding Level, Converter={StaticResource LogLevelToBrush}}"/>
                             </TextBlock>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

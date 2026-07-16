@@ -6,12 +6,19 @@ public enum ConflictKind
     ModFolderNameClash  // two mods happen to use the same private MODS/<X> folder name
 }
 
-public class ModConflict
+/// One card in the Compatibility panel: a specific set of installed mods that overwrite each
+/// other's files, and every asset path they collide on. Grouped by mod set (rather than one
+/// entry per colliding path) so two mods that share several files show up as a single, clearly
+/// labeled "these two mods conflict" card instead of a repeated, near-identical card per file.
+public class ModConflictGroup
 {
-    public string AssetPath { get; set; } = "";
+    public List<string> ModNames { get; set; } = new();
+    public List<string> AssetPaths { get; set; } = new();
     public ConflictKind Kind { get; set; }
-    public List<string> ConflictingModNames { get; set; } = new();
 
     /// Best-effort guess only - see CompatibilityCheckerService remarks.
     public string LikelyWinningModName { get; set; } = "";
+
+    /// "ModA vs. ModB" (or "ModA vs. ModB vs. ModC" for a rarer 3-way clash) - the panel's headline.
+    public string ModNamesDisplay => string.Join(" vs. ", ModNames);
 }

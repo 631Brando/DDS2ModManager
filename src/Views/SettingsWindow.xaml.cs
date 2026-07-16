@@ -19,12 +19,15 @@ public partial class SettingsWindow : Window
         MappingsPathBox.Text = current.MappingsOverridePath;
         AesKeyBox.Text = current.AesKeyHex;
         AutoCheckBox.IsChecked = current.AutoCheckUE4SSUpdatesOnStartup;
+        AutoCheckAppUpdateBox.IsChecked = current.CheckForAppUpdatesOnStartup;
+        AppVersionText.Text = $"Current version: v{AppUpdateService.GetCurrentVersion()}";
         LogsPathText.Text = "Logs: " + AppSettingsService.Instance.GetLogsFolder();
 
         // Reflect the actual on-disk state (registry entry / .lnk existence), not a stored flag,
         // so the checkboxes stay honest even if the user changed things outside the app.
         ContextMenuBox.IsChecked = ShellIntegrationService.IsRegistered();
         StartMenuBox.IsChecked = ShortcutService.IsInstalled();
+        DesktopShortcutBox.IsChecked = ShortcutService.IsDesktopInstalled();
     }
 
     private void BrowseGamePath_Click(object sender, RoutedEventArgs e)
@@ -44,6 +47,9 @@ public partial class SettingsWindow : Window
     }
 
     private void ClearMappingsOverride_Click(object sender, RoutedEventArgs e) => MappingsPathBox.Text = "";
+
+    private async void CheckForAppUpdate_Click(object sender, RoutedEventArgs e) =>
+        await _mainViewModel.CheckForAppUpdateCommand.ExecuteAsync(null);
 
     private void OpenLogsFolder_Click(object sender, RoutedEventArgs e)
     {
@@ -72,6 +78,52 @@ public partial class SettingsWindow : Window
         MappingsPathBox.Text = defaults.MappingsOverridePath;
         AesKeyBox.Text = defaults.AesKeyHex;
         AutoCheckBox.IsChecked = defaults.AutoCheckUE4SSUpdatesOnStartup;
+        AutoCheckAppUpdateBox.IsChecked = defaults.CheckForAppUpdatesOnStartup;
+    }
+
+    private void ResetAppData_Click(object sender, RoutedEventArgs e)
+    {
+        var result = MessageBox.Show(
+            "This clears all saved settings and forgets every mod this manager has tracked for every game folder " +
+            "you've used it with, and clears the cached mappings file (it gets re-extracted automatically next launch).\n\n" +
+            "It does NOT delete any mod files - not the ones currently installed in the game, and not the ones sitting " +
+            "in the Disabled Mods folder. Those are untouched and stay right where they are. Enabled mods will keep " +
+            "loading in-game exactly as before; the app just won't have them in its list anymore, so you'll need to " +
+            "run \"Install Mod...\" on them again to get them tracked (which is safe - it just overwrites the same files).\n\n" +
+            "The app will restart. Continue?",
+            "Reset App Data", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes) return;
+
+        try
+        {
+            AppSettingsService.ResetAllAppData();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Couldn't fully reset app data: {ex.Message}", "Reset App Data", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        var exePath = Process.GetCurrentProcess().MainModule?.FileName;
+        if (!string.IsNullOrEmpty(exePath))
+            Process.Start(exePath);
+        Application.Current.Shutdown();
+    }
+
+    private void Uninstall_Click(object sender, RoutedEventArgs e)
+    {
+        var result = MessageBox.Show(
+            "Uninstall DDS2 Mod Manager?\n\nThis removes the installed program and its Desktop/Start Menu shortcuts, the " +
+            "right-click context menu entry, and the Windows \"Apps & Features\" entry.\n\n" +
+            "It does NOT touch any mods - not the ones currently installed in the game, and not the ones in the Disabled " +
+            "Mods folder. Your settings and mod tracking also stay in %AppData%\\DDS2ModManager in case you reinstall " +
+            "later (use Reset App Data first if you want those gone too).\n\n" +
+            "The app will close immediately after.",
+            "Uninstall DDS2 Mod Manager", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes) return;
+
+        AppUninstaller.Run();
+        Application.Current.Shutdown();
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -82,6 +134,7 @@ public partial class SettingsWindow : Window
         settings.MappingsOverridePath = string.IsNullOrWhiteSpace(MappingsPathBox.Text) ? null : MappingsPathBox.Text.Trim();
         settings.AesKeyHex = string.IsNullOrWhiteSpace(AesKeyBox.Text) ? null : AesKeyBox.Text.Trim();
         settings.AutoCheckUE4SSUpdatesOnStartup = AutoCheckBox.IsChecked ?? true;
+        settings.CheckForAppUpdatesOnStartup = AutoCheckAppUpdateBox.IsChecked ?? true;
 
         AppSettingsService.Instance.Save();
         _mainViewModel.ReapplySettings();
@@ -115,6 +168,20 @@ public partial class SettingsWindow : Window
         {
             LoggingService.Instance.Error($"Start Menu shortcut update failed: {ex.Message}");
             StartMenuBox.IsChecked = ShortcutService.IsInstalled();
+        }
+    }
+
+    private void DesktopShortcut_Toggled(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (DesktopShortcutBox.IsChecked == true) ShortcutService.InstallDesktop();
+            else ShortcutService.UninstallDesktop();
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Instance.Error($"Desktop shortcut update failed: {ex.Message}");
+            DesktopShortcutBox.IsChecked = ShortcutService.IsDesktopInstalled();
         }
     }
 }

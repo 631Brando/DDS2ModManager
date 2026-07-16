@@ -31,7 +31,12 @@ WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
   game folders — the authoritative check to run before launching.
 - **Save Log** button exports the on-screen log to a `.txt` you can attach to bug reports.
 - **Windows integration** (in Settings, no admin needed): add an "Open with DDS2 Mod
-  Manager" right-click entry for archives, and/or a Start Menu shortcut.
+  Manager" right-click entry for archives, and/or a Desktop/Start Menu shortcut.
+- **Self-updating**: checks `github.com/631Brando/DDS2ModManager` releases on startup
+  (toggleable in Settings) and via a "Check for Updates Now" button, prompts on a newer
+  version, then downloads and replaces itself in place.
+- **Reset App Data** / **Uninstall** (Settings): recovery paths if something ever gets
+  into a bad state, or to cleanly remove the app - see [Uninstalling](#uninstalling) below.
 - A Settings page lets you override the game path, the mappings file, the CUE4Parse
   `EGame` version (for future engine updates), and an AES key (for encrypted paks).
 
@@ -57,11 +62,61 @@ This project targets **`net10.0-windows`**, required by `CUE4Parse` `1.2.2.20260
    on the CLI) — CUE4Parse's native dependencies require it.
 5. Build. NuGet should restore `CUE4Parse` and `CommunityToolkit.Mvvm` automatically.
 
-## Publishing a single portable exe
+## Installing
+
+Download and run `DDS2ModManagerSetup.exe` from the
+[latest release](https://github.com/631Brando/DDS2ModManager/releases/latest). It fetches
+the current `DDS2ModManager.exe` release asset itself, so the installer rarely needs to be
+re-downloaded even across app updates - it always pulls "latest" at install time. It asks
+for an install folder (defaults to `%LocalAppData%\Programs\DDS2ModManager`, no admin
+needed) and whether to create Desktop/Start Menu shortcuts, then adds a normal Windows
+"Apps & Features" entry.
+
+Once installed, the app checks for updates itself (see below) - you generally don't need
+to re-run the installer again.
+
+### Uninstalling
+
+Either use Windows Settings → Apps → DDS2 Mod Manager → Uninstall, or the "Uninstall DDS2
+Mod Manager..." button in the app's own Settings. Both remove the installed program,
+shortcuts, and the Apps & Features entry, but deliberately leave
+`%AppData%\DDS2ModManager` (your settings, mod tracking, logs, and any files cached under
+`DisabledMods`) and your installed mods untouched, in case you reinstall later. Use
+"Reset App Data" first if you also want that folder gone.
+
+## Building from source / publishing a single portable exe
+
+`SelfContained`, `RuntimeIdentifier`, `PublishSingleFile`, and
+`IncludeNativeLibrariesForSelfExtract` are already set in `DDS2ModManager.csproj` /
+`DDS2ModManagerSetup.csproj`, so publishing either project is just:
 
 ```
-dotnet publish src/DDS2ModManager.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+dotnet publish src/DDS2ModManager.csproj -c Release
+dotnet publish setup/DDS2ModManagerSetup.csproj -c Release
 ```
+
+Each produces a single self-contained `.exe` under `bin/x64/Release/net10.0-windows/win-x64/publish/`
+(native WPF interop DLLs are bundled inside and self-extract to a per-app `%TEMP%` cache
+at first run - invisible to the user). The only file that appears alongside
+`DDS2ModManager.exe` afterward is `oodle-data-shared.dll`, which the app downloads and
+caches there itself on first run (see Oodle, below) - that's expected, not a packaging leftover.
+
+## Releasing (for maintainers)
+
+`.github/workflows/release.yml` builds both exes and publishes them as assets on a
+GitHub Release whenever a tag matching `v*` is pushed:
+
+```
+# bump <Version> in src/DDS2ModManager.csproj and setup/DDS2ModManagerSetup.csproj first
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+`AppUpdateService` (the in-app updater) and `DDS2ModManagerSetup` both compare the
+running assembly version against the release tag name and expect an asset named exactly
+`DDS2ModManager.exe` - the workflow already produces that name, so don't rename it without
+updating `AssetName` in both `src/Services/AppUpdateService.cs` and
+`setup/MainWindow.xaml.cs` to match.
 
 ## Known gotchas
 
@@ -79,13 +134,16 @@ dotnet publish src/DDS2ModManager.csproj -c Release -r win-x64 --self-contained 
 - **IoStore mods need the game present**: modern `.utoc`/`.ucas` mods don't carry their own
   name table — they reference the game's `global.utoc` in `Content\Paks`. The manager
   therefore analyzes each mod **in the context of the real game** (it briefly stages the
-  mod's files next to `global.utoc`, reads what they add, then removes them). This is why
-  the game must be installed and the Paks folder must exist. Reading a mod in isolation
-  (outside the game) is exactly what produced the earlier 0-files failure.
+  mod's files next to `global.utoc`, mounts everything together, then reads back only the
+  paths that came from the mod's own archive reader(s) - not a diff against the rest of the
+  mount, since a mod overriding an already-installed path, or two mods genuinely colliding
+  on the same path, would otherwise look identical to "nothing new"). This is why the game
+  must be installed and the Paks folder must exist.
 - **AES-encrypted paks**: DDS2's base game paks might be encrypted; mod-author paks
-  almost never are. If CUE4Parse throws while analyzing a specific mod, the analyzer
-  falls back to filename heuristics (checks for a literal `ModActor.uasset` on disk)
-  rather than blocking the install outright — you'll get a warning in the log instead.
+  almost never are. If CUE4Parse can't read a mod's pak (wrong EGame, Oodle unavailable,
+  wrong/missing AES key, unsupported container format), installation is **blocked** rather
+  than guessing the mod's type from its filename - a wrong guess would put a LogicMod in
+  the Paks folder where it silently never loads.
 - **"Last mod wins" conflict guess**: real UE pak mount priority isn't guaranteed to be
   alphabetical. The compatibility checker's "likely winner" is a clearly-labeled
   best-effort heuristic, not a guarantee — if it matters, test in-game.
@@ -98,6 +156,7 @@ dotnet publish src/DDS2ModManager.csproj -c Release -r win-x64 --self-contained 
 ```
 DDS2ModManager/
   DDS2ModManager.sln
+  .github/workflows/release.yml  - builds + uploads both exes on a "v*" tag push
   src/
     DDS2ModManager.csproj
     GlobalUsings.cs
@@ -106,9 +165,15 @@ DDS2ModManager/
     Models/          - ModType, ModInfo, GameInstallation, UE4SSInstallInfo, ModConflict, AppSettings
     Services/         - Logging, GameDetection, Oodle, MappingsProvider, GitHubRelease,
                         UE4SSManager, LuaModConfig, ModAnalyzer (CUE4Parse), ModRegistry,
-                        ModInstaller, CompatibilityChecker, AppSettings
+                        ModInstaller, CompatibilityChecker, AppSettings,
+                        ShortcutCreator (shared .lnk creation) / ShortcutService,
+                        AppUpdateService / SelfReplaceHelper / AppUninstaller
     Converters/       - WPF value converters for the dark theme UI
     ViewModels/       - MainViewModel (MVVM via CommunityToolkit.Mvvm)
     Views/            - SettingsWindow
     Assets/           - mappings.usmap (replace with your real file)
+  setup/
+    DDS2ModManagerSetup.csproj  - the installer; links a few dependency-free Services
+                                  files from src/ instead of referencing the main project
+    App.xaml(.cs) / MainWindow.xaml(.cs)
 ```

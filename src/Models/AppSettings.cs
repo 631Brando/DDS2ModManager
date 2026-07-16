@@ -15,6 +15,9 @@ public class AppSettings
 
     public bool AutoCheckUE4SSUpdatesOnStartup { get; set; } = true;
 
+    /// Checks GitHub for a newer DDS2ModManager release on startup and prompts to install it.
+    public bool CheckForAppUpdatesOnStartup { get; set; } = true;
+
     /// Optional AES-256 key (hex), only needed if CUE4Parse reports it can't decrypt a pak.
     public string? AesKeyHex { get; set; }
 }
