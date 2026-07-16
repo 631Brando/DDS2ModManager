@@ -1,0 +1,97 @@
+<Window x:Class="DDS2ModManager.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings" Height="600" Width="560" WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{StaticResource BgBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}"
+        TextElement.Foreground="{StaticResource TextPrimaryBrush}"
+        FontFamily="Segoe UI">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="Settings" FontSize="20" FontWeight="Bold" Margin="0,0,0,16"/>
+
+                <TextBlock Text="Game folder override" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <TextBlock Text="Leave blank to auto-detect via Steam on every startup." FontSize="11"
+                           Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                <Grid Margin="0,0,0,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="GamePathBox" Padding="8" Background="#20222E" BorderBrush="{StaticResource CardBorderBrush}"
+                             Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <Button Grid.Column="1" Content="Browse..." Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                            Click="BrowseGamePath_Click"/>
+                </Grid>
+
+                <TextBlock Text="Unreal Engine version (CUE4Parse EGame)" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <TextBlock Text="DDS2 currently runs UE 5.3.2 -&gt; GAME_UE5_3. Only change this if the game updates to a newer engine version."
+                           FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                <ComboBox x:Name="EGameCombo" IsEditable="True" Padding="8" Margin="0,0,0,16">
+                    <ComboBoxItem Content="GAME_UE5_0"/>
+                    <ComboBoxItem Content="GAME_UE5_1"/>
+                    <ComboBoxItem Content="GAME_UE5_2"/>
+                    <ComboBoxItem Content="GAME_UE5_3"/>
+                    <ComboBoxItem Content="GAME_UE5_4"/>
+                    <ComboBoxItem Content="GAME_UE5_5"/>
+                </ComboBox>
+
+                <TextBlock Text="Mappings (.usmap) override" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <TextBlock Text="Leave blank to use the mappings file built into this exe."
+                           FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                <Grid Margin="0,0,0,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="MappingsPathBox" Padding="8" Background="#20222E" BorderBrush="{StaticResource CardBorderBrush}"
+                             Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <Button Grid.Column="1" Content="Browse..." Style="{StaticResource GhostButton}" Margin="8,0,0,0" Click="BrowseMappings_Click"/>
+                    <Button Grid.Column="2" Content="Clear" Style="{StaticResource GhostButton}" Margin="8,0,0,0" Click="ClearMappingsOverride_Click"/>
+                </Grid>
+
+                <TextBlock Text="AES decryption key (optional)" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <TextBlock Text="Only needed if CUE4Parse reports it can't decrypt pak entries. Leave blank otherwise." FontSize="11"
+                           Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                <TextBox x:Name="AesKeyBox" Padding="8" Background="#20222E" BorderBrush="{StaticResource CardBorderBrush}"
+                         Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,16"/>
+
+                <CheckBox x:Name="AutoCheckBox" Content="Automatically check for UE4SS updates on startup" Margin="0,0,0,16"/>
+
+                <TextBlock Text="Windows integration" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                <CheckBox x:Name="ContextMenuBox" Content="Add 'Open with DDS2 Mod Manager' to the right-click menu for .zip/.7z/.rar files"
+                          Margin="0,0,0,8" Click="ContextMenu_Toggled"/>
+                <CheckBox x:Name="StartMenuBox" Content="Add a Start Menu shortcut"
+                          Margin="0,0,0,4" Click="StartMenu_Toggled"/>
+                <TextBlock Text="These write only to your user account (no admin needed). Toggling off removes them."
+                           FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,16" TextWrapping="Wrap"/>
+
+                <TextBlock Text="Storage locations" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                    <Button Content="Open Logs Folder" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
+                            Click="OpenLogsFolder_Click" Margin="0,0,8,0"/>
+                    <Button Content="Open Disabled Mods Folder" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
+                            Click="OpenDisabledModsFolder_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="LogsPathText" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,16" TextWrapping="Wrap"/>
+
+                <Button Content="Reset All Settings to Defaults" Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
+                        Padding="10,5" FontSize="12" Click="ResetDefaults_Click"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Cancel" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Cancel_Click"/>
+            <Button Content="Save" Style="{StaticResource AccentButton}" Click="Save_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

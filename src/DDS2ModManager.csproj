@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>DDS2ModManager</RootNamespace>
+    <AssemblyName>DDS2ModManager</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <SelfContained>false</SelfContained>
+    <Product>DDS2 Mod Manager</Product>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Real NuGet package by FabianFG - parses .pak/.utoc/.ucas and .uasset content -->
+    <PackageReference Include="CUE4Parse" Version="1.2.2.202607" />
+    <!-- MVVM helpers: ObservableObject, [ObservableProperty], RelayCommand -->
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+    <!-- Archive extraction for .zip/.7z/.rar (System.IO.Compression only handles .zip) -->
+    <PackageReference Include="SharpCompress" Version="0.49.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Replace Assets\mappings.usmap with your real mappings file before building.
+      It gets embedded straight into the exe so end users never see or supply it.
+    -->
+    <EmbeddedResource Include="Assets\mappings.usmap" />
+  </ItemGroup>
+
+</Project>
