@@ -15,12 +15,23 @@ public class UE4SSManagerService
         _github.GetReleaseByTagAsync(Owner, Repo, Tag);
 
     /// The release always ships 6 assets: the real UE4SS_v*.zip, zCustomGameConfigs.zip,
-    /// zDEV-UE4SS_v*.zip, zMapGenBP.zip, and two source archives. We only want the one
-    /// that starts with "UE4SS_" (not "z...") and ends in .zip.
+    /// zDEV-UE4SS_v*.zip, zMapGenBP.zip, and two source archives. This is the standard build -
+    /// starts with "UE4SS_" (not "z...") and ends in .zip. No console window opens with this one.
     public GitHubAsset? FindMainAsset(GitHubReleaseInfo release) =>
         release.Assets.FirstOrDefault(a =>
             a.Name.StartsWith("UE4SS_", StringComparison.OrdinalIgnoreCase) &&
             a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+
+    /// The "zDEV-UE4SS_v*.zip" asset - functionally identical for mods, but opens a console
+    /// window showing live UE4SS logs while the game runs. The build picker (shown before every
+    /// install/update) is what tells the user about that difference - this method just finds it.
+    public GitHubAsset? FindDevAsset(GitHubReleaseInfo release) =>
+        release.Assets.FirstOrDefault(a =>
+            a.Name.StartsWith("zDEV-UE4SS_", StringComparison.OrdinalIgnoreCase) &&
+            a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+
+    public GitHubAsset? FindAsset(GitHubReleaseInfo release, bool devBuild) =>
+        devBuild ? FindDevAsset(release) : FindMainAsset(release);
 
     public UE4SSInstallInfo GetCurrentStatus(GameInstallation game)
     {

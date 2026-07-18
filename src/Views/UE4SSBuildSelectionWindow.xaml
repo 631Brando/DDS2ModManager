@@ -1,0 +1,56 @@
+<Window x:Class="DDS2ModManager.Views.UE4SSBuildSelectionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Choose a UE4SS build" Height="380" Width="460" WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{StaticResource BgBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}"
+        TextElement.Foreground="{StaticResource TextPrimaryBrush}"
+        FontFamily="Segoe UI">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Choose a UE4SS build" FontSize="18" FontWeight="Bold" Margin="0,0,0,6"/>
+        <TextBlock Grid.Row="1" TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,14">
+            Both are the same experimental UE4SS release and work identically for mods - the only
+            difference is whether a console window shows up while the game runs.
+        </TextBlock>
+
+        <StackPanel Grid.Row="2">
+            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,10" Cursor="Hand" MouseLeftButtonUp="StandardOption_Click">
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton x:Name="StandardOption" GroupName="Build" IsChecked="True" VerticalAlignment="Top" Margin="0,3,10,0"/>
+                    <StackPanel>
+                        <TextBlock Text="Standard (recommended)" FontWeight="SemiBold" FontSize="14"/>
+                        <TextBlock Text="The normal experimental build. No extra window opens." Foreground="{StaticResource TextMutedBrush}"
+                                   FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardBorder}" Cursor="Hand" MouseLeftButtonUp="DevOption_Click">
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton x:Name="DevOption" GroupName="Build" VerticalAlignment="Top" Margin="0,3,10,0"/>
+                    <StackPanel>
+                        <TextBlock Text="Dev (zDEV)" FontWeight="SemiBold" FontSize="14"/>
+                        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" FontSize="12" Margin="0,4,0,0">
+                            Opens an extra console window showing live UE4SS logs while the game runs -
+                            handy for troubleshooting mod issues. Mods work exactly the same either way;
+                            this only changes whether you see that console.
+                        </TextBlock>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Cancel" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Cancel_Click"/>
+            <Button Content="Continue" Style="{StaticResource AccentButton}" Click="Continue_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

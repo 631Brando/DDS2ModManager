@@ -479,10 +479,13 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        _latestAsset = _ue4ss.FindMainAsset(_latestRelease);
+        // Compares against whichever build (Standard/Dev) is currently preferred, so switching
+        // builds shows up as "update available" the same way a version bump would.
+        var preferDev = AppSettingsService.Instance.Current.PreferredUE4SSBuild == "Dev";
+        _latestAsset = _ue4ss.FindAsset(_latestRelease, preferDev);
         if (_latestAsset == null)
         {
-            LoggingService.Instance.Warn("Couldn't find the main UE4SS_v*.zip asset in the latest release.");
+            LoggingService.Instance.Warn($"Couldn't find the {(preferDev ? "zDEV-UE4SS_*.zip" : "main UE4SS_*.zip")} asset in the latest release.");
             return;
         }
 
@@ -498,10 +501,31 @@ public partial class MainViewModel : ObservableObject
 
     private async Task InstallOrUpdateUE4SSAsync()
     {
-        if (Game == null || _latestRelease == null || _latestAsset == null)
+        if (Game == null) return;
+
+        // Always let the user (re)confirm which build before installing/updating, not just once -
+        // switching later should be just as visible and just as clearly explained as the first time.
+        var dialog = new UE4SSBuildSelectionWindow(AppSettingsService.Instance.Current.PreferredUE4SSBuild == "Dev")
         {
+            Owner = System.Windows.Application.Current.MainWindow
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        AppSettingsService.Instance.Current.PreferredUE4SSBuild = dialog.UseDevBuild ? "Dev" : "Standard";
+        AppSettingsService.Instance.Save();
+
+        if (_latestRelease == null)
             await CheckUE4SSUpdateAsync();
-            if (Game == null || _latestRelease == null || _latestAsset == null) return;
+        if (_latestRelease == null) return;
+
+        // Re-resolve regardless of what CheckUE4SSUpdateAsync already cached - the user may have
+        // just switched builds in the dialog above, and a stale cached asset from before that
+        // switch would silently install the wrong one.
+        _latestAsset = _ue4ss.FindAsset(_latestRelease, dialog.UseDevBuild);
+        if (_latestAsset == null)
+        {
+            StatusMessage = $"Couldn't find the {(dialog.UseDevBuild ? "zDEV-UE4SS_*.zip" : "main UE4SS_*.zip")} asset in the latest release.";
+            return;
         }
 
         IsBusy = true;

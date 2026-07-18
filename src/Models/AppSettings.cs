@@ -15,6 +15,11 @@ public class AppSettings
 
     public bool AutoCheckUE4SSUpdatesOnStartup { get; set; } = true;
 
+    /// "Standard" or "Dev" - which UE4SS release asset to install (see UE4SSManagerService).
+    /// Remembered as the default pre-selected choice next time, not applied silently - the
+    /// build picker always shows before an install/update.
+    public string PreferredUE4SSBuild { get; set; } = "Standard";
+
     /// Checks GitHub for a newer DDS2ModManager release on startup and prompts to install it.
     public bool CheckForAppUpdatesOnStartup { get; set; } = true;
 
