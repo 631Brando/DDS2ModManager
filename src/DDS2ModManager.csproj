@@ -12,7 +12,7 @@
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <Product>DDS2 Mod Manager</Product>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
 
     <!--
       True single-file publish. Without SelfContained + RuntimeIdentifier, `dotnet publish
@@ -31,7 +31,12 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <!-- Embed PDB info into the exe itself in Release so no loose .pdb ships alongside it. -->
     <DebugType Condition="'$(Configuration)'=='Release'">embedded</DebugType>
+    <ApplicationIcon>902c6415f7ce3215f2d375ab22547552429bd92d.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="902c6415f7ce3215f2d375ab22547552429bd92d.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- Real NuGet package by FabianFG - parses .pak/.utoc/.ucas and .uasset content -->
