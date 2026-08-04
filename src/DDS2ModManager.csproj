@@ -12,7 +12,7 @@
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <Product>DDS2 Mod Manager</Product>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
 
     <!--
       True single-file publish. Without SelfContained + RuntimeIdentifier, `dotnet publish

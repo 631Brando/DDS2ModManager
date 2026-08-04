@@ -103,6 +103,21 @@
                                             </MultiDataTrigger.Conditions>
                                             <Setter Property="Text" Value="UE4SS experimental - up to date"/>
                                         </MultiDataTrigger>
+                                        <!-- Must come after the "up to date" trigger above so it wins when both match
+                                             (WPF resolves same-property Setters from multiple matching triggers by
+                                             declaration order, last wins) - "up to date" only ever meant "installed
+                                             and verified as the experimental build," never "matches the latest
+                                             GitHub release," so without this the label kept claiming up to date
+                                             even while the Update button (driven by UpdateAvailable, a real asset-
+                                             name comparison) was showing because a newer build genuinely existed. -->
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding Ue4ssStatus.IsInstalled}" Value="True"/>
+                                                <Condition Binding="{Binding Ue4ssStatus.IsManagedByUs}" Value="True"/>
+                                                <Condition Binding="{Binding UpdateAvailable}" Value="True"/>
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Text" Value="UE4SS experimental - update available"/>
+                                        </MultiDataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </TextBlock.Style>
