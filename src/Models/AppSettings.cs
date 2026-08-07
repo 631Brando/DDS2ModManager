@@ -25,4 +25,10 @@ public class AppSettings
 
     /// Optional AES-256 key (hex), only needed if CUE4Parse reports it can't decrypt a pak.
     public string? AesKeyHex { get; set; }
+
+    /// Last window size and whether it was maximized, so the app reopens the way it was left
+    /// instead of resetting to a small default every launch. Null until the first close.
+    public double? WindowWidth { get; set; }
+    public double? WindowHeight { get; set; }
+    public bool WindowMaximized { get; set; }
 }

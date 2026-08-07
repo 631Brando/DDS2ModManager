@@ -12,7 +12,7 @@
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <Product>DDS2 Mod Manager Setup</Product>
-    <Version>1.0.3</Version>
+    <Version>1.0.4</Version>
 
     <!-- Same single-file treatment as the main app - see DDS2ModManager.csproj for why. -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

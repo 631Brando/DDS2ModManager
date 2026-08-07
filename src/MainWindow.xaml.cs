@@ -12,6 +12,9 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = new MainViewModel();
 
+        RestoreWindowSize();
+        Closing += (_, _) => SaveWindowSize();
+
         Loaded += async (_, _) =>
         {
             await ViewModel.InitializeCommand.ExecuteAsync(null);
@@ -27,6 +30,55 @@ public partial class MainWindow : Window
         {
             Dispatcher.InvokeAsync(() => LogScroller.ScrollToEnd());
         };
+    }
+
+    /// Restores the size the user last left the window at, or picks a sensible large default.
+    ///
+    /// The XAML default (1560x980) is deliberately bigger than the old 1200x780, but can't be
+    /// trusted blindly - on a 1366x768 laptop it would open larger than the screen. So it's
+    /// clamped to the actual work area, which also keeps the taskbar clear.
+    private void RestoreWindowSize()
+    {
+        var settings = AppSettingsService.Instance.Current;
+
+        var maxWidth = SystemParameters.WorkArea.Width;
+        var maxHeight = SystemParameters.WorkArea.Height;
+
+        var desiredWidth = settings.WindowWidth ?? Width;
+        var desiredHeight = settings.WindowHeight ?? Height;
+
+        Width = Math.Max(MinWidth, Math.Min(desiredWidth, maxWidth));
+        Height = Math.Max(MinHeight, Math.Min(desiredHeight, maxHeight));
+
+        if (settings.WindowMaximized) WindowState = WindowState.Maximized;
+    }
+
+    private void SaveWindowSize()
+    {
+        try
+        {
+            var settings = AppSettingsService.Instance.Current;
+            settings.WindowMaximized = WindowState == WindowState.Maximized;
+
+            // RestoreBounds holds the pre-maximize size; Width/Height would just report the
+            // maximized dimensions, which would make un-maximizing later snap to full screen.
+            var bounds = WindowState == WindowState.Normal
+                ? new Rect(Left, Top, Width, Height)
+                : RestoreBounds;
+
+            if (bounds.Width > 0 && bounds.Height > 0)
+            {
+                settings.WindowWidth = bounds.Width;
+                settings.WindowHeight = bounds.Height;
+            }
+
+            AppSettingsService.Instance.SaveQuiet();
+        }
+        catch (Exception ex)
+        {
+            // Never let a failure here block the app from closing.
+            LoggingService.Instance.Warn($"Couldn't save window size: {ex.Message}");
+        }
     }
 
     private void Window_DragOver(object sender, DragEventArgs e)

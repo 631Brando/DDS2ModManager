@@ -29,12 +29,28 @@ WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
 - **Two conflict checks**: a fast one that runs automatically after every change, and a
   **Deep Scan** button that re-reads the pak files exactly as they sit installed in the
   game folders — the authoritative check to run before launching.
+- **Finds mods you installed by hand** before ever using this manager (automatically on
+  startup, or via the **Find Existing Mods** button). It reads each one's pak to work out
+  what it actually is, flags anything that's in the wrong folder (a LogicMod sitting in
+  `Content\Paks` silently never loads), and offers to import them — which leaves the files
+  where they are and just starts tracking them, so they become enable/disable/uninstallable
+  and get included in conflict checks. Base-game paks and UE4SS's own built-in mods are
+  excluded, so only real user mods show up.
 - **Save Log** button exports the on-screen log to a `.txt` you can attach to bug reports.
 - **Windows integration** (in Settings, no admin needed): add an "Open with DDS2 Mod
   Manager" right-click entry for archives, and/or a Desktop/Start Menu shortcut.
 - **Self-updating**: checks `github.com/631Brando/DDS2ModManager` releases on startup
-  (toggleable in Settings) and via a "Check for Updates Now" button, prompts on a newer
-  version, then downloads and replaces itself in place.
+  (toggleable in Settings) and via a "Check for Updates Now" button. The prompt shows the
+  release's changelog so you can see what's changing before agreeing, then it downloads and
+  replaces itself in place.
+- **Saves & Config** window: lists every save game with its size and last-played time, and
+  can clone, delete, or disable/enable them (disabling moves the save out of the game's save
+  folder, which is the only reliable way to hide it). Also a raw editor for the game's `.ini`
+  config files, which backs up the original the first time you save so you can always revert.
+- **Reset Game to Vanilla** (Settings): removes mods from the game itself — tracked mods,
+  untracked mod files, optionally UE4SS, optionally the config files. Each part is opt-in and
+  **saves are never touched**. Not to be confused with **Reset App Data**, which does the
+  opposite: clears only this manager's own settings/tracking and leaves every mod installed.
 - **Reset App Data** / **Uninstall** (Settings): recovery paths if something ever gets
   into a bad state, or to cleanly remove the app - see [Uninstalling](#uninstalling) below.
 - A Settings page lets you override the game path, the mappings file, the CUE4Parse
@@ -164,8 +180,10 @@ DDS2ModManager/
     MainWindow.xaml / MainWindow.xaml.cs
     Models/          - ModType, ModInfo, GameInstallation, UE4SSInstallInfo, ModConflict, AppSettings
     Services/         - Logging, GameDetection, Oodle, MappingsProvider, GitHubRelease,
-                        UE4SSManager, LuaModConfig, ModAnalyzer (CUE4Parse), ModRegistry,
-                        ModInstaller, CompatibilityChecker, AppSettings,
+                        UE4SSManager, LuaModConfig, ModRegistry, ModInstaller, AppSettings,
+                        GameMountService (shared CUE4Parse mount used by all three readers),
+                        ModAnalyzer / CompatibilityChecker / UnmanagedModScanner,
+                        SaveGameService / GameConfigService / GameResetService,
                         ShortcutCreator (shared .lnk creation) / ShortcutService,
                         AppUpdateService / SelfReplaceHelper / AppUninstaller
     Converters/       - WPF value converters for the dark theme UI

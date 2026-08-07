@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:DDS2ModManager.Converters"
-        Title="DDS2 Mod Manager" Height="780" Width="1200" MinWidth="980" MinHeight="600"
+        Title="DDS2 Mod Manager" Height="980" Width="1560" MinWidth="980" MinHeight="600"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BgBrush}"
@@ -17,6 +17,8 @@
         <conv:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
         <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
         <conv:ZeroCountToVisibilityConverter x:Key="ZeroCountToVisibility"/>
+        <conv:ConflictSeverityToBrushConverter x:Key="SeverityToBrush"/>
+        <conv:ConflictSeverityToLabelConverter x:Key="SeverityToLabel"/>
     </Window.Resources>
 
     <Grid Margin="18">
@@ -61,6 +63,10 @@
                 <Button Content="Check Compatibility" Style="{StaticResource GhostButton}" Command="{Binding RunCompatibilityCheckCommand}" Margin="0,0,8,0"/>
                 <Button Content="Deep Scan" Style="{StaticResource GhostButton}" Command="{Binding RunDeepScanCommand}" Margin="0,0,8,0"
                         ToolTip="Re-reads installed pak files in place for the most accurate conflict detection."/>
+                <Button Content="Find Existing Mods" Style="{StaticResource GhostButton}" Command="{Binding ScanForExistingModsCommand}" Margin="0,0,8,0"
+                        ToolTip="Finds mods already in your game folders that this manager isn't tracking yet, and offers to import them."/>
+                <Button Content="Saves &amp; Config" Style="{StaticResource GhostButton}" Command="{Binding OpenGameDataCommand}" Margin="0,0,8,0"
+                        ToolTip="View, clone, disable or delete save games, and edit the game's config files."/>
                 <Button Content="Create LogicMods Folder" Style="{StaticResource GhostButton}" Command="{Binding CreateLogicModsFolderCommand}"/>
             </StackPanel>
 
@@ -160,7 +166,11 @@
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
 
-                        <DataGridTextColumn Header="Status" Binding="{Binding IsEnabled, Converter={StaticResource BoolToEnabledText}}" Width="90"/>
+                        <!-- OneWay because BoolToEnabledTextConverter has no ConvertBack; the grid
+                             being read-only means it never fires today, but the default TwoWay
+                             mode leaves that one edit away from throwing. -->
+                        <DataGridTextColumn Header="Status" Width="90"
+                                            Binding="{Binding IsEnabled, Mode=OneWay, Converter={StaticResource BoolToEnabledText}}"/>
 
                         <DataGridTemplateColumn Header="Actions" Width="300">
                             <DataGridTemplateColumn.CellTemplate>
@@ -191,40 +201,116 @@
             <!-- Conflicts panel -->
             <Border Grid.Column="2" Style="{StaticResource CardBorder}">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="Compatibility" FontWeight="Bold" FontSize="15" Margin="0,0,0,10"/>
-                    <TextBlock DockPanel.Dock="Top" Text="No conflicts detected." Foreground="{StaticResource TextMutedBrush}"
-                               Visibility="{Binding Conflicts.Count, Converter={StaticResource ZeroCountToVisibility}}"/>
+                    <TextBlock DockPanel.Dock="Top" Text="Compatibility" FontWeight="Bold" FontSize="15" Margin="0,0,0,6"/>
+
+                    <!-- The one line the user should be able to read and stop. Everything below is
+                         supporting detail. -->
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
+                        <Ellipse Width="9" Height="9" VerticalAlignment="Center" Margin="0,0,7,0">
+                            <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                    <Setter Property="Fill" Value="{StaticResource SuccessBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasConflicts}" Value="True">
+                                            <Setter Property="Fill" Value="{StaticResource ErrorBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Ellipse.Style>
+                        </Ellipse>
+                        <TextBlock Text="{Binding CompatibilitySummary}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasConflicts}" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource ErrorBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
+                      <StackPanel>
                         <ItemsControl ItemsSource="{Binding Conflicts}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Background="#241A2E" BorderBrush="{StaticResource WarningBrush}" BorderThickness="1"
-                                            CornerRadius="6" Padding="10" Margin="0,0,0,8">
+                                    <Border Background="#241A2E" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8"
+                                            BorderBrush="{Binding Severity, Converter={StaticResource SeverityToBrush}}">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding ModNamesDisplay}" FontWeight="Bold" FontSize="13"
-                                                       TextWrapping="Wrap"/>
-                                            <TextBlock Margin="0,4,0,0" FontSize="11" Foreground="{StaticResource WarningBrush}">
+                                            <!-- Severity badge + who's involved. Both matter at a
+                                                 glance: "these two mods" and "how bad is it". -->
+                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                                <Border CornerRadius="3" Padding="5,1" VerticalAlignment="Center" Margin="0,0,6,0"
+                                                        Background="{Binding Severity, Converter={StaticResource SeverityToBrush}}">
+                                                    <TextBlock Text="{Binding Severity, Converter={StaticResource SeverityToLabel}}"
+                                                               FontSize="9" FontWeight="Bold" Foreground="#12131A"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding ModNamesDisplay}" FontWeight="Bold" FontSize="13"
+                                                           TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                            </StackPanel>
+
+                                            <TextBlock Text="{Binding Summary}" FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{Binding Severity, Converter={StaticResource SeverityToBrush}}"/>
+
+                                            <TextBlock Text="{Binding Explanation}" FontSize="11" TextWrapping="Wrap"
+                                                       Margin="0,4,0,0" Foreground="{StaticResource TextMutedBrush}"/>
+
+                                            <TextBlock Margin="0,5,0,0" FontSize="11" Foreground="{StaticResource TextMutedBrush}"
+                                                       Visibility="{Binding ShowsWinner, Converter={StaticResource BoolToVisibility}}">
                                                 <Run Text="Likely wins (last loaded): "/>
                                                 <Run Text="{Binding LikelyWinningModName, Mode=OneWay}" FontWeight="SemiBold"/>
                                             </TextBlock>
-                                            <TextBlock Margin="0,6,0,0" FontSize="11" Foreground="{StaticResource TextMutedBrush}">
-                                                <Run Text="Conflicting on "/>
-                                                <Run Text="{Binding AssetPaths.Count, Mode=OneWay}"/>
-                                                <Run Text=" file(s):"/>
-                                            </TextBlock>
-                                            <ItemsControl ItemsSource="{Binding AssetPaths}" Margin="0,2,0,0">
+
+                                            <!-- Contested rows, grouped under the table they're in.
+                                                 Only shown for real conflicts - these are the rows
+                                                 the user has to actually make a decision about. -->
+                                            <ItemsControl ItemsSource="{Binding OverlappingTables}" Margin="0,6,0,0"
+                                                          Visibility="{Binding HasOverlappingTables, Converter={StaticResource BoolToVisibility}}">
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate>
-                                                        <TextBlock Text="{Binding}" FontSize="11" TextWrapping="Wrap"
-                                                                   Foreground="{StaticResource TextMutedBrush}"/>
+                                                        <StackPanel Margin="0,0,0,4">
+                                                            <TextBlock Text="{Binding TableName}" FontSize="11" FontWeight="SemiBold"
+                                                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                            <TextBlock Text="{Binding RowsDisplay}" FontSize="10" TextWrapping="Wrap"
+                                                                       Foreground="{StaticResource TextMutedBrush}" Margin="8,1,0,0"/>
+                                                        </StackPanel>
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
+
+                                            <!-- Harmlessly-shared tables collapse to one wrapped
+                                                 line: seven of them used to be seven whole cards. -->
+                                            <StackPanel Margin="0,5,0,0"
+                                                        Visibility="{Binding HasCompatibleTables, Converter={StaticResource BoolToVisibility}}">
+                                                <TextBlock Text="{Binding CompatibleTablesHeader}" FontSize="10" FontWeight="SemiBold"
+                                                           Foreground="{StaticResource TextMutedBrush}"/>
+                                                <TextBlock Text="{Binding CompatibleTablesDisplay}" FontSize="10" TextWrapping="Wrap"
+                                                           Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/>
+                                            </StackPanel>
+
+                                            <StackPanel Margin="0,5,0,0"
+                                                        Visibility="{Binding HasAssetPaths, Converter={StaticResource BoolToVisibility}}">
+                                                <TextBlock Text="{Binding AssetPathsHeader}" FontSize="10" FontWeight="SemiBold"
+                                                           Foreground="{StaticResource TextMutedBrush}"/>
+                                                <ItemsControl ItemsSource="{Binding AssetPaths}" Margin="0,1,0,0">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <TextBlock Text="{Binding}" FontSize="10" TextWrapping="Wrap"
+                                                                       Foreground="{StaticResource TextMutedBrush}"/>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+
+                      </StackPanel>
                     </ScrollViewer>
                 </DockPanel>
             </Border>

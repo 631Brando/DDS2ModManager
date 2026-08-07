@@ -30,4 +30,16 @@ public partial class ModInfo : ObservableObject
 
     [ObservableProperty] private bool hasModActor;
     [ObservableProperty] private DateTime installedAt = DateTime.Now;
+
+    /// For LogicMods: which base-game DataTables this mod merges its own tables into at runtime,
+    /// and which row keys it contributes (see DataTableAppendScanner). Captured by Deep Scan and
+    /// persisted so the fast conflict check can do row-level comparison without re-mounting the
+    /// game. Empty for patch mods and for logic mods that don't touch DataTables.
+    [ObservableProperty] private List<DataTableAppend> dataTableAppends = new();
+
+    /// Whether the DataTable scan has actually run for this mod. Needed to tell "we looked and it
+    /// merges nothing" apart from "we never looked" - an empty DataTableAppends means both, and
+    /// without this the auto-refresh below would re-scan mods that genuinely have no appends on
+    /// every single launch.
+    [ObservableProperty] private bool dataTableScanCompleted;
 }

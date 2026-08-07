@@ -35,12 +35,45 @@ jobs:
       - name: Publish Setup
         run: dotnet publish setup/DDS2ModManagerSetup.csproj -c Release
 
+      # Pulls this tag's section out of CHANGELOG.md to use as the release body. That body is what
+      # AppUpdateService shows in the in-app "Update available" prompt, so the notes users read
+      # before updating are the ones written by hand here rather than a raw commit list.
+      - name: Extract release notes from CHANGELOG.md
+        id: notes
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $notesFile = "RELEASE_NOTES.md"
+
+          if (Test-Path CHANGELOG.md) {
+            $lines = Get-Content CHANGELOG.md
+            $start = ($lines | Select-String -Pattern "^##\s+$([regex]::Escape($tag))\s*$" | Select-Object -First 1).LineNumber
+            if ($start) {
+              $rest = $lines[$start..($lines.Count - 1)]
+              $endOffset = ($rest | Select-String -Pattern "^##\s+" | Select-Object -First 1).LineNumber
+              $body = if ($endOffset) { $rest[0..($endOffset - 2)] } else { $rest }
+              $body -join "`n" | Set-Content $notesFile -Encoding utf8
+              "found=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+              Write-Host "Using CHANGELOG.md section for $tag"
+            }
+          }
+
+          if (-not (Test-Path $notesFile)) {
+            "found=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "No CHANGELOG.md section for $tag - falling back to generated notes."
+          }
+
       - name: Create release and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release create "${{ github.ref_name }}" `
-            "src/bin/Release/net10.0-windows/win-x64/publish/DDS2ModManager.exe" `
-            "setup/bin/Release/net10.0-windows/win-x64/publish/DDS2ModManagerSetup.exe" `
-            --title "${{ github.ref_name }}" --generate-notes
+          $assets = @(
+            "src/bin/Release/net10.0-windows/win-x64/publish/DDS2ModManager.exe",
+            "setup/bin/Release/net10.0-windows/win-x64/publish/DDS2ModManagerSetup.exe"
+          )
+          if ("${{ steps.notes.outputs.found }}" -eq "true") {
+            gh release create "${{ github.ref_name }}" $assets --title "${{ github.ref_name }}" --notes-file RELEASE_NOTES.md
+          } else {
+            gh release create "${{ github.ref_name }}" $assets --title "${{ github.ref_name }}" --generate-notes
+          }

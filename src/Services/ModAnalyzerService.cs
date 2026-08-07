@@ -1,7 +1,4 @@
-using CUE4Parse.Encryption.Aes;
 using CUE4Parse.FileProvider;
-using CUE4Parse.MappingsProvider;
-using CUE4Parse.MappingsProvider.Usmap;
 using CUE4Parse.UE4.Versions;
 
 namespace DDS2ModManager.Services;
@@ -12,6 +9,11 @@ public class ModAnalysisResult
     public bool HasModActor { get; set; }
     public List<string> AssetPaths { get; set; } = new();
     public List<string> Warnings { get; set; } = new();
+
+    /// For LogicMods: the base-game DataTables this mod merges into at runtime, captured during
+    /// the same mount that reads its asset paths. Populated here rather than only during Deep Scan
+    /// so row-level conflict checking works from the moment a mod is installed.
+    public List<DataTableAppend> DataTableAppends { get; set; } = new();
 
     /// True when CUE4Parse genuinely failed to read this mod's pak - installation should be
     /// blocked rather than guessing a type, since a wrong guess (PatchMod instead of LogicMod)
@@ -126,6 +128,19 @@ public class ModAnalyzerService
             result.Type = result.HasModActor ? ModType.LogicMod : ModType.PatchMod;
             log.Info($"CUE4Parse read {modPaths.Count} asset path(s) from '{Path.GetFileName(modFolderPath)}'" +
                      (result.HasModActor ? " (ModActor.uasset found -> LogicMod)." : " (no ModActor -> PatchMod)."));
+
+            // Read the mod's DataTable merges while the game is still mounted. Doing this here
+            // rather than only in Deep Scan is what makes row-level conflict checking work
+            // immediately after install - otherwise a newly added LogicMod has no row data and the
+            // compatibility panel reports "no conflicts" because it has nothing to compare, which
+            // is indistinguishable from genuinely not conflicting.
+            if (result.HasModActor)
+            {
+                result.DataTableAppends = new DataTableAppendScanner()
+                    .Scan(provider, Path.GetFileName(modFolderPath), result.AssetPaths);
+                if (result.DataTableAppends.Count > 0)
+                    log.Info($"Reads/merges {result.DataTableAppends.Count} game DataTable(s) at runtime.");
+            }
         }
         catch (Exception ex)
         {
@@ -157,54 +172,14 @@ public class ModAnalyzerService
     }
 
     /// Mounts the game Paks folder and returns the union of asset paths contributed by exactly
-    /// the named archives (by file name) - NOT a diff against some other mount. A diff-based
-    /// approach breaks the moment a path is contributed by more than one source, which is exactly
-    /// what happens for a legitimate override mod, a mod being re-analyzed while its own previous
-    /// copy is still installed, or two mods that genuinely conflict: the "new" set comes back
-    /// empty even though everything mounted and read correctly. Each archive reader keeps its own
-    /// Files dictionary independent of anything else mounted, so reading directly from the
-    /// specific reader(s) we staged is both simpler and correct in all of those cases.
+    /// the named archives. See GameMountService for why this reads each archive directly rather
+    /// than diffing against the rest of the mount.
     private HashSet<string> MountAndReadArchives(IReadOnlyCollection<string> archiveNames, out DefaultFileProvider provider)
     {
-        // NOTE: CUE4Parse marked this 4-arg constructor obsolete in favor of one taking an explicit
-        // StringComparer, but the replacement's exact parameter order varies between library versions.
-        // This overload still works correctly, so we suppress the deprecation warning rather than risk
-        // a signature mismatch. If you upgrade CUE4Parse and want to silence it "properly", switch to
-        // the StringComparer overload your version exposes.
-#pragma warning disable CS0618
-        provider = new DefaultFileProvider(_game.PaksPath, SearchOption.AllDirectories, true, new VersionContainer(_egame));
-#pragma warning restore CS0618
-        try { provider.MappingsContainer = new FileUsmapTypeMappingsProvider(_mappingsPath); }
-        catch (Exception mex)
-        {
-            LoggingService.Instance.Warn($"Mappings file couldn't be loaded ({mex.Message}) - continuing without it. " +
-                "This only affects deep property parsing, not mod type detection or conflict checking.");
-        }
-
-        provider.Initialize();
-
-        if (!string.IsNullOrWhiteSpace(_aesKeyHex))
-        {
-            // Mounts only the archives whose EncryptionKeyGuid matches this guid - irrelevant to
-            // DDS2, which has no AES encryption at all, but harmless to keep for games that do.
-            try { provider.SubmitKey(new CUE4Parse.UE4.Objects.Core.Misc.FGuid(), new FAesKey(_aesKeyHex)); }
-            catch (Exception ex) { LoggingService.Instance.Warn($"Failed to submit AES key: {ex.Message}"); }
-        }
-
-        // Initialize() only scans the directory and registers each .pak/.utoc into UnloadedVfs - it
-        // never mounts anything into Files, and neither does PostMount() (that one only reconciles a
-        // DefaultGame.EncryptionKeyGuid ini edge case, unrelated to normal mounting). The call that
-        // actually mounts unencrypted archives into Files is Mount()/MountAsync() - SubmitKey above
-        // only covers archives that need a specific AES key, which DDS2 has none of, so without this
-        // call every mount produced zero files regardless of Oodle/EGame/AES being correct.
-        provider.Mount();
-
-        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in archiveNames)
-        {
-            if (provider.TryGetArchive(name, out var archive))
-                foreach (var p in archive.Files.Keys) paths.Add(p);
-        }
-        return paths;
+        provider = GameMountService.Mount(_game.PaksPath, _mappingsPath, _egame, _aesKeyHex, warnOnMappingsFailure: true);
+        // Needed for the ModActor DataTable-append scan below; without it Blueprint bytecode is
+        // skipped during deserialization and no appends are ever found.
+        DataTableAppendScanner.EnableScriptReading(provider);
+        return GameMountService.ReadArchivePaths(provider, archiveNames);
     }
 }

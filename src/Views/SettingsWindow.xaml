@@ -95,6 +95,11 @@
                 <Button Content="Reset All Settings to Defaults" Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
                         Padding="10,5" FontSize="12" Click="ResetDefaults_Click" Margin="0,0,0,8"/>
 
+                <TextBlock Text="Remove mods from the game itself and put it back to an unmodded state. This is about the game - unlike Reset App Data below, which only clears this manager's own settings and mod list."
+                           FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,8,0,6" TextWrapping="Wrap"/>
+                <Button Content="Reset Game to Vanilla..." Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
+                        Foreground="{StaticResource ErrorBrush}" Padding="10,5" FontSize="12" Click="ResetGame_Click" Margin="0,0,0,8"/>
+
                 <TextBlock Text="If the app won't start, or is behaving strangely, clearing its saved state and cache " Margin="0,8,0,0"
                            FontSize="10" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"/>
                 <TextBlock Text="usually fixes it. This never touches your installed mods or the game itself - see confirmation for details."

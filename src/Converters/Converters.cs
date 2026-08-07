@@ -38,6 +38,33 @@ public class LogLevelToBrushConverter : IValueConverter
     public object ConvertBack(object v, Type t, object p, CultureInfo c) => throw new NotSupportedException();
 }
 
+/// Conflict cards are colour-coded by how much actually breaks: red when one mod's content is
+/// definitively lost, amber when it depends on load order, grey when the mods coexist fine and
+/// the card is purely explanatory.
+public class ConflictSeverityToBrushConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value switch
+    {
+        ConflictSeverity.Critical => new SolidColorBrush(Color.FromRgb(0xF8, 0x71, 0x71)),
+        ConflictSeverity.Warning => new SolidColorBrush(Color.FromRgb(0xFB, 0xBF, 0x24)),
+        _ => new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80))
+    };
+
+    public object ConvertBack(object v, Type t, object p, CultureInfo c) => throw new NotSupportedException();
+}
+
+public class ConflictSeverityToLabelConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value switch
+    {
+        ConflictSeverity.Critical => "CONFLICT",
+        ConflictSeverity.Warning => "CHECK",
+        _ => "COMPATIBLE"
+    };
+
+    public object ConvertBack(object v, Type t, object p, CultureInfo c) => throw new NotSupportedException();
+}
+
 public class BoolToVisibilityConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>

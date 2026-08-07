@@ -1,6 +1,4 @@
 using CUE4Parse.FileProvider;
-using CUE4Parse.MappingsProvider;
-using CUE4Parse.MappingsProvider.Usmap;
 using CUE4Parse.UE4.Versions;
 
 namespace DDS2ModManager.Services;
@@ -28,12 +26,18 @@ public class CompatibilityCheckerService
         var enabled = mods.Where(m => m.IsEnabled && m.IsInstalled &&
             m.Type is ModType.LogicMod or ModType.PatchMod).ToList();
 
-        var pathToMods = BuildPathMap(enabled, m => m.ContainedAssetPaths);
-        var conflicts = BuildConflicts(pathToMods);
+        var conflicts = BuildAllConflicts(enabled, m => m.ContainedAssetPaths);
 
         LogResult(conflicts, "Compatibility check");
+
         return conflicts;
     }
+
+    /// Mods added before row-level checking existed have no DataTable info stored, so the fast
+    /// check silently can't compare their rows. The caller uses this to refresh them automatically
+    /// rather than leaving the user to figure out that Deep Scan is what fixes it.
+    public static bool NeedsDataTableRefresh(IEnumerable<ModInfo> mods) =>
+        mods.Any(m => m.IsInstalled && m.Type == ModType.LogicMod && m.HasModActor && !m.DataTableScanCompleted);
 
     /// Re-reads installed paks in place. mappingsPath/egame come from Settings via the caller.
     public List<ModConflictGroup> DeepScan(GameInstallation game, IEnumerable<ModInfo> mods, string mappingsPath, EGame egame, string? aesKeyHex)
@@ -54,6 +58,11 @@ public class CompatibilityCheckerService
             // "before" vs "after": that approach also couldn't tell two mods conflicting on the
             // same path from one mod being absent, since both looked identical in the diff.
             provider = MountGame(game, mappingsPath, egame, aesKeyHex);
+            // LogicMods do their real work in Blueprint bytecode, which the provider skips by
+            // default - without this every DataTable append is invisible and two LogicMods
+            // rewriting the same balance values look completely unrelated.
+            DataTableAppendScanner.EnableScriptReading(provider);
+            var appendScanner = new DataTableAppendScanner();
 
             foreach (var mod in enabled)
             {
@@ -70,6 +79,19 @@ public class CompatibilityCheckerService
                     perMod[mod] = mod.ContainedAssetPaths;
                     log.Warn($"Deep scan couldn't find '{mod.Name}''s own archive(s) in the mounted game - using its stored file list instead.");
                 }
+
+                // Only LogicMods carry a ModActor; this is a no-op for patch mods.
+                if (mod.Type == ModType.LogicMod)
+                {
+                    mod.DataTableAppends = appendScanner.Scan(provider, mod.Name, perMod[mod]);
+                    mod.DataTableScanCompleted = true;
+                    if (mod.DataTableAppends.Count > 0)
+                    {
+                        var overridden = mod.DataTableAppends.Sum(a => a.OverriddenBaseRows.Count);
+                        log.Info($"'{mod.Name}' merges into {mod.DataTableAppends.Count} game table(s)" +
+                                 (overridden > 0 ? $", replacing {overridden} existing row(s)." : ", adding new rows only."));
+                    }
+                }
             }
         }
         finally
@@ -77,8 +99,7 @@ public class CompatibilityCheckerService
             (provider as IDisposable)?.Dispose();
         }
 
-        var pathToMods = BuildPathMap(perMod.Keys, m => perMod[m]);
-        var conflicts = BuildConflicts(pathToMods);
+        var conflicts = BuildAllConflicts(perMod.Keys, m => perMod[m]);
 
         LogResult(conflicts, "Deep scan");
         return conflicts;
@@ -114,25 +135,8 @@ public class CompatibilityCheckerService
         return foundAny ? paths.ToList() : null;
     }
 
-    private DefaultFileProvider MountGame(GameInstallation game, string mappingsPath, EGame egame, string? aesKeyHex)
-    {
-#pragma warning disable CS0618
-        var provider = new DefaultFileProvider(game.PaksPath, SearchOption.AllDirectories, true, new VersionContainer(egame));
-#pragma warning restore CS0618
-        try { provider.MappingsContainer = new FileUsmapTypeMappingsProvider(mappingsPath); } catch { /* best-effort */ }
-        provider.Initialize();
-
-        if (!string.IsNullOrWhiteSpace(aesKeyHex))
-        {
-            try { provider.SubmitKey(new CUE4Parse.UE4.Objects.Core.Misc.FGuid(), new CUE4Parse.Encryption.Aes.FAesKey(aesKeyHex)); }
-            catch { /* logged elsewhere */ }
-        }
-
-        // See ModAnalyzerService.MountAndReadArchives - Initialize() only registers archives,
-        // Mount() is the call that actually mounts them.
-        provider.Mount();
-        return provider;
-    }
+    private DefaultFileProvider MountGame(GameInstallation game, string mappingsPath, EGame egame, string? aesKeyHex) =>
+        GameMountService.Mount(game.PaksPath, mappingsPath, egame, aesKeyHex);
 
     private Dictionary<string, List<ModInfo>> BuildPathMap(IEnumerable<ModInfo> mods, Func<ModInfo, List<string>> pathSelector)
     {
@@ -149,49 +153,209 @@ public class CompatibilityCheckerService
         return map;
     }
 
-    /// Groups per-path collisions by the exact set of mods involved, so two mods sharing several
-    /// files produce a single card naming both mods once (with every shared path listed under it)
-    /// instead of one repeated, near-identical card per file - which was the real reason "which
-    /// two mods conflict" wasn't clear: the mod names were the least prominent part of each card,
-    /// and got buried under one entry per colliding path.
-    private List<ModConflictGroup> BuildConflicts(Dictionary<string, List<ModInfo>> pathToMods)
+    private List<ModConflictGroup> BuildAllConflicts(IEnumerable<ModInfo> mods, Func<ModInfo, List<string>> pathSelector)
     {
+        var modList = mods.ToList();
+
+        var conflicts = BuildFileConflicts(modList, pathSelector);
+        conflicts.AddRange(BuildDataTableConflicts(modList));
+        conflicts.AddRange(BuildPatchReplacesTableConflicts(modList, pathSelector));
+
+        // A pair could in principle turn up from both passes (e.g. shipping the same file *and*
+        // merging into the same table). Fold those together so the panel never shows the same two
+        // mod names twice.
+        var merged = conflicts
+            .GroupBy(c => string.Join("|", c.ModNames), StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var first = g.First();
+                if (g.Count() > 1)
+                {
+                    first.AssetPaths = g.SelectMany(c => c.AssetPaths).Distinct().ToList();
+                    first.TableInteractions = g.SelectMany(c => c.TableInteractions).ToList();
+                    first.Severity = g.Max(c => c.Severity);
+                    first.Kind = g.OrderByDescending(c => c.Severity).First().Kind;
+                }
+                return first;
+            });
+
+        return merged
+            .OrderByDescending(c => c.Severity)
+            .ThenByDescending(c => c.TotalSharedRows)
+            .ThenBy(c => c.ModNamesDisplay, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// Two mods shipping the same asset path. Grouped by the exact set of mods involved, so two
+    /// mods sharing several files produce a single card naming both mods once rather than dozens
+    /// of near-identical cards.
+    private List<ModConflictGroup> BuildFileConflicts(List<ModInfo> mods, Func<ModInfo, List<string>> pathSelector)
+    {
+        var pathToMods = BuildPathMap(mods, pathSelector);
         var groups = new Dictionary<string, ModConflictGroup>();
+
         foreach (var (path, involvedMods) in pathToMods.Where(kv => kv.Value.Count > 1))
         {
             var distinctMods = involvedMods.DistinctBy(m => m.Id)
                 .OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ToList();
             if (distinctMods.Count < 2) continue;
 
-            var key = string.Join("|", distinctMods.Select(m => m.Id));
+            var isFolderClash = path.Contains("/MODS/", StringComparison.OrdinalIgnoreCase);
+            var key = string.Join("|", distinctMods.Select(m => m.Id)) + (isFolderClash ? ":folder" : ":file");
+
             if (!groups.TryGetValue(key, out var group))
             {
                 groups[key] = group = new ModConflictGroup
                 {
                     ModNames = distinctMods.Select(m => m.Name).ToList(),
                     LikelyWinningModName = distinctMods.Last().Name,
-                    Kind = path.Contains("/MODS/", StringComparison.OrdinalIgnoreCase)
-                        ? ConflictKind.ModFolderNameClash
-                        : ConflictKind.BaseGameOverride
+                    Kind = isFolderClash ? ConflictKind.ModFolderNameClash : ConflictKind.FullFileReplacement,
+                    // Whole-file replacement always loses one mod's version outright - there's no
+                    // partial merge the way there is for DataTable rows.
+                    Severity = ConflictSeverity.Critical
                 };
             }
             group.AssetPaths.Add(path);
         }
 
-        return groups.Values
-            .OrderByDescending(g => g.AssetPaths.Count)
-            .ThenBy(g => g.ModNamesDisplay, StringComparer.OrdinalIgnoreCase)
+        return groups.Values.ToList();
+    }
+
+    /// Row-level analysis for LogicMods.
+    ///
+    /// LogicMods ship their own tables and merge them into base-game tables at runtime, so two of
+    /// them never share an asset path and are invisible to BuildFileConflicts above. What actually
+    /// matters is whether they contribute the same *row keys*: same table + different rows is
+    /// perfectly fine, same table + same rows means one silently overwrites the other.
+    ///
+    /// Results are aggregated per pair of mods rather than per table - two mods that both extend
+    /// seven of the same tables are one relationship the user needs to understand, not seven.
+    private List<ModConflictGroup> BuildDataTableConflicts(List<ModInfo> mods)
+    {
+        // rows contributed by each mod, per table
+        var byTable = mods
+            .SelectMany(m => m.DataTableAppends.Select(a => (Mod: m, Append: a)))
+            .GroupBy(x => x.Append.TargetName, StringComparer.OrdinalIgnoreCase);
+
+        var pairs = new Dictionary<string, ModConflictGroup>();
+
+        foreach (var table in byTable)
+        {
+            var contributors = table
+                .GroupBy(x => x.Mod.Id)
+                .Select(g => (Mod: g.First().Mod,
+                              Rows: g.SelectMany(x => x.Append.SourceRows).ToHashSet(StringComparer.OrdinalIgnoreCase)))
+                .OrderBy(x => x.Mod.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (contributors.Count < 2) continue;
+
+            // Pairwise: a three-way overlap is clearer as the specific pairs that actually collide
+            // than as one card implicating all three.
+            for (var i = 0; i < contributors.Count; i++)
+            for (var j = i + 1; j < contributors.Count; j++)
+            {
+                var a = contributors[i];
+                var b = contributors[j];
+
+                var key = $"{a.Mod.Name}|{b.Mod.Name}";
+                if (!pairs.TryGetValue(key, out var group))
+                {
+                    pairs[key] = group = new ModConflictGroup
+                    {
+                        ModNames = new List<string> { a.Mod.Name, b.Mod.Name },
+                        LikelyWinningModName = b.Mod.Name
+                    };
+                }
+
+                group.TableInteractions.Add(new TableInteraction
+                {
+                    TableName = table.Key,
+                    SharedRows = a.Rows.Intersect(b.Rows, StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(r => r, StringComparer.OrdinalIgnoreCase).ToList()
+                });
+            }
+        }
+
+        // Severity for the pair as a whole is driven by its worst table: one contested table makes
+        // the relationship a conflict even if the other six are harmless.
+        foreach (var group in pairs.Values)
+        {
+            group.TableInteractions = group.TableInteractions
+                .OrderByDescending(t => t.SharedRows.Count)
+                .ThenBy(t => t.TableName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var anyOverlap = group.TableInteractions.Any(t => t.HasOverlap);
+            group.Kind = anyOverlap ? ConflictKind.DataTableRowOverlap : ConflictKind.DataTableSharedNoOverlap;
+            group.Severity = anyOverlap ? ConflictSeverity.Critical : ConflictSeverity.Info;
+        }
+
+        return pairs.Values.ToList();
+    }
+
+    /// A patch mod that ships a whole replacement for a table some LogicMod also merges into.
+    /// Both still "work", but the appended rows land on top of the patch's version rather than the
+    /// original, so the result depends on ordering - worth a heads-up rather than silence.
+    ///
+    /// Matched on table name because the two sides express paths differently: mounted archives give
+    /// "DrugDealerSimulator2/Content/DataTables/X.uasset", while Blueprint bytecode gives
+    /// "/Game/DataTables/X.X". Reconciling mount-point conventions would be more fragile than
+    /// comparing the table's own (already unique) name.
+    private List<ModConflictGroup> BuildPatchReplacesTableConflicts(
+        List<ModInfo> mods, Func<ModInfo, List<string>> pathSelector)
+    {
+        var appenders = mods
+            .SelectMany(m => m.DataTableAppends.Select(a => (Mod: m, a.TargetName)))
             .ToList();
+        if (appenders.Count == 0) return new List<ModConflictGroup>();
+
+        var pairs = new Dictionary<string, ModConflictGroup>();
+
+        foreach (var patch in mods.Where(m => m.Type == ModType.PatchMod))
+        {
+            var replacedTables = pathSelector(patch)
+                .Select(Path.GetFileNameWithoutExtension)
+                .Where(n => !string.IsNullOrEmpty(n))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var (mod, tableName) in appenders)
+            {
+                if (!replacedTables.Contains(tableName)) continue;
+
+                var key = $"{patch.Name}|{mod.Name}";
+                if (!pairs.TryGetValue(key, out var group))
+                {
+                    pairs[key] = group = new ModConflictGroup
+                    {
+                        ModNames = new List<string> { patch.Name, mod.Name },
+                        Kind = ConflictKind.PatchReplacesAppendedTable,
+                        Severity = ConflictSeverity.Warning,
+                        LikelyWinningModName = patch.Name
+                    };
+                }
+
+                if (group.TableInteractions.All(t => !t.TableName.Equals(tableName, StringComparison.OrdinalIgnoreCase)))
+                    group.TableInteractions.Add(new TableInteraction { TableName = tableName });
+            }
+        }
+
+        return pairs.Values.ToList();
     }
 
     private void LogResult(List<ModConflictGroup> groups, string label)
     {
-        var fileCount = groups.Sum(g => g.AssetPaths.Count);
-        LoggingService.Instance.Log(
-            groups.Count == 0
-                ? $"{label} complete - no conflicts found."
-                : $"{label} complete - {groups.Count} mod conflict(s) found ({fileCount} file(s)): " +
-                  string.Join("; ", groups.Select(g => g.ModNamesDisplay)),
-            groups.Count == 0 ? LogLevel.Success : LogLevel.Warning);
+        var real = groups.Where(g => g.Severity != ConflictSeverity.Info).ToList();
+
+        if (real.Count == 0)
+        {
+            var suffix = groups.Count > 0 ? $" ({groups.Count} compatible overlap(s) noted)" : "";
+            LoggingService.Instance.Success($"{label} complete - no conflicts found.{suffix}");
+            return;
+        }
+
+        LoggingService.Instance.Warn(
+            $"{label} complete - {real.Count} conflict(s) found: " +
+            string.Join("; ", real.Select(g => $"{g.ModNamesDisplay} ({g.Summary})")));
     }
 }

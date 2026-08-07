@@ -35,6 +35,9 @@ public class AppUpdateService
         return new UpdateCheckResult(true, FindAsset(release) != null ? release : null);
     }
 
+    public static string GetReleaseUrl(string tagName) =>
+        $"https://github.com/{Owner}/{Repo}/releases/tag/{tagName}";
+
     public static Version GetCurrentVersion() =>
         Normalize(Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0, 0));
 

@@ -14,6 +14,11 @@ public class GitHubReleaseInfo
 {
     public string TagName { get; set; } = "";
     public string Name { get; set; } = "";
+
+    /// The release's markdown description - i.e. the changelog. Shown verbatim in the update
+    /// prompt so users can see what's actually changing before agreeing to install it.
+    public string Body { get; set; } = "";
+
     public List<GitHubAsset> Assets { get; set; } = new();
 }
 
@@ -50,7 +55,12 @@ public class GitHubReleaseService
             var info = new GitHubReleaseInfo
             {
                 TagName = root.GetProperty("tag_name").GetString() ?? "",
-                Name = root.GetProperty("name").GetString() ?? ""
+                Name = root.GetProperty("name").GetString() ?? "",
+                // "body" is present but null on releases published with no description, so this
+                // has to tolerate both a missing property and an explicit JSON null.
+                Body = root.TryGetProperty("body", out var b) && b.ValueKind == JsonValueKind.String
+                    ? b.GetString() ?? ""
+                    : ""
             };
 
             foreach (var asset in root.GetProperty("assets").EnumerateArray())

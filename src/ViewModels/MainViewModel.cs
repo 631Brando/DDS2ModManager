@@ -17,13 +17,22 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string gamePathDisplay = "Not detected";
 
     public ObservableCollection<ModInfo> Mods { get; } = new();
+
+    /// Only things the user might have to act on. Pairs that were checked and found compatible are
+    /// deliberately not surfaced here - "these two mods are fine" is not information anyone needs
+    /// repeated per mod pair, and it drowned out the entries that do matter. They're still
+    /// detected, and still noted in the log.
     public ObservableCollection<ModConflictGroup> Conflicts { get; } = new();
+
+    [ObservableProperty] private string compatibilitySummary = "No mods to check yet.";
+    [ObservableProperty] private bool hasConflicts;
     public ObservableCollection<LogEntry> LogEntries => LoggingService.Instance.Entries;
 
     private readonly GameDetectionService _gameDetection = new();
     private readonly UE4SSManagerService _ue4ss = new();
     private readonly CompatibilityCheckerService _compat = new();
     private readonly AppUpdateService _appUpdater = new();
+    private readonly UnmanagedModScannerService _unmanagedScanner = new();
 
     private ModRegistryService? _registry;
     private ModAnalyzerService? _analyzer;
@@ -48,6 +57,9 @@ public partial class MainViewModel : ObservableObject
     public IRelayCommand SaveLogCommand { get; }
     public IRelayCommand OpenSettingsCommand { get; }
     public IAsyncRelayCommand CheckForAppUpdateCommand { get; }
+    public IAsyncRelayCommand ScanForExistingModsCommand { get; }
+    public IRelayCommand OpenGameDataCommand { get; }
+    public IRelayCommand ResetGameToVanillaCommand { get; }
 
     public MainViewModel()
     {
@@ -67,6 +79,9 @@ public partial class MainViewModel : ObservableObject
         SaveLogCommand = new RelayCommand(SaveLog);
         OpenSettingsCommand = new RelayCommand(OpenSettings);
         CheckForAppUpdateCommand = new AsyncRelayCommand(() => CheckForAppUpdateAsync(manual: true));
+        ScanForExistingModsCommand = new AsyncRelayCommand(() => ScanForExistingModsAsync(manual: true));
+        OpenGameDataCommand = new RelayCommand(OpenGameData);
+        ResetGameToVanillaCommand = new RelayCommand(ResetGameToVanilla);
     }
 
     private async Task InitializeAsync()
@@ -152,6 +167,20 @@ public partial class MainViewModel : ObservableObject
 
         if (AppSettingsService.Instance.Current.AutoCheckUE4SSUpdatesOnStartup)
             _ = CheckUE4SSUpdateAsync();
+
+        // Awaited rather than fire-and-forget: this one opens a modal dialog, and racing it
+        // against the UE4SS update prompt above would stack two dialogs on the user at once.
+        await ScanForExistingModsAsync();
+
+        // Anything still missing its DataTable info can't be row-checked by the fast check, which
+        // is what made conflicts appear only after manually pressing Deep Scan. Do that refresh
+        // here instead of expecting the user to know about it. Runs only when something actually
+        // needs it, so the usual startup doesn't pay for a mount it doesn't need.
+        if (CompatibilityCheckerService.NeedsDataTableRefresh(Mods))
+        {
+            LoggingService.Instance.Info("Some mods are missing DataTable info - refreshing them now...");
+            await RunDeepScanAsync();
+        }
     }
 
     private ModAnalyzerService CreateAnalyzer()
@@ -353,10 +382,22 @@ public partial class MainViewModel : ObservableObject
         window.ShowDialog();
     }
 
-    private void RunCompatibilityCheck()
+    private void RunCompatibilityCheck() => ApplyConflicts(_compat.CheckConflicts(Mods));
+
+    /// Keeps only the entries that need a decision, and produces the one line the user reads first.
+    private void ApplyConflicts(IEnumerable<ModConflictGroup> results)
     {
         Conflicts.Clear();
-        foreach (var c in _compat.CheckConflicts(Mods)) Conflicts.Add(c);
+        foreach (var c in results.Where(c => c.Severity != ConflictSeverity.Info))
+            Conflicts.Add(c);
+
+        HasConflicts = Conflicts.Count > 0;
+
+        CompatibilitySummary = Mods.Count == 0
+            ? "No mods installed."
+            : HasConflicts
+                ? $"{Conflicts.Count} conflict{(Conflicts.Count == 1 ? "" : "s")} need attention."
+                : "No conflicts found.";
     }
 
     private async Task RunDeepScanAsync()
@@ -381,13 +422,12 @@ public partial class MainViewModel : ObservableObject
             var mods = Mods.ToList();
             var results = await Task.Run(() => _compat.DeepScan(game, mods, mappingsPath, egame, settings.AesKeyHex));
 
-            Conflicts.Clear();
-            foreach (var c in results) Conflicts.Add(c);
+            ApplyConflicts(results);
 
             // Persist any refreshed asset-path lists the deep scan produced.
             _registry?.Save();
 
-            StatusMessage = results.Count == 0 ? "Deep scan: no conflicts." : $"Deep scan: {results.Count} conflict(s).";
+            StatusMessage = $"Deep scan: {CompatibilitySummary}";
         }
         catch (Exception ex)
         {
@@ -445,11 +485,15 @@ public partial class MainViewModel : ObservableObject
             var asset = _appUpdater.FindAsset(release)!;
             log.Info($"DDS2 Mod Manager {release.TagName} is available (you have v{AppUpdateService.GetCurrentVersion()}).");
 
-            var result = System.Windows.MessageBox.Show(
-                $"A new version is available: {release.TagName} (you have v{AppUpdateService.GetCurrentVersion()}).\n\n" +
-                "Update now? The app will download it and restart.",
-                "Update Available", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Information);
-            if (result != System.Windows.MessageBoxResult.Yes) return;
+            var prompt = new UpdateAvailableWindow(
+                release.TagName,
+                AppUpdateService.GetCurrentVersion(),
+                release.Body,
+                AppUpdateService.GetReleaseUrl(release.TagName))
+            {
+                Owner = System.Windows.Application.Current.MainWindow
+            };
+            if (prompt.ShowDialog() != true) return;
 
             IsBusy = true;
             StatusMessage = $"Downloading {release.TagName}...";
@@ -465,6 +509,69 @@ public partial class MainViewModel : ObservableObject
         finally
         {
             IsBusy = false;
+        }
+    }
+
+    /// Finds mods already sitting in the game folders that we aren't tracking (i.e. installed by
+    /// hand before this manager was used) and offers to adopt them. Runs automatically once per
+    /// game setup so users who modded manually aren't left wondering why the list is empty;
+    /// manual=true is the Settings/toolbar button, which also reports when it finds nothing.
+    private async Task ScanForExistingModsAsync(bool manual = false)
+    {
+        if (Game == null || _installer == null || _registry == null) return;
+
+        var log = LoggingService.Instance;
+        var settings = AppSettingsService.Instance.Current;
+        var mappingsPath = !string.IsNullOrWhiteSpace(settings.MappingsOverridePath) && File.Exists(settings.MappingsOverridePath)
+            ? settings.MappingsOverridePath!
+            : MappingsProviderService.EnsureExtracted();
+        var egame = Enum.TryParse<EGame>(settings.EGameVersion, out var parsed) ? parsed : EGame.GAME_UE5_3;
+
+        List<UnmanagedMod> found;
+        try
+        {
+            var game = Game;
+            var known = _registry.Mods.ToList();
+            // Mounts and reads every pak in the game folder, so keep it off the UI thread.
+            found = await Task.Run(() => _unmanagedScanner.Scan(game, known, mappingsPath, egame, settings.AesKeyHex));
+        }
+        catch (Exception ex)
+        {
+            log.Error($"Couldn't scan for existing mods: {ex.Message}");
+            return;
+        }
+
+        if (found.Count == 0)
+        {
+            if (manual) log.Info("No untracked mods found - everything in your game folders is already being managed.");
+            return;
+        }
+
+        log.Warn($"Found {found.Count} mod(s) already installed but not tracked by this manager: " +
+                 string.Join(", ", found.Select(m => m.Name)));
+
+        var dialog = new ExistingModsWindow(found)
+        {
+            Owner = System.Windows.Application.Current.MainWindow
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        var selected = dialog.SelectedMods;
+        var fixMisplaced = dialog.FixMisplaced;
+        var imported = 0;
+
+        foreach (var item in selected)
+        {
+            var mod = _installer.ImportUnmanaged(item, fixMisplaced);
+            if (mod == null) continue;
+            Mods.Add(mod);
+            imported++;
+        }
+
+        if (imported > 0)
+        {
+            StatusMessage = $"Imported {imported} existing mod(s).";
+            RunCompatibilityCheck();
         }
     }
 
@@ -555,5 +662,43 @@ public partial class MainViewModel : ObservableObject
     {
         if (Game == null) return;
         _ue4ss.CreateLogicModsFolder(Game);
+    }
+
+    private void OpenGameData()
+    {
+        if (Game == null)
+        {
+            LoggingService.Instance.Warn("Find the game folder first - saves and config live alongside the game install.");
+            return;
+        }
+
+        new GameDataWindow(Game) { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
+    }
+
+    private void ResetGameToVanilla()
+    {
+        if (Game == null || _installer == null || _registry == null) return;
+
+        var dialog = new ResetGameWindow(_registry.Mods.Count)
+        {
+            Owner = System.Windows.Application.Current.MainWindow
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        var reset = new GameResetService(Game, _installer, _registry);
+        var result = reset.Reset(dialog.Options);
+
+        // The registry drives this list, and Uninstall already emptied it - resync rather than
+        // trying to mirror each individual removal.
+        Mods.Clear();
+        foreach (var m in _registry.Mods) Mods.Add(m);
+
+        Ue4ssStatus = _ue4ss.GetCurrentStatus(Game);
+        UpdateAvailable = false;
+        RunCompatibilityCheck();
+
+        StatusMessage = result.Failures.Count == 0
+            ? "Game reset to vanilla."
+            : $"Game reset finished with {result.Failures.Count} problem(s) - see the log.";
     }
 }

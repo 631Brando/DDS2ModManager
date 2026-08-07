@@ -105,7 +105,11 @@ public class ModInstallerService
                 Type = analysis.Type,
                 SourcePath = originalSourcePath,
                 ContainedAssetPaths = analysis.AssetPaths,
-                HasModActor = analysis.HasModActor
+                HasModActor = analysis.HasModActor,
+                DataTableAppends = analysis.DataTableAppends,
+                // The analyzer scans appends for anything with a ModActor, so a mod that has one
+                // has definitively been checked - even if the result was "merges nothing".
+                DataTableScanCompleted = analysis.HasModActor
             };
 
             switch (analysis.Type)
@@ -153,6 +157,77 @@ public class ModInstallerService
         var prepared = PrepareInstall(sourcePath);
         var chosenRoot = prepared.VariantCandidates.Count == 1 ? prepared.VariantCandidates[0] : prepared.ExtractedRoot;
         return await InstallFromRootAsync(sourcePath, prepared, chosenRoot);
+    }
+
+    /// Adopts a mod that was already sitting in the game folders (see UnmanagedModScannerService)
+    /// into the registry, so it can be enabled/disabled/uninstalled and included in conflict
+    /// checks like any normally-installed mod. Copies nothing - the files are already in place -
+    /// unless fixMisplaced is set and the mod is in the wrong folder for its type.
+    public ModInfo? ImportUnmanaged(UnmanagedMod found, bool fixMisplaced)
+    {
+        var log = LoggingService.Instance;
+        try
+        {
+            if (_registry.Mods.Any(m => m.Name.Equals(found.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                log.Warn($"Skipped importing '{found.Name}' - a different mod with that name is already tracked.");
+                return null;
+            }
+
+            var mod = new ModInfo
+            {
+                Name = found.Name,
+                Type = found.DetectedType,
+                // No archive to point at: these were installed by hand, so the files in the game
+                // folder are the only source that ever existed for them.
+                SourcePath = found.CurrentFolder,
+                ContainedAssetPaths = found.ContainedAssetPaths,
+                HasModActor = found.HasModActor,
+                DataTableAppends = found.DataTableAppends,
+                DataTableScanCompleted = found.HasModActor,
+                InstallPath = found.CurrentFolder,
+                InstallFiles = found.Files,
+                IsInstalled = true,
+                IsEnabled = found.IsEnabled
+            };
+
+            if (found.DetectedType == ModType.LuaMod)
+            {
+                mod.InstallPath = found.Files.FirstOrDefault() ?? found.CurrentFolder;
+                // Writes the mods.txt entry if it was missing entirely (UE4SS wouldn't have been
+                // loading it at all), and otherwise preserves whatever state it's already in.
+                _lua.SetEnabled(_game, mod.Name, found.IsEnabled);
+            }
+            else if (fixMisplaced && found.IsMisplaced)
+            {
+                MoveModFiles(mod, found.CorrectFolder);
+                log.Success($"Moved '{mod.Name}' to {found.CorrectFolder} so the game will actually load it.");
+            }
+
+            _registry.Upsert(mod);
+            log.Success($"Imported existing mod '{mod.Name}' as {mod.Type}.");
+            return mod;
+        }
+        catch (Exception ex)
+        {
+            log.Error($"Failed to import '{found.Name}': {ex.Message}");
+            return null;
+        }
+    }
+
+    /// Moves a pak mod's files into destFolder and updates the mod's recorded paths to match.
+    private void MoveModFiles(ModInfo mod, string destFolder)
+    {
+        Directory.CreateDirectory(destFolder);
+        var newFiles = new List<string>();
+        foreach (var f in mod.InstallFiles.Where(File.Exists))
+        {
+            var dest = Path.Combine(destFolder, Path.GetFileName(f));
+            File.Move(f, dest, true);
+            newFiles.Add(dest);
+        }
+        mod.InstallFiles = newFiles;
+        mod.InstallPath = destFolder;
     }
 
     private string InferModName(string workingDir, ModType type)

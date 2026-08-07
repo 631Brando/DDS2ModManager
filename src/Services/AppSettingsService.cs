@@ -32,9 +32,17 @@ public class AppSettingsService
 
     public void Save()
     {
-        File.WriteAllText(_path, JsonSerializer.Serialize(Current, new JsonSerializerOptions { WriteIndented = true }));
+        WriteToDisk();
         LoggingService.Instance.Info("Settings saved.");
     }
+
+    /// Same write without the log line - for incidental state like window size, which is saved on
+    /// every close and would otherwise put a "Settings saved." entry in the log every session for
+    /// something the user never asked to save.
+    public void SaveQuiet() => WriteToDisk();
+
+    private void WriteToDisk() =>
+        File.WriteAllText(_path, JsonSerializer.Serialize(Current, new JsonSerializerOptions { WriteIndented = true }));
 
     public string GetLogsFolder() =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DDS2ModManager", "Logs");

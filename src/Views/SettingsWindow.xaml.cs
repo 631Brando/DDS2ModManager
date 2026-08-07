@@ -110,6 +110,14 @@ public partial class SettingsWindow : Window
         Application.Current.Shutdown();
     }
 
+    private void ResetGame_Click(object sender, RoutedEventArgs e)
+    {
+        // Close Settings first: the reset dialog is owned by the main window and rebuilds the mod
+        // list behind us, so leaving this window open on top would just be showing stale state.
+        Close();
+        _mainViewModel.ResetGameToVanillaCommand.Execute(null);
+    }
+
     private void Uninstall_Click(object sender, RoutedEventArgs e)
     {
         var result = MessageBox.Show(
