@@ -3,6 +3,76 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
+## v1.0.6
+
+### Cloned saves didn't show up in game
+
+The most important fix in this release. Cloning treated a save as just a folder of files, but a
+DDS2 cartel also records its own name *inside* `CartelDefaults.sav`, and the game uses that name
+to find the progress file. A copy therefore kept pointing at the original's progress file, which
+isn't in the new folder — so the game found nothing, skipped the cartel, and the copy never
+appeared in the load list at all. No error, it was simply missing.
+
+Clones now have their internal name updated to match, and are checked afterwards against the rule
+every working cartel follows: the folder name, the name recorded inside the save, and the
+`<name>_Progress.save` file all have to agree. If they somehow don't, it says so rather than
+leaving you to find out at the load screen.
+
+If you already have clones that won't load, they stay broken — this fixes new ones. The quickest
+repair is to clone the original again now.
+
+The copy also gets its own name in the game's load menu. Previously a clone could show up under
+the original's name, which made the two impossible to tell apart.
+
+### Steam Cloud warnings
+
+DDS2 syncs its save folder with Steam Cloud, which quietly works against everything on this
+screen: Steam reconciles the whole folder each time the game starts or stops, and it can copy in
+either direction. Anything you change here — cloning, deleting, disabling, editing — can simply be
+undone on the next launch, with no indication that it happened.
+
+The Saves tab now detects this from Steam's own files (it checks that Steam has actually synced
+files from this folder, rather than assuming it from the game merely supporting cloud saves) and
+says so up front, with the exact steps to turn it off. Delete, Disable and Clone each repeat the
+warning at the moment it matters.
+
+Disable gets a proper confirmation, because it's the riskiest of the three: it moves the save out
+of the synced folder, which Steam can read as a deletion and drop from the cloud — and therefore
+from your other machines.
+
+Nothing here changes your Steam settings. Steam owns that sync and rewrites its own config while
+running, so the app reports and explains rather than fiddling behind your back. Backups are
+deliberately kept outside the synced folder, so they're the one thing Steam can't touch.
+
+### Select more than one save
+
+The saves list now supports multi-select — ctrl-click, shift-click, Ctrl+A. **Back Up**,
+**Delete** and enable/disable all work across a whole selection, with one confirmation and one
+summary instead of a dialog per save. Deleting several lists exactly what's going, with sizes,
+because a bare count is too easy to misread.
+
+Mixed selections behave sensibly: saves already in the state you asked for are skipped rather than
+counted as failures, and if some of a batch fail the rest still complete.
+
+### Saves screen tidied up
+
+- **Enable** and **Disable** are now one button that shows which way it will go for what you've
+  selected.
+- Buttons that act on the selection grey out when nothing is selected, instead of answering a
+  click with "select a save first".
+- Consistent button sizing, and the actions that act on a selection are separated from the general
+  ones.
+
+### More of a save is readable
+
+- **`UserSettings.sav` can be inspected.** It isn't a RamaSave file — it's a plain Unreal GVAS
+  save — so it needed a separate reader. It holds your graphics and audio settings, DLSS mode and
+  achievement progress. `CartelDefaults.sav` and `CartelLocalData.sav` are readable for the same
+  reason, so each cartel's own settings can be viewed too.
+- **Text is decoded properly.** Names, SMS bodies and quest overrides showed as a raw byte count
+  before; now they show their contents.
+- **Map keys and values are decoded** using the types the save declares, instead of being inferred.
+
 ## v1.0.5
 
 ### Save inspector

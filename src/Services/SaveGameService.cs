@@ -159,10 +159,16 @@ public class SaveGameService
 
     /// Duplicates a save under a new name.
     ///
-    /// Games commonly name a save's inner files after the save itself (DDS2 writes
-    /// "&lt;SaveName&gt;_Progress.save"), so a straight folder copy produces a clone the game may not
-    /// recognise. Any file whose name starts with the original save name is therefore re-prefixed
-    /// to match the new one; files with unrelated names are copied untouched.
+    /// A straight folder copy produces a clone the game won't load, for two separate reasons:
+    ///
+    ///   1. Games commonly name a save's inner files after the save itself (DDS2 writes
+    ///      "&lt;SaveName&gt;_Progress.save"). Any file whose name starts with the original save name
+    ///      is therefore re-prefixed to match the new one; unrelated names are copied untouched.
+    ///   2. A save also records its own name *inside* itself. DDS2 keeps it in
+    ///      CartelDefaults.sav and uses it to find the progress file, so a copy that still names
+    ///      the original looks for a file that isn't in its folder and is silently skipped -
+    ///      the clone simply never appears in the game's load list. GvasNameRewriter fixes those
+    ///      references up.
     public SaveEntry? Clone(SaveEntry save, string newName)
     {
         var log = LoggingService.Instance;
@@ -207,6 +213,10 @@ public class SaveGameService
                     File.Copy(file, target, true);
                 }
 
+                RenameSelfReferences(dest, save.Name, newName);
+                Dds2SaveRules.OnSaveCloned(_game, dest, newName);
+                VerifyClone(dest, newName);
+
                 log.Success($"Cloned save '{save.Name}' to '{newName}'.");
                 return Describe(dest, save.GroupName, isEnabled: save.IsEnabled);
             }
@@ -228,6 +238,45 @@ public class SaveGameService
             log.Error($"Failed to clone '{save.Name}': {ex.Message}");
             return null;
         }
+    }
+
+    /// Points a freshly-copied save's internal name references at its new name. Only files the
+    /// rewriter fully understands are touched; anything else is left byte-for-byte as copied.
+    private static void RenameSelfReferences(string folder, string oldName, string newName)
+    {
+        var log = LoggingService.Instance;
+        var references = 0;
+        var files = 0;
+
+        foreach (var file in Directory.GetFiles(folder, "*", SearchOption.AllDirectories))
+        {
+            if (!IsSaveFile(file)) continue;
+
+            var updated = GvasNameRewriter.RewriteSelfReferences(file, oldName, newName);
+            if (updated <= 0) continue;
+
+            references += updated;
+            files++;
+        }
+
+        if (references > 0)
+            log.Info($"Renamed {references} internal reference(s) across {files} file(s) so the game recognises the copy.");
+        else
+            log.Warn($"No internal name references were found to update. If '{newName}' doesn't appear in game, " +
+                     "the save may record its name somewhere this can't safely edit.");
+    }
+
+    /// Checks a cloned save actually satisfies the rule every working save follows: the folder
+    /// name, the name recorded inside the save, and the progress file all agree. Cloning used to
+    /// break this silently - the copy looked fine on disk and simply never appeared in game - so
+    /// it's worth confirming rather than assuming.
+    private void VerifyClone(string folder, string newName)
+    {
+        if (!Dds2SaveRules.Applies(_game)) return;
+
+        var problem = Dds2SaveRules.DescribeCloneProblem(folder, newName);
+        if (problem != null)
+            LoggingService.Instance.Warn($"'{newName}' may not appear in game: {problem}");
     }
 
     public bool Delete(SaveEntry save)

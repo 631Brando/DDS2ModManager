@@ -96,10 +96,22 @@ public class SaveActorRecord
     };
 }
 
-/// A parsed DDS2 "_Progress.save".
+/// Which of the game's two save shapes a file turned out to be. The UI uses this to describe what
+/// was actually checked, rather than claiming a verification that doesn't apply.
+public enum SaveFormat
+{
+    /// RamaSave's compressed container, one record per persistent actor.
+    RamaSaveProgress,
+
+    /// Unreal's own uncompressed SaveGame format.
+    Gvas
+}
+
+/// A parsed save file.
 public class SaveFileData
 {
     public string Path { get; set; } = "";
+    public SaveFormat Format { get; set; }
     public int PackageVersionUE4 { get; set; }
     public int PackageVersionUE5 { get; set; }
     public string EngineVersion { get; set; } = "";
@@ -117,8 +129,21 @@ public class SaveFileData
     public bool AllActorsParsed => Actors.Count > 0 && FullyParsedActors == Actors.Count;
     public int TotalProperties => Actors.Sum(a => a.Properties.Count);
 
-    public string ParseSummary => Actors.Count == 0
-        ? "No actor records found."
+    public string ParseSummary => Format == SaveFormat.Gvas
+        ? GvasSummary
+        : ProgressSummary;
+
+    private string GvasSummary => Actors.Count == 0
+        ? "Nothing readable in this file."
+        : $"{TotalProperties:N0} settings - " + (AllActorsParsed
+            ? "the whole file was read."
+            : "part of this file couldn't be read.");
+
+    private string ProgressSummary => Actors.Count == 0
+        // Some companion files use RamaSave's container without holding actor records at all -
+        // a mod's own little settings file, for instance. Say that, rather than implying the
+        // file failed to read.
+        ? "This is a RamaSave file, but it holds no actor records - nothing to show."
         : $"{Actors.Count:N0} actors, {TotalProperties:N0} values - "
           + (AllActorsParsed
               ? "all records verified against their own end offsets."

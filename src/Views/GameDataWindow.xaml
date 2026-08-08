@@ -2,7 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:DDS2ModManager.Converters"
-        Title="Saves &amp; Config" Height="640" Width="960" WindowStartupLocation="CenterOwner"
+        Title="Saves &amp; Config" Height="680" Width="1020"
+        MinHeight="520" MinWidth="1000" WindowStartupLocation="CenterOwner"
         Background="{StaticResource BgBrush}"
         Foreground="{StaticResource TextPrimaryBrush}"
         TextElement.Foreground="{StaticResource TextPrimaryBrush}"
@@ -50,12 +51,33 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" x:Name="SavesPathText" FontSize="11" TextWrapping="Wrap"
-                               Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,10"/>
+                    <StackPanel Grid.Row="0">
+                        <!-- Shown only when Steam is demonstrably syncing this folder. The manager
+                             edits saves on disk while Steam separately reconciles the same folder,
+                             and that interaction is surprising enough to be worth saying out loud
+                             rather than letting someone lose a save to it. -->
+                        <Border x:Name="CloudBanner" Visibility="Collapsed" Margin="0,0,0,10"
+                                Padding="12,9" CornerRadius="6" Background="#2A2418"
+                                BorderThickness="1" BorderBrush="{StaticResource WarningBrush}">
+                            <StackPanel>
+                                <TextBlock x:Name="CloudHeadline" FontSize="12" FontWeight="SemiBold"
+                                           TextWrapping="Wrap" Foreground="{StaticResource WarningBrush}"/>
+                                <TextBlock x:Name="CloudDetail" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock x:Name="CloudHow" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"
+                                           Foreground="{StaticResource TextMutedBrush}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock x:Name="SavesPathText" FontSize="11" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,10"/>
+                    </StackPanel>
 
                     <Border Grid.Row="1" Style="{StaticResource CardBorder}" Padding="0">
+                        <!-- Extended selection: shift/ctrl-click and Ctrl+A work as usual, so a
+                             pile of old saves can be backed up or deleted in one go. -->
                         <DataGrid x:Name="SavesGrid" AutoGenerateColumns="False" IsReadOnly="True"
-                                  SelectionMode="Single" HeadersVisibility="Column" RowHeight="34">
+                                  SelectionMode="Extended" HeadersVisibility="Column" RowHeight="34"
+                                  SelectionChanged="SavesGrid_SelectionChanged">
                             <!-- Mode=OneWay on every column: DataGridTextColumn binds TwoWay by
                                  default, and most of these are computed get-only properties. Even
                                  with IsReadOnly on the grid, leaving the default in place is the
@@ -73,28 +95,56 @@
                         </DataGrid>
                     </Border>
 
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,12,0,0">
-                        <Button Content="Inspect..." Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
-                                Margin="0,0,8,0" Click="InspectSave_Click"
+                    <DockPanel Grid.Row="2" Margin="0,12,0,0" LastChildFill="False">
+                        <TextBlock x:Name="SelectionSummary" DockPanel.Dock="Right" FontSize="11"
+                                   VerticalAlignment="Center" Margin="12,0,0,0"
+                                   Foreground="{StaticResource TextMutedBrush}"/>
+
+                    <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                        <StackPanel.Resources>
+                            <!-- One uniform width for the whole row. The toggle button's label
+                                 changes with the selection, so without a shared minimum the row
+                                 would shuffle sideways every time you clicked a different save. -->
+                            <Style x:Key="SaveAction" TargetType="Button" BasedOn="{StaticResource GhostButton}">
+                                <Setter Property="Padding" Value="10,5"/>
+                                <Setter Property="FontSize" Value="12"/>
+                                <Setter Property="MinWidth" Value="104"/>
+                                <Setter Property="Margin" Value="0,0,8,0"/>
+                            </Style>
+                        </StackPanel.Resources>
+
+                        <!-- Acts on the current selection, so these grey out when nothing is
+                             selected rather than answering a click with "select a save first". -->
+                        <Button x:Name="InspectButton" Content="Inspect..." Style="{StaticResource SaveAction}"
+                                Click="InspectSave_Click"
                                 ToolTip="Read-only view of what the game stored in this save."/>
-                        <Button Content="Clone..." Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
-                                Margin="0,0,8,0" Click="CloneSave_Click"/>
-                        <Button Content="Back Up" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
-                                Margin="0,0,8,0" Click="BackupSave_Click"
-                                ToolTip="Copies this save to a timestamped backup outside the game's save folder."/>
-                        <Button Content="Disable" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
-                                Margin="0,0,8,0" Click="DisableSave_Click"/>
-                        <Button Content="Enable" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
-                                Margin="0,0,8,0" Click="EnableSave_Click"/>
-                        <Button Content="Delete..." Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
-                                Foreground="{StaticResource ErrorBrush}" Margin="0,0,16,0" Click="DeleteSave_Click"/>
-                        <Button Content="Open Saves Folder" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
-                                Margin="0,0,8,0" Click="OpenSavesFolder_Click"/>
-                        <Button Content="Open Backups Folder" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
-                                Margin="0,0,8,0" Click="OpenBackupsFolder_Click"/>
-                        <Button Content="Refresh" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
-                                Click="RefreshSaves_Click"/>
+                        <Button x:Name="CloneButton" Content="Clone..." Style="{StaticResource SaveAction}"
+                                Click="CloneSave_Click"
+                                ToolTip="Duplicates the selected save under a new name."/>
+                        <Button x:Name="BackUpButton" Content="Back Up" Style="{StaticResource SaveAction}"
+                                Click="BackupSave_Click"
+                                ToolTip="Copies the selected saves to timestamped backups outside the game's save folder. Works on several at once."/>
+                        <!-- Label is always a single word so it fits the shared width; which word
+                             depends on the selection. See UpdateToggleEnabledButton. -->
+                        <Button x:Name="ToggleEnabledButton" Content="Disable"
+                                Style="{StaticResource SaveAction}" Click="ToggleEnabled_Click"
+                                ToolTip="Disabling moves a save out of the game's save folder so it won't show in game; enabling moves it back. The label shows what will happen to the saves you've selected, and any already in that state are skipped."/>
+                        <Button x:Name="DeleteButton" Content="Delete..." Style="{StaticResource SaveAction}"
+                                Foreground="{StaticResource ErrorBrush}" Click="DeleteSave_Click"
+                                ToolTip="Permanently deletes the selected saves. Ctrl+A selects everything."/>
+
+                        <!-- Everything past here is general, not tied to the selection. -->
+                        <Border Width="1" Margin="8,2,16,2" Background="{StaticResource CardBorderBrush}"/>
+
+                        <Button Content="Saves Folder" Style="{StaticResource SaveAction}" Click="OpenSavesFolder_Click"
+                                ToolTip="Opens the game's save folder in Explorer."/>
+                        <Button Content="Backups" Style="{StaticResource SaveAction}" Click="OpenBackupsFolder_Click"
+                                ToolTip="Opens the folder holding backups made with Back Up."/>
+                        <Button Content="Refresh" Style="{StaticResource SaveAction}" Margin="0"
+                                Click="RefreshSaves_Click"
+                                ToolTip="Re-reads the save folder from disk."/>
                     </StackPanel>
+                    </DockPanel>
                 </Grid>
             </TabItem>
 

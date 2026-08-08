@@ -285,7 +285,7 @@ public class RamaSaveReader
         if (TryReadStructArray(d, start, length, prop)) return prop;
         if (TryReadMap(d, start, length, prop)) return prop;
         if (TryReadStringList(d, start, length, prop)) return prop;
-        if (TryReadEmptyText(d, start, length, prop)) return prop;
+        if (TryReadText(d, start, length, prop)) return prop;
 
         // Otherwise RamaSave gives no type at all, so it has to be inferred from the length.
         // Anything ambiguous stays an honest byte count rather than a confident guess.
@@ -376,7 +376,11 @@ public class RamaSaveReader
     ///
     /// Because every tag declares its own size, an unrecognised type can be stepped over exactly
     /// rather than guessed at - which is what keeps the walk from desynchronising.
-    private static void ReadTaggedProperties(byte[] d, ref int pos, int limit, List<SaveProperty> into, int depth)
+    ///
+    /// Internal rather than private because the game's plain GVAS saves (UserSettings.sav,
+    /// CartelDefaults.sav) use exactly this layout - same engine build, same serialiser - so
+    /// GvasSaveReader borrows this walk instead of keeping a second copy that could drift.
+    internal static void ReadTaggedProperties(byte[] d, ref int pos, int limit, List<SaveProperty> into, int depth)
     {
         if (depth > 8) return;
 
@@ -393,6 +397,7 @@ public class RamaSaveReader
             if (size < 0 || size > limit - pos) return;
 
             string? structName = null;
+            string? mapKeyType = null, mapValueType = null;
             bool? boolValue = null;
             switch (type)
             {
@@ -412,8 +417,9 @@ public class RamaSaveReader
                     if (ReadFString(d, ref pos) == null) return;
                     break;
                 case "MapProperty":
-                    if (ReadFString(d, ref pos) == null) return;
-                    if (ReadFString(d, ref pos) == null) return;
+                    mapKeyType = ReadFString(d, ref pos);
+                    mapValueType = ReadFString(d, ref pos);
+                    if (mapKeyType == null || mapValueType == null) return;
                     break;
                 case "ByteProperty":
                 case "EnumProperty":
@@ -456,11 +462,10 @@ public class RamaSaveReader
                     TryReadStructArray(d, valueStart, (int)size, prop);
                     break;
                 case "MapProperty":
-                    TryReadMap(d, valueStart, (int)size, prop);
+                    TryReadMap(d, valueStart, (int)size, prop, mapKeyType, mapValueType);
                     break;
                 case "TextProperty":
-                    // Unset text is by far the most common case (quest overrides, SMS bodies).
-                    if (!TryReadEmptyText(d, valueStart, (int)size, prop))
+                    if (!TryReadText(d, valueStart, (int)size, prop))
                         prop.Value = InterpretTagged(d, type, valueStart, (int)size);
                     break;
                 default:
@@ -502,18 +507,40 @@ public class RamaSaveReader
         }
     }
 
-    /// An unset FText: int32 flags, a 0xFF "no history" marker, then an int32 zero. Text the
-    /// player never filled in (a hideout they didn't rename, say) is by far the most common
-    /// non-scalar value in a save, and showing it as nine raw bytes is just noise.
-    private static bool TryReadEmptyText(byte[] d, int start, int length, SaveProperty prop)
+    /// An FText with no localisation history:
+    ///
+    ///   int32 flags, uint8 0xFF ("no history"), int32 "has culture-invariant string",
+    ///   then that string when the flag is set
+    ///
+    /// This covers both the text a player typed (a cartel's name, an SMS body) and the far more
+    /// common unset case, which would otherwise show as nine raw bytes. Localised text uses other
+    /// history types and is left undecoded rather than guessed at.
+    private static bool TryReadText(byte[] d, int start, int length, SaveProperty prop)
     {
-        if (length != 9) return false;
-        if (BitConverter.ToInt32(d, start) != 0) return false;
-        if (d[start + 4] != 0xFF) return false;
-        if (BitConverter.ToInt32(d, start + 5) != 0) return false;
+        const int headerLength = 9;   // flags + history type + has-string flag
+        if (length < headerLength) return false;
 
+        var end = start + length;
+        if (d[start + 4] != 0xFF) return false;
+
+        var hasString = BitConverter.ToInt32(d, start + 5);
         prop.Type = "Text";
-        prop.IsRecognisedContainer = true; // displays as "(empty)"
+
+        if (hasString == 0)
+        {
+            if (length != headerLength) return false;
+            prop.IsRecognisedContainer = true;   // displays as "(empty)"
+            return true;
+        }
+
+        if (hasString != 1) return false;
+
+        var p = start + headerLength;
+        var text = ReadFString(d, ref p);
+        if (text == null || p != end) return false;
+
+        if (text.Length == 0) prop.IsRecognisedContainer = true;
+        else prop.Value = text;
         return true;
     }
 
@@ -581,7 +608,7 @@ public class RamaSaveReader
     }
 
     private enum MapKey { Guid, String }
-    private enum MapValue { Struct, String, Int32 }
+    private enum MapValue { Struct, String, Int32, Double }
 
     /// A map, written as Unreal writes any map:
     ///
@@ -592,7 +619,10 @@ public class RamaSaveReader
     /// on the Blueprint to know them. So every combination seen in practice is tried and the one
     /// that consumes the map exactly is the one that's right; if none does, the entry is left
     /// undecoded rather than shown as a plausible misreading.
-    private static bool TryReadMap(byte[] d, int start, int length, SaveProperty prop)
+    /// When the value came from a tagged MapProperty the key and value types are declared, so they
+    /// are tried first; RamaSave's own entries carry no type at all, hence the fallback sweep.
+    private static bool TryReadMap(byte[] d, int start, int length, SaveProperty prop,
+        string? declaredKeyType = null, string? declaredValueType = null)
     {
         var end = start + length;
         if (length < 12) return false;
@@ -602,20 +632,42 @@ public class RamaSaveReader
         var count = BitConverter.ToInt32(d, start + 4);
         if (count is < 1 or > 200_000) return false;
 
+        var combinations = new List<(MapKey Key, MapValue Value)>();
+        if (MapKindOf(declaredKeyType) is { } dk && MapValueKindOf(declaredValueType) is { } dv)
+            combinations.Add((dk, dv));
+
         foreach (var keyKind in new[] { MapKey.Guid, MapKey.String })
-        foreach (var valueKind in new[] { MapValue.Struct, MapValue.String, MapValue.Int32 })
+        foreach (var valueKind in new[] { MapValue.Struct, MapValue.String, MapValue.Int32, MapValue.Double })
+            combinations.Add((keyKind, valueKind));
+
+        foreach (var (keyKind, valueKind) in combinations)
         {
-            if (TryReadMapAs(d, start + 8, end, count, keyKind, valueKind, out var pairs))
-            {
-                prop.Type = $"Map ({count})";
-                prop.IsRecognisedContainer = true;
-                prop.Children.AddRange(pairs);
-                return true;
-            }
+            if (!TryReadMapAs(d, start + 8, end, count, keyKind, valueKind, out var pairs)) continue;
+
+            prop.Type = $"Map ({count})";
+            prop.IsRecognisedContainer = true;
+            prop.Children.AddRange(pairs);
+            return true;
         }
 
         return false;
     }
+
+    private static MapKey? MapKindOf(string? type) => type switch
+    {
+        "StrProperty" or "NameProperty" => MapKey.String,
+        "StructProperty" => MapKey.Guid,   // the only struct key seen as a map key is a Guid
+        _ => null
+    };
+
+    private static MapValue? MapValueKindOf(string? type) => type switch
+    {
+        "StrProperty" or "NameProperty" => MapValue.String,
+        "IntProperty" => MapValue.Int32,
+        "DoubleProperty" or "FloatProperty" => MapValue.Double,
+        "StructProperty" => MapValue.Struct,
+        _ => null
+    };
 
     private static bool TryReadMapAs(byte[] d, int pos, int end, int count, MapKey keyKind, MapValue valueKind,
         out List<SaveProperty> pairs)
@@ -662,6 +714,14 @@ public class RamaSaveReader
                     if (s == null || pos > end) return false;
                     pair.Type = "String";
                     pair.Value = s;
+                    break;
+                }
+                case MapValue.Double:
+                {
+                    if (pos + 8 > end) return false;
+                    pair.Type = "Float";
+                    pair.Value = BitConverter.ToDouble(d, pos);
+                    pos += 8;
                     break;
                 }
                 default:
@@ -780,7 +840,7 @@ public class RamaSaveReader
     /// Unreal FString: int32 length then the characters including a null terminator. A negative
     /// length means UTF-16 and the magnitude is the character count. Returns null (leaving pos
     /// untouched) when the bytes can't be a string, which is what the entry probe relies on.
-    private static string? ReadFString(byte[] b, ref int pos)
+    internal static string? ReadFString(byte[] b, ref int pos)
     {
         if (pos < 0 || pos + 4 > b.Length) return null;
         var len = BitConverter.ToInt32(b, pos);

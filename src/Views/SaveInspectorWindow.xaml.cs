@@ -23,7 +23,8 @@ public partial class SaveInspectorWindow : Window
     private const int MaxChildrenPerNode = 500;
 
     private readonly List<string> _files;
-    private readonly RamaSaveReader _reader = new();
+    private readonly RamaSaveReader _progressReader = new();
+    private readonly GvasSaveReader _gvasReader = new();
     private SaveFileData? _data;
 
     public SaveInspectorWindow(SaveEntry save)
@@ -45,17 +46,21 @@ public partial class SaveInspectorWindow : Window
         FileCombo.SelectedIndex = PreferredFileIndex(_files);
     }
 
-    /// Progress saves hold the actual game state; a save folder also contains smaller companion
-    /// files, so those are listed too but the progress one is selected first.
+    /// Everything readable in the save: the RamaSave progress files that hold the game state, plus
+    /// the plain GVAS companions (CartelDefaults.sav and the like). Both are understood, so both
+    /// are offered - the progress file just gets picked first.
     private static List<string> FindSaveFiles(SaveEntry save)
     {
         try
         {
             var paths = save.IsFolder
-                ? Directory.GetFiles(save.Path, "*.save", SearchOption.AllDirectories)
+                ? Directory.GetFiles(save.Path, "*.sav*", SearchOption.AllDirectories)
                 : new[] { save.Path };
 
-            return paths.Where(RamaSaveReader.IsProgressSave).OrderBy(p => p).ToList();
+            return paths
+                .Where(p => RamaSaveReader.IsProgressSave(p) || GvasSaveReader.IsGvasSave(p))
+                .OrderBy(p => p)
+                .ToList();
         }
         catch (Exception ex)
         {
@@ -75,10 +80,13 @@ public partial class SaveInspectorWindow : Window
         var index = FileCombo.SelectedIndex;
         if (index < 0 || index >= _files.Count) return;
 
+        var path = _files[index];
         System.Windows.Input.Mouse.OverrideCursor = System.Windows.Input.Cursors.Wait;
         try
         {
-            _data = _reader.Read(_files[index]);
+            _data = RamaSaveReader.IsProgressSave(path)
+                ? _progressReader.Read(path)
+                : _gvasReader.Read(path);
         }
         finally
         {
@@ -93,23 +101,32 @@ public partial class SaveInspectorWindow : Window
             return;
         }
 
-        SummaryText.Text =
-            $"{_data.ParseSummary}  |  Unreal {_data.EngineVersion}  |  " +
-            $"{_data.CompressedBytes / 1024.0:F0} KB on disk, {_data.DecompressedBytes / 1024.0:F0} KB uncompressed  |  " +
-            $"{_data.Tags.Count} content tags";
+        var parts = new List<string> { _data.ParseSummary, $"Unreal {_data.EngineVersion}" };
 
-        // Every actor record states where it ends, so the parse can be checked rather than trusted.
-        // Say plainly when some of it didn't line up instead of quietly showing partial data.
+        parts.Add(_data.CompressedBytes == _data.DecompressedBytes
+            ? $"{_data.CompressedBytes / 1024.0:F0} KB"
+            : $"{_data.CompressedBytes / 1024.0:F0} KB on disk, {_data.DecompressedBytes / 1024.0:F0} KB uncompressed");
+
+        if (_data.Tags.Count > 0) parts.Add($"{_data.Tags.Count} content tags");
+        SummaryText.Text = string.Join("  |  ", parts);
+
+        // Describe the check that actually applies to this file rather than claiming one that
+        // doesn't, and say plainly when something didn't line up instead of quietly showing
+        // partial data as though it were complete.
+        var isProgress = _data.Format == SaveFormat.RamaSaveProgress;
         if (_data.AllActorsParsed)
         {
-            VerifyText.Text = "Every record was checked against the end offset the save itself declares, and all of them matched.";
+            VerifyText.Text = isProgress
+                ? "Every record was checked against the end offset the save itself declares, and all of them matched."
+                : "The whole property list was read, ending exactly where the file does.";
             VerifyText.Foreground = (System.Windows.Media.Brush)FindResource("SuccessBrush");
         }
         else
         {
-            VerifyText.Text =
-                $"{_data.Actors.Count - _data.FullyParsedActors} of {_data.Actors.Count} records didn't match the end offset " +
-                "the save declares for them, so parts of this file may be shown incompletely.";
+            VerifyText.Text = isProgress
+                ? $"{_data.Actors.Count - _data.FullyParsedActors} of {_data.Actors.Count} records didn't match the end offset " +
+                  "the save declares for them, so parts of this file may be shown incompletely."
+                : "The property list stopped before the end of the file, so some of it isn't shown.";
             VerifyText.Foreground = (System.Windows.Media.Brush)FindResource("WarningBrush");
         }
 
