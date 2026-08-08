@@ -48,11 +48,9 @@ public partial class MainViewModel : ObservableObject
     public IRelayCommand<ModInfo> DisableModCommand { get; }
     public IRelayCommand<ModInfo> UninstallModCommand { get; }
     public IRelayCommand<ModInfo> ViewFilesCommand { get; }
-    public IRelayCommand RunCompatibilityCheckCommand { get; }
     public IAsyncRelayCommand RunDeepScanCommand { get; }
     public IAsyncRelayCommand CheckUE4SSUpdateCommand { get; }
     public IAsyncRelayCommand InstallOrUpdateUE4SSCommand { get; }
-    public IRelayCommand CreateLogicModsFolderCommand { get; }
     public IRelayCommand ToggleLogCommand { get; }
     public IRelayCommand SaveLogCommand { get; }
     public IRelayCommand OpenSettingsCommand { get; }
@@ -70,11 +68,9 @@ public partial class MainViewModel : ObservableObject
         DisableModCommand = new RelayCommand<ModInfo>(DisableMod);
         UninstallModCommand = new RelayCommand<ModInfo>(UninstallMod);
         ViewFilesCommand = new RelayCommand<ModInfo>(ViewFiles);
-        RunCompatibilityCheckCommand = new RelayCommand(RunCompatibilityCheck);
         RunDeepScanCommand = new AsyncRelayCommand(RunDeepScanAsync);
         CheckUE4SSUpdateCommand = new AsyncRelayCommand(CheckUE4SSUpdateAsync);
         InstallOrUpdateUE4SSCommand = new AsyncRelayCommand(InstallOrUpdateUE4SSAsync);
-        CreateLogicModsFolderCommand = new RelayCommand(CreateLogicModsFolder);
         ToggleLogCommand = new RelayCommand(() => IsLogVisible = !IsLogVisible);
         SaveLogCommand = new RelayCommand(SaveLog);
         OpenSettingsCommand = new RelayCommand(OpenSettings);
@@ -151,12 +147,6 @@ public partial class MainViewModel : ObservableObject
             LoggingService.Instance.Warn(
                 "UE4SS was detected but wasn't installed by this manager, so we can't confirm it's the " +
                 "experimental build. If mods don't load, reinstall UE4SS from the button above.");
-        }
-
-        if (!_ue4ss.LogicModsFolderExists(game))
-        {
-            LoggingService.Instance.Info(
-                "Content\\Paks\\LogicMods doesn't exist yet (created by the game on first launch after UE4SS is installed).");
         }
 
         RunCompatibilityCheck();
@@ -656,12 +646,6 @@ public partial class MainViewModel : ObservableObject
             IsBusy = false;
             ProgressValue = 0;
         }
-    }
-
-    private void CreateLogicModsFolder()
-    {
-        if (Game == null) return;
-        _ue4ss.CreateLogicModsFolder(Game);
     }
 
     private void OpenGameData()

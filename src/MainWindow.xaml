@@ -60,14 +60,12 @@
 
             <StackPanel Grid.Column="0" Orientation="Horizontal">
                 <Button Content="Install Mod..." Style="{StaticResource AccentButton}" Command="{Binding InstallModCommand}" Margin="0,0,8,0"/>
-                <Button Content="Check Compatibility" Style="{StaticResource GhostButton}" Command="{Binding RunCompatibilityCheckCommand}" Margin="0,0,8,0"/>
-                <Button Content="Deep Scan" Style="{StaticResource GhostButton}" Command="{Binding RunDeepScanCommand}" Margin="0,0,8,0"
-                        ToolTip="Re-reads installed pak files in place for the most accurate conflict detection."/>
+                <Button Content="Re-scan Mod Files" Style="{StaticResource GhostButton}" Command="{Binding RunDeepScanCommand}" Margin="0,0,8,0"
+                        ToolTip="Re-reads every installed mod's pak from disk. Conflict checking is automatic, so you only need this if a mod's files changed outside the manager."/>
                 <Button Content="Find Existing Mods" Style="{StaticResource GhostButton}" Command="{Binding ScanForExistingModsCommand}" Margin="0,0,8,0"
                         ToolTip="Finds mods already in your game folders that this manager isn't tracking yet, and offers to import them."/>
-                <Button Content="Saves &amp; Config" Style="{StaticResource GhostButton}" Command="{Binding OpenGameDataCommand}" Margin="0,0,8,0"
+                <Button Content="Saves &amp; Config" Style="{StaticResource GhostButton}" Command="{Binding OpenGameDataCommand}"
                         ToolTip="View, clone, disable or delete save games, and edit the game's config files."/>
-                <Button Content="Create LogicMods Folder" Style="{StaticResource GhostButton}" Command="{Binding CreateLogicModsFolderCommand}"/>
             </StackPanel>
 
             <!-- UE4SS status card -->

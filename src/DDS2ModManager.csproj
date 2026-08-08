@@ -12,7 +12,7 @@
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <Product>DDS2 Mod Manager</Product>
-    <Version>1.0.4</Version>
+    <Version>1.0.5</Version>
 
     <!--
       True single-file publish. Without SelfContained + RuntimeIdentifier, `dotnet publish
@@ -25,6 +25,14 @@
       call) is safe. None of this affects plain `dotnet build`/F5 - only `dotnet publish`.
     -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!--
+      Publish alongside the build output instead of under an extra win-x64\ folder.
+      Directory.Build.props strips the platform and RID segments from the build path; publish
+      computes its own directory, so it needs telling separately. Set here rather than in
+      Directory.Build.props because that file is imported before TargetFramework exists.
+      The release workflow uploads from this exact path - keep them in step.
+    -->
+    <PublishDir>bin\$(Configuration)\$(TargetFramework)\publish\</PublishDir>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>

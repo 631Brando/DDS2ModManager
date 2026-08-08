@@ -115,12 +115,10 @@ public class ModInstallerService
             switch (analysis.Type)
             {
                 case ModType.LogicMod:
-                    if (!Directory.Exists(_game.LogicModsPath))
-                    {
-                        log.Error("Content\\Paks\\LogicMods doesn't exist yet. Launch the game once (with UE4SS " +
-                                  "installed) and close it, then try installing this logic mod again.");
-                        return null;
-                    }
+                    // InstallPakTriple creates the folder if it's missing. UE4SS also creates it
+                    // itself the first time the game runs, so there's nothing special about it -
+                    // blocking the install until the user had launched the game once was pure
+                    // friction for a directory we can just make.
                     InstallPakTriple(chosenRoot, _game.LogicModsPath, mod);
                     break;
 

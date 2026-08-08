@@ -68,10 +68,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
+          # Paths come from <PublishDir> in each .csproj - change them together.
           $assets = @(
-            "src/bin/Release/net10.0-windows/win-x64/publish/DDS2ModManager.exe",
-            "setup/bin/Release/net10.0-windows/win-x64/publish/DDS2ModManagerSetup.exe"
+            "src/bin/Release/net10.0-windows/publish/DDS2ModManager.exe",
+            "setup/bin/Release/net10.0-windows/publish/DDS2ModManagerSetup.exe"
           )
+          foreach ($a in $assets) {
+            if (-not (Test-Path $a)) { throw "Expected asset not found: $a" }
+          }
           if ("${{ steps.notes.outputs.found }}" -eq "true") {
             gh release create "${{ github.ref_name }}" $assets --title "${{ github.ref_name }}" --notes-file RELEASE_NOTES.md
           } else {

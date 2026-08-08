@@ -154,6 +154,45 @@
                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
             </Style>
 
+            <!--
+              Tooltips render in their own popup with WPF's default light chrome, but still inherit
+              the light TextElement.Foreground set on the window - so without this they're
+              near-white text on a near-white bar, i.e. an empty box. Same failure mode as the
+              editable controls above. The explicit template is deliberate: setting Background
+              alone leaves the default template's own chrome visible behind it.
+            -->
+            <Style TargetType="ToolTip">
+                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                <Setter Property="Background" Value="#20222E"/>
+                <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="10,7"/>
+                <Setter Property="MaxWidth" Value="380"/>
+                <Setter Property="HasDropShadow" Value="False"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ToolTip">
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter>
+                                    <ContentPresenter.Resources>
+                                        <!-- Tooltip content is usually a bare string, which becomes a
+                                             TextBlock - so wrapping has to be set here, not on the popup. -->
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                            <Setter Property="TextWrapping" Value="Wrap"/>
+                                            <Setter Property="FontSize" Value="12"/>
+                                        </Style>
+                                    </ContentPresenter.Resources>
+                                </ContentPresenter>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <Style TargetType="TextBox">
                 <Setter Property="Background" Value="#20222E"/>
                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>

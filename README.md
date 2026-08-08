@@ -26,9 +26,10 @@ WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
   from PatchMods, and how it detects when two mods edit the same file. **If CUE4Parse
   can't verify a mod's type, installation is blocked** rather than guessing (a wrong
   guess would put a LogicMod in the Paks folder where it silently won't load).
-- **Two conflict checks**: a fast one that runs automatically after every change, and a
-  **Deep Scan** button that re-reads the pak files exactly as they sit installed in the
-  game folders — the authoritative check to run before launching.
+- **Conflict checking is automatic** — it re-runs after every install, import, enable,
+  disable, uninstall and reset, so the panel always reflects the current state. There's also a
+  **Re-scan Mod Files** button that re-reads every pak from disk, for the uncommon case where a
+  mod's files changed outside the manager.
 - **Finds mods you installed by hand** before ever using this manager (automatically on
   startup, or via the **Find Existing Mods** button). It reads each one's pak to work out
   what it actually is, flags anything that's in the wrong folder (a LogicMod sitting in
@@ -74,9 +75,18 @@ This project targets **`net10.0-windows`**, required by `CUE4Parse` `1.2.2.20260
 3. **Replace `src/Assets/mappings.usmap`** with your real mappings file — it currently
    ships as an empty placeholder. It's embedded into the exe at build time
    (`<EmbeddedResource>` in the `.csproj`), so end users never need to supply one.
-4. Set the solution platform to **x64** (Configuration Manager, or `-p:Platform=x64`
-   on the CLI) — CUE4Parse's native dependencies require it.
-5. Build. NuGet should restore `CUE4Parse` and `CommunityToolkit.Mvvm` automatically.
+4. Build. NuGet should restore `CUE4Parse` and `CommunityToolkit.Mvvm` automatically.
+
+Both projects pin `x64` and `win-x64` themselves, so you don't need to pass `-p:Platform=x64`
+or pick a platform in Configuration Manager — CUE4Parse's native dependencies require x64 and
+that's already the only option. `Directory.Build.props` also strips the platform and RID folders
+out of the output path, so however you build (CLI, solution, or Visual Studio) everything lands
+in one place:
+
+```
+src/bin/<Configuration>/net10.0-windows/           # build output
+src/bin/<Configuration>/net10.0-windows/publish/   # single-file publish
+```
 
 ## Installing
 
@@ -111,7 +121,7 @@ dotnet publish src/DDS2ModManager.csproj -c Release
 dotnet publish setup/DDS2ModManagerSetup.csproj -c Release
 ```
 
-Each produces a single self-contained `.exe` under `bin/x64/Release/net10.0-windows/win-x64/publish/`
+Each produces a single self-contained `.exe` under `bin/Release/net10.0-windows/publish/`
 (native WPF interop DLLs are bundled inside and self-extract to a per-app `%TEMP%` cache
 at first run - invisible to the user). The only file that appears alongside
 `DDS2ModManager.exe` afterward is `oodle-data-shared.dll`, which the app downloads and
@@ -163,9 +173,9 @@ updating `AssetName` in both `src/Services/AppUpdateService.cs` and
 - **"Last mod wins" conflict guess**: real UE pak mount priority isn't guaranteed to be
   alphabetical. The compatibility checker's "likely winner" is a clearly-labeled
   best-effort heuristic, not a guarantee — if it matters, test in-game.
-- **LogicMods folder**: doesn't exist until the game has been launched once with UE4SS
-  installed. The app detects this and tells the user to launch/close the game first;
-  there's also a "Create LogicMods Folder" button if you'd rather create it manually.
+- **LogicMods folder**: `Content\Paks\LogicMods` doesn't exist until the game has been launched
+  once with UE4SS installed. Nothing needs doing about it — the manager creates it when it
+  installs a logic mod, and UE4SS creates it itself on first run.
 
 ## Project layout
 

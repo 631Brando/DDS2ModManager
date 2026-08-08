@@ -138,11 +138,4 @@ public class UE4SSManagerService
         }
     }
 
-    public bool LogicModsFolderExists(GameInstallation game) => Directory.Exists(game.LogicModsPath);
-
-    public void CreateLogicModsFolder(GameInstallation game)
-    {
-        Directory.CreateDirectory(game.LogicModsPath);
-        LoggingService.Instance.Info("Created Content\\Paks\\LogicMods folder.");
-    }
 }

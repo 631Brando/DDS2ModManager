@@ -3,6 +3,62 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
+## v1.0.5
+
+### Save inspector
+
+New **Inspect** button on the Saves tab of **Saves & Config**. It opens a searchable, read-only
+view of what the game actually stored in a save — every persistent actor and every variable it
+saved, as an expandable tree — plus **Export as Text** to dump the whole thing to a file.
+
+DDS2 doesn't use Unreal's standard `GVAS` save format. It uses RamaSave, which writes its own
+container and its own property records, which is why general-purpose Unreal save editors can't
+open these files at all. The reader here works the format out directly, so things like a
+hideout's stored substances, deployed equipment and property stats come out as readable values
+rather than a wall of bytes.
+
+Two things worth being clear about:
+
+- **It never writes to your saves.** Writing one back would mean reproducing the compression,
+  the record offsets and the internal markers byte-exactly, and getting that wrong corrupts a
+  playthrough. This is a viewer.
+- **It doesn't guess.** Every actor record in the file states where it ends, so each one is
+  checked against its own declared end offset rather than assumed correct — if a record doesn't
+  line up, the window says so instead of showing partial data as though it were complete. Where a
+  value's type genuinely can't be known (eight zero bytes are identical whether they're the
+  number 0 or an empty container), it's labelled as such rather than shown as a confident number.
+
+Actor classes with many instances are grouped into one row, so a world with forty quest boxes in
+it doesn't bury everything else.
+
+### Tooltips were invisible
+
+Hovering over a button showed a blank white bar with no text. Tooltips render in their own popup
+using WPF's default light chrome, but still inherited the dark theme's light text colour — white
+text on a white background. They're now styled to match the rest of the app.
+
+### Three buttons that shouldn't have been there
+
+- **Create LogicMods Folder** is gone. Installing a logic mod creates the folder if it's missing,
+  and UE4SS creates it itself on first run. Relatedly, installing a LogicMod is no longer
+  *blocked* when that folder doesn't exist yet — that was friction over a directory the manager
+  can simply create.
+- **Check Compatibility** is gone. Conflict checking already runs automatically after every
+  install, import, enable, disable, uninstall and reset, so the button only ever re-did work the
+  app had already done.
+- **Deep Scan** is now **Re-scan Mod Files**, which describes what it actually does: re-read every
+  installed mod's pak from disk. You only need it if a mod's files changed outside the manager.
+
+### Internal
+
+- Build output used to land in up to three different folders depending on how you built it
+  (`bin\Debug\...`, `bin\x64\Debug\...`, each with an extra `win-x64\`), which made it easy to run
+  a stale executable and conclude a change hadn't worked. Both projects hardcode x64 and win-x64,
+  so those path segments carried no information; `Directory.Build.props` now pins a single output
+  path per configuration. The README and the release workflow had drifted onto two different ones
+  of those paths — both now point at the real one, and the workflow checks each asset exists
+  before creating the release rather than publishing an empty one.
+
 ## v1.0.4
 
 ### Conflict detection now understands what LogicMods actually do

@@ -43,6 +43,14 @@ public partial class GameDataWindow : Window
 
     private void RefreshSaves_Click(object sender, RoutedEventArgs e) => RefreshSaves();
 
+    private void InspectSave_Click(object sender, RoutedEventArgs e)
+    {
+        var save = SelectedSave();
+        if (save == null) return;
+
+        new SaveInspectorWindow(save) { Owner = this }.ShowDialog();
+    }
+
     private void CloneSave_Click(object sender, RoutedEventArgs e)
     {
         var save = SelectedSave();

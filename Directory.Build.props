@@ -1,0 +1,30 @@
+<Project>
+
+  <PropertyGroup>
+    <!--
+      Keep build output in exactly one place per configuration.
+
+      By default MSBuild inserts both the platform and the runtime identifier into the output
+      path, so the same source produced three different folders depending on how you invoked the
+      build:
+
+        dotnet build                        -> bin\Debug\net10.0-windows\win-x64\
+        dotnet build -p:Platform=x64        -> bin\x64\Debug\net10.0-windows\win-x64\
+        Visual Studio (the .sln pins x64)   -> bin\x64\Debug\net10.0-windows\win-x64\
+
+      Three stale copies of the app is confusing on its own, but the real hazard is running the
+      wrong one and thinking a change didn't take. Neither segment earns its keep here: both
+      projects hardcode x64 and win-x64, so there is only ever one platform and one RID to tell
+      apart. Turning both off gives a single predictable path:
+
+        bin\<Configuration>\net10.0-windows\           (build)
+        bin\<Configuration>\net10.0-windows\publish\   (publish)
+
+      If this project ever targets a second platform or RID, remove these and the segments come
+      back automatically.
+    -->
+    <AppendPlatformToOutputPath>false</AppendPlatformToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+
+</Project>
