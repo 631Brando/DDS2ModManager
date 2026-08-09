@@ -72,9 +72,14 @@ This project targets **`net10.0-windows`**, required by `CUE4Parse` `1.2.2.20260
    haven't already.
 2. Open `DDS2ModManager.sln` in Visual Studio 2026 (with the ".NET desktop development"
    workload), or just work from the CLI.
-3. **Replace `src/Assets/mappings.usmap`** with your real mappings file — it currently
-   ships as an empty placeholder. It's embedded into the exe at build time
-   (`<EmbeddedResource>` in the `.csproj`), so end users never need to supply one.
+3. `src/Assets/mappings.usmap` holds the game's type mappings, which CUE4Parse needs to make
+   sense of `.pak`/`.utoc` contents. It's embedded into the exe at build time
+   (`<EmbeddedResource>` in the `.csproj`), so end users never have to supply one — and it can
+   be overridden at runtime from the Settings page.
+
+   Note that this file is generated from Drug Dealer Simulator 2's own data and isn't covered by
+   this repository's licence; it belongs to the game's authors. If you fork this for another
+   game, replace it with mappings for that game.
 4. Build. NuGet should restore `CUE4Parse` and `CommunityToolkit.Mvvm` automatically.
 
 Both projects pin `x64` and `win-x64` themselves, so you don't need to pass `-p:Platform=x64`
@@ -177,10 +182,23 @@ updating `AssetName` in both `src/Services/AppUpdateService.cs` and
   once with UE4SS installed. Nothing needs doing about it — the manager creates it when it
   installs a logic mod, and UE4SS creates it itself on first run.
 
+## License
+
+[MIT](LICENSE). Do what you like with it, keep the copyright notice, no warranty.
+
+The dependencies are all permissive and compatible with that:
+[CUE4Parse](https://github.com/FabianFG/CUE4Parse) (Apache-2.0), CommunityToolkit.Mvvm,
+SharpCompress and Microsoft.Bcl.Memory (MIT).
+
+The MIT license covers the code in this repository. It does **not** cover
+`src/Assets/mappings.usmap`, which is generated from Drug Dealer Simulator 2's own type
+information and belongs to the game's authors — see the note in the build steps above.
+
 ## Project layout
 
 ```
 DDS2ModManager/
+  LICENSE
   DDS2ModManager.sln
   .github/workflows/release.yml  - builds + uploads both exes on a "v*" tag push
   src/
@@ -199,7 +217,7 @@ DDS2ModManager/
     Converters/       - WPF value converters for the dark theme UI
     ViewModels/       - MainViewModel (MVVM via CommunityToolkit.Mvvm)
     Views/            - SettingsWindow
-    Assets/           - mappings.usmap (replace with your real file)
+    Assets/           - mappings.usmap (game type mappings; see License)
   setup/
     DDS2ModManagerSetup.csproj  - the installer; links a few dependency-free Services
                                   files from src/ instead of referencing the main project
