@@ -210,11 +210,12 @@ its API to premium members, which would have made one-click updates a paid featu
 Two ways, depending on what your mod is.
 
 **LogicMods** — add a **string variable called `ModUpdateUrl`** to your `ModActor`, with your
-repository as its default value. Optionally add `ModVersion` too, so the manager can tell
-which version someone has. No extra files: you ship the same `.pak`/`.ucas`/`.utoc` as before.
+repository as its default value. Add `ModVersion` too: without it the manager has nothing to
+compare a release against and will never offer an update. No extra files — you ship the same
+`.pak`/`.ucas`/`.utoc` as before.
 
 ```
-ModUpdateUrl  =  https://github.com/yourname/yourmod
+ModUpdateUrl  =  https://github.com/yourname/YourMod
 ModVersion    =  1.2.0
 ```
 
@@ -240,8 +241,18 @@ after the mod (`MyMod.dds2mod.json`) — pak mods all share `Content\Paks\LogicM
 without the name match the manager could pick up a neighbouring mod's manifest and offer
 updates from someone else's repository.
 
+**The address itself** may be written several ways — the full `https://github.com/you/YourMod`,
+with `.git` or a deep link on the end, without the scheme, or as the short `you/YourMod`. They
+all resolve to the same repository, and only `github.com` is accepted. There are a couple of
+sharp edges worth knowing (the short form breaks on a dot; a trailing full stop becomes part of
+the repository name; and reformatting a working address in a later release reads as the address
+having *moved*). All of it is spelled out in
+[What the address may look like](MODDING.md#what-the-address-may-look-like).
+
 Publish releases with the version as the tag (`v1.2.0` or `1.2.0`), and attach the mod as a
-`.zip`/`.7z`/`.rar`. The release description is shown to users as the changelog.
+single `.zip`/`.7z`/`.rar`. The release description is shown to users as the changelog. A bare
+`.pak` is recognised as a new version but can't be unpacked, so users are told an update exists
+and given a link to fetch it themselves.
 
 ### Trusting an author
 

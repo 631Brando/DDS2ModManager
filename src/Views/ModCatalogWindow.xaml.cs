@@ -155,6 +155,18 @@ public partial class ModCatalogWindow : Window
                 return;
             }
 
+            // A bare .pak identifies the release but the installer can't unpack one, so say that
+            // instead of downloading it and failing on the way in.
+            if (!ModUpdateService.CanAutoInstall(asset))
+            {
+                MessageBox.Show(
+                    $"The latest release of '{entry.Name}' ({release.TagName}) is published as {asset.Name}, which this " +
+                    "manager can't unpack on its own - it installs .zip, .7z and .rar. Use View Source to download it " +
+                    "and then install it with \"Install Mod...\".",
+                    "Browse Mods", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
             var downloaded = await _downloader.DownloadAsync(asset.BrowserDownloadUrl, asset.Name);
             if (downloaded == null)
             {
@@ -182,19 +194,10 @@ public partial class ModCatalogWindow : Window
         }
     }
 
-    private static readonly string[] InstallableExtensions = { ".zip", ".7z", ".rar", ".pak" };
-
-    private static GitHubAsset? PickAsset(GitHubReleaseInfo release, CatalogMod entry)
-    {
-        if (!string.IsNullOrWhiteSpace(entry.Asset))
-            return release.Assets.FirstOrDefault(a => a.Name.Equals(entry.Asset, StringComparison.OrdinalIgnoreCase));
-
-        var installable = release.Assets
-            .Where(a => InstallableExtensions.Contains(Path.GetExtension(a.Name), StringComparer.OrdinalIgnoreCase))
-            .ToList();
-
-        return installable.Count == 1 ? installable[0] : null;
-    }
+    /// Defers to ModUpdateService so the catalog and the updater cannot disagree about which file
+    /// in a release IS the mod. This was a third copy of the rule; the copies had already drifted.
+    private static GitHubAsset? PickAsset(GitHubReleaseInfo release, CatalogMod entry) =>
+        ModUpdateService.PickAsset(release, new ModUpdateSource { DeclaredAssetName = entry.Asset ?? "" });
 
     private void ViewSource_Click(object sender, RoutedEventArgs e)
     {

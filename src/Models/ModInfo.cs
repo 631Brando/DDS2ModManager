@@ -104,8 +104,13 @@ public partial class ModInfo : ObservableObject
     /// Release notes for the available update, shown before the user agrees to install it.
     [ObservableProperty] private string? availableUpdateNotes;
 
-    /// Download URL of the asset an update would install. Held so the confirmation prompt and the
-    /// install use exactly the same one, rather than re-resolving and possibly picking differently.
+    /// Download URL of the asset the check identified as this update.
+    ///
+    /// Recorded so the row can say what it found. The install re-fetches the release and re-picks
+    /// through ModUpdateService.PickAsset rather than trusting this, because a cached URL can be
+    /// hours old by the time someone clicks - but it is the SAME picking rule, which is the part
+    /// that used to be wrong: the install had its own inline rule and ignored the author's
+    /// declared asset name.
     [ObservableProperty] private string? availableUpdateAssetUrl;
 
     // ---- derived from UpdateSource; never stored ---------------------------------------------

@@ -401,12 +401,16 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
-            // Anything the manager can actually install. A release full of source archives or
-            // loose .dll files is not something to hand to the mod installer.
-            var asset = release.Assets.FirstOrDefault(a =>
-                a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
-                a.Name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) ||
-                a.Name.EndsWith(".rar", StringComparison.OrdinalIgnoreCase));
+            // The SAME rule the check used, not a second one. This previously re-resolved the
+            // asset inline, which meant an author who named a specific file in their manifest got
+            // the update detected via that file and installed from whichever archive sorted first.
+            var asset = ModUpdateService.PickAsset(release, source);
+
+            // Detected and installable are different questions. A bare .pak is a real release and
+            // worth telling the user about, but ModInstallerService.PrepareInstall throws on
+            // anything that isn't a folder or a zip/7z/rar - so the prompt offers the release
+            // without offering to install it, rather than failing after they agree.
+            var installable = asset != null && ModUpdateService.CanAutoInstall(asset);
 
             // The prompt is unconditional. Trust changes how much it has to EXPLAIN - it never
             // removes it. This is the only place a user ever sees where an update is coming from,
@@ -419,7 +423,7 @@ public partial class MainViewModel : ObservableObject
                 newVersion: ModUpdateService.NormalizeVersion(release.TagName),
                 releaseNotes: release.Body,
                 releaseUrl: $"https://github.com/{owner}/{repo}/releases/tag/{release.TagName}",
-                canAutoInstall: asset != null,
+                canAutoInstall: installable,
                 urlChanged: mod.UpdateUrlChanged)
             {
                 Owner = System.Windows.Application.Current.MainWindow
@@ -433,7 +437,7 @@ public partial class MainViewModel : ObservableObject
             if (prompt.TrustAuthorChecked && !mod.TrustedAuthor && !mod.UpdateUrlChanged)
                 mod.TrustedAuthor = true;
 
-            if (!accepted || asset == null) return;
+            if (!accepted || asset == null || !installable) return;
 
             // 1. Download first. Nothing about the installed mod has changed yet, so a failure
             //    here costs the user nothing.

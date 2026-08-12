@@ -35,12 +35,19 @@ public class ModUpdateSource
     /// would come from before they agree to anything.
     public string DeclaredUrl { get; set; } = "";
 
-    /// Author name, when the mod states one. Used for the trust prompt, since trust is granted per
-    /// author rather than per mod.
+    /// Author name, when the mod states one.
+    ///
+    /// Recorded but not displayed: the prompt and the mod list both name Owner, the GitHub account
+    /// that actually publishes the release, because that is the identity trust is granted against
+    /// and it is verifiable. This is free text the mod says about itself.
     public string Author { get; set; } = "";
 
-    /// The mod's own version string, when it states one. Optional: without it the manager compares
-    /// release tags instead and can only tell "there is a newer release", not "you are N behind".
+    /// The mod's own version string, when it states one.
+    ///
+    /// Required in practice, despite plenty of mods not setting it: there is no tag-only fallback.
+    /// With nothing to compare a release tag against, ModUpdateService.CheckOneAsync reports
+    /// neither "up to date" nor "update available" - both would be guesses - so the mod is checked
+    /// and then left alone. MODDING.md tells authors as much.
     public string Version { get; set; } = "";
 
     /// Release asset the author named, for repositories whose releases carry several files. When

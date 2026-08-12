@@ -22,7 +22,8 @@ public partial class ModAuthorGuideWindow : Window
   "name": "Your Mod",
   "author": "yourname",
   "version": "1.0.0",
-  "updateUrl": "https://github.com/yourname/yourmod"
+  "updateUrl": "https://github.com/yourname/YourMod",
+  "asset": "YourMod.zip"
 }
 """;
 
@@ -31,14 +32,23 @@ public partial class ModAuthorGuideWindow : Window
         InitializeComponent();
 
         AddStep(1, "Pick where the address lives",
-            $"Logic mods carry it inside the mod itself. Patch mods and lua mods have no ModActor, so they ship a small file next to the mod instead.\n\n" +
-            $"Either way it is one string: the GitHub repository you publish releases from.");
+            "Logic mods carry it inside the mod itself. Patch mods and lua mods have no ModActor, so they ship a small file next to the mod instead.\n\n" +
+            "Either way it is one string: the GitHub repository you publish releases from. All of these are accepted and mean the same thing:\n\n" +
+            "    https://github.com/yourname/YourMod\n" +
+            "    https://github.com/yourname/YourMod.git\n" +
+            "    https://github.com/yourname/YourMod/releases/latest\n" +
+            "    https://www.github.com/yourname/YourMod\n" +
+            "    github.com/yourname/YourMod\n" +
+            "    yourname/YourMod\n\n" +
+            "Only the first two path segments are read, so a link to a release, a branch or a file all resolve to the repository. Casing of the scheme and host does not matter.\n\n" +
+            "The short yourname/YourMod form is stricter than it looks: it needs exactly one slash and NO dot anywhere, so yourname/My.Mod and yourname/YourMod.git are both refused. If your repository name contains a dot, write the full https URL instead.\n\n" +
+            "Not accepted: plain http, the git@github.com:you/mod.git clone string, gists, raw.githubusercontent.com, and any host other than github.com. Watch for a trailing full stop - it is read as part of the repository name.");
 
         AddStep(2, "Logic mods: a variable on your ModActor",
             $"Add a String variable called {ModUpdateSourceResolver.UrlProperty} to your mod's ModActor, and set its DEFAULT VALUE to your repository:\n\n" +
             $"    {ModUpdateSourceResolver.UrlProperty} = https://github.com/yourname/yourmod\n" +
             $"    {ModUpdateSourceResolver.VersionProperty} = 1.0.0\n\n" +
-            $"{ModUpdateSourceResolver.VersionProperty} is optional but worth adding - without it the manager can see that a newer release exists but cannot tell which version the player already has, so it says nothing rather than guessing.\n\n" +
+            $"{ModUpdateSourceResolver.VersionProperty} is required in practice. Without it the manager can see that a newer release exists but cannot tell which version the player already has, so it offers nothing at all rather than guessing.\n\n" +
             "Costs no extra files: you ship the same .pak/.ucas/.utoc as before. Remember the value has to be set as the variable's default, and the mod has to be re-cooked before players see it.",
             emphasis: "It must be the variable's DEFAULT value. A value assigned at runtime lives in Blueprint code, not in the cooked asset, and there is nothing to read.");
 
@@ -49,9 +59,10 @@ public partial class ModAuthorGuideWindow : Window
             emphasis: null);
 
         AddStep(4, "Publish releases with the version as the tag",
-            "Tag each release with its version - v1.2.0 or 1.2.0, either is fine - and attach the mod as a .zip, .7z or .rar.\n\n" +
+            "Tag each release with its version - v1.2.0 or 1.2.0, either is fine - and attach the mod as a single .zip, .7z or .rar.\n\n" +
             "The release description is shown to players as the changelog before they agree to update, so it is worth writing.\n\n" +
-            "If a release has no attached file, players still get told there is a new version and see what changed; they just download it themselves.");
+            "A bare .pak is spotted as a new version but cannot be unpacked for the player - they are told an update exists and given a link to fetch it themselves. Same if a release has no attached file at all.\n\n" +
+            "If a release carries several files, name the right one with the \"asset\" field in your manifest. It has to be the exact published file name, so either keep that name stable between releases or leave the field out and publish exactly one archive - a name that matches nothing skips the update entirely.");
 
         AddStep(5, "If your mod has two halves, name the folders",
             "A mod with both a pak and a lua script goes to two different places. Lay the archive out so each half says where it belongs:\n\n" +
@@ -62,12 +73,13 @@ public partial class ModAuthorGuideWindow : Window
 
         AddStep(6, "What players see",
             "The manager checks your repository at most once every six hours and shows the mod as updateable in their list.\n\n" +
-            "Before anything downloads they are shown the release notes and the address it is coming from, because an update from your repository has not been through Nexus's virus scanning. Players can mark you as a trusted author to skip that prompt - and if your mod's update address ever changes, they are warned and trust is revoked automatically.",
-            emphasis: "Only https://github.com addresses are accepted. Anything else is ignored, so that players can always read the source of what they are about to run.");
+            "Before anything downloads they are shown the release notes and the address it is coming from, because an update from your repository has not been through Nexus's virus scanning. Players are asked every single time - marking you as a trusted author changes how much the prompt has to explain, it never removes it.\n\n" +
+            "If your mod's update address ever changes, they are warned, no update is offered until they confirm it, and trust in your account does not carry over.",
+            emphasis: "The address must point at a github.com repository - any other host, and plain http, are ignored, so players can always read the source of what they are about to run. The full https URL, github.com/you/YourMod, and the short you/YourMod are all accepted and mean the same thing. Whichever you pick, keep it byte-for-byte identical in every release: it is compared as the exact string you wrote, so even reformatting it reads as the address having moved.");
 
         AddStep(7, "Check it worked",
             "Re-cook and repack the mod, install it here, and look at the Version column. If it shows your version with a \"source\" link beside it, the manager can read it.\n\n" +
-            "If the column is blank, the address was not found - most often because the variable's default was not set before cooking, or the manifest is named without the .dds2mod.json ending.");
+            $"If the column is blank, the address was either not found or refused - most often because the variable's default was not set before cooking, the manifest is named without the {ModManifest.FileName} ending, or the address itself was rejected. A rejected address is named in the log, so read that before re-cooking.");
     }
 
     private void AddStep(int number, string title, string body, string? emphasis = null)

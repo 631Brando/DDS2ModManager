@@ -24,8 +24,9 @@ public class ModManifest
     [JsonPropertyName("author")]
     public string? Author { get; set; }
 
-    /// The mod's own version. Compared against the version in the update's manifest to decide
-    /// whether there's anything newer; without it the manager falls back to comparing release tags.
+    /// The mod's own version, compared against the release tag to decide whether there's anything
+    /// newer. Required in practice: there is no tag-only fallback, so a mod that declares no
+    /// version is never offered an update - see ModUpdateService.CheckOneAsync.
     [JsonPropertyName("version")]
     public string? Version { get; set; }
 

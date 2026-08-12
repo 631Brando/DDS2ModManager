@@ -38,8 +38,21 @@ public class ModUpdateService
     /// failures, twenty more log lines, and no new information.
     private const int ConsecutiveFailureLimit = 3;
 
-    /// Archive types the installer can actually handle - see ModInstallerService.
-    private static readonly string[] InstallableExtensions = { ".zip", ".7z", ".rar", ".pak" };
+    /// File types that identify "this release is the mod", for the purpose of noticing a new
+    /// version. Deliberately WIDER than what can be installed: a bare .pak is a real release of a
+    /// real mod, and telling someone their mod has an update they must fetch by hand is far more
+    /// use than saying nothing because the packaging isn't to our taste.
+    private static readonly string[] DetectableExtensions = { ".zip", ".7z", ".rar", ".pak" };
+
+    /// What the installer can actually unpack. Sourced from ArchiveExtractionService rather than
+    /// restated, because ModInstallerService.PrepareInstall THROWS on anything else - the two
+    /// lists drifting is what let a .pak release be detected, offered, and then refused.
+    private static string[] InstallableExtensions => ArchiveExtractionService.SupportedExtensions;
+
+    /// Whether the installer can take this asset, or the user has to download it themselves.
+    /// Callers use this to decide what the update prompt is allowed to offer.
+    public static bool CanAutoInstall(GitHubAsset asset) =>
+        InstallableExtensions.Contains(Path.GetExtension(asset.Name), StringComparer.OrdinalIgnoreCase);
 
     /// Releases already fetched this session, keyed owner/repo, so several mods sharing one
     /// repository - or a second check in the same session - don't each cost an API request.
@@ -180,9 +193,19 @@ public class ModUpdateService
         return release;
     }
 
-    /// Picks the file to download. A named asset wins; otherwise there has to be exactly one
-    /// installable archive, because picking the wrong one would install the wrong mod.
-    private static GitHubAsset? PickAsset(GitHubReleaseInfo release, ModUpdateSource source)
+    /// Picks the file this update refers to. A named asset wins; otherwise there has to be exactly
+    /// one candidate, because picking the wrong one would install the wrong mod.
+    ///
+    /// PUBLIC, and the only implementation. The check, the install prompt and the catalog all call
+    /// this. They used to each have their own rule, which is how an author's declared "asset" name
+    /// came to be honoured when spotting an update and ignored when installing it - the update was
+    /// detected via the named file and then installed from whichever archive happened to sort
+    /// first. One rule means that cannot happen again.
+    ///
+    /// A declared name that matches nothing returns null rather than falling back to guessing: the
+    /// author named a specific file, and quietly installing a different one is exactly the failure
+    /// naming it was meant to prevent.
+    public static GitHubAsset? PickAsset(GitHubReleaseInfo release, ModUpdateSource source)
     {
         if (!string.IsNullOrWhiteSpace(source.DeclaredAssetName))
         {
@@ -190,11 +213,11 @@ public class ModUpdateService
                 a.Name.Equals(source.DeclaredAssetName, StringComparison.OrdinalIgnoreCase));
         }
 
-        var installable = release.Assets
-            .Where(a => InstallableExtensions.Contains(Path.GetExtension(a.Name), StringComparer.OrdinalIgnoreCase))
+        var candidates = release.Assets
+            .Where(a => DetectableExtensions.Contains(Path.GetExtension(a.Name), StringComparer.OrdinalIgnoreCase))
             .ToList();
 
-        return installable.Count == 1 ? installable[0] : null;
+        return candidates.Count == 1 ? candidates[0] : null;
     }
 
     /// Downloads an update to a temporary file and hands back the path. Installing it is the
