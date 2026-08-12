@@ -19,12 +19,14 @@ namespace DDS2ModManager.Services;
 /// NOTE on "who wins": UE4/UE5 pak mount priority depends on chunk priority and internal
 /// mount rules, not strictly alphabetical order. The "likely winner" is a clearly-labeled
 /// best-effort guess (last alphabetically), not a guarantee - if it matters, test in-game.
+///
+/// Lua mods are checked too, but on completely different evidence - see BuildLuaConflicts.
 public class CompatibilityCheckerService
 {
     public List<ModConflictGroup> CheckConflicts(IEnumerable<ModInfo> mods)
     {
         var enabled = mods.Where(m => m.IsEnabled && m.IsInstalled &&
-            m.Type is ModType.LogicMod or ModType.PatchMod).ToList();
+            m.Type is ModType.LogicMod or ModType.PatchMod or ModType.LuaMod).ToList();
 
         var conflicts = BuildAllConflicts(enabled, m => m.ContainedAssetPaths);
 
@@ -45,6 +47,12 @@ public class CompatibilityCheckerService
         var log = LoggingService.Instance;
         var enabled = mods.Where(m => m.IsEnabled && m.IsInstalled &&
             m.Type is ModType.LogicMod or ModType.PatchMod).ToList();
+
+        // Lua mods are deliberately kept out of the mount below: they ship no container, so
+        // ReadModArchivePaths would find nothing for every one of them and warn about it. Their
+        // check reads the .lua text straight off disk at InstallPath, which is the same thing the
+        // fast check does - a deep scan genuinely buys a lua mod nothing extra.
+        var luaMods = mods.Where(m => m.IsEnabled && m.IsInstalled && m.Type == ModType.LuaMod).ToList();
 
         log.Info("Deep scan: re-reading installed pak files in place...");
 
@@ -99,7 +107,8 @@ public class CompatibilityCheckerService
             (provider as IDisposable)?.Dispose();
         }
 
-        var conflicts = BuildAllConflicts(perMod.Keys, m => perMod[m]);
+        var conflicts = BuildAllConflicts(perMod.Keys.Concat(luaMods),
+            m => perMod.TryGetValue(m, out var paths) ? paths : m.ContainedAssetPaths);
 
         LogResult(conflicts, "Deep scan");
         return conflicts;
@@ -157,9 +166,21 @@ public class CompatibilityCheckerService
     {
         var modList = mods.ToList();
 
-        var conflicts = BuildFileConflicts(modList, pathSelector);
-        conflicts.AddRange(BuildDataTableConflicts(modList));
-        conflicts.AddRange(BuildPatchReplacesTableConflicts(modList, pathSelector));
+        // Pak mods and lua mods must never be compared against each other by path, and lua mods
+        // must never go through BuildFileConflicts at all.
+        //
+        // A pak mod's ContainedAssetPaths are virtual mount paths inside its container; a lua
+        // mod's are the real relative files in its own private folder - and EVERY lua mod on earth
+        // contains "Scripts/main.lua". Feeding them to the same path map turns every pair of lua
+        // mods into a Critical "both replace the same file" card, which is exactly backwards:
+        // those two files live in two different folders and never see each other.
+        var pakMods = modList.Where(m => m.Type is ModType.LogicMod or ModType.PatchMod).ToList();
+        var luaMods = modList.Where(m => m.Type == ModType.LuaMod).ToList();
+
+        var conflicts = BuildFileConflicts(pakMods, pathSelector);
+        conflicts.AddRange(BuildDataTableConflicts(pakMods));
+        conflicts.AddRange(BuildPatchReplacesTableConflicts(pakMods, pathSelector));
+        conflicts.AddRange(BuildLuaConflicts(luaMods));
 
         // A pair could in principle turn up from both passes (e.g. shipping the same file *and*
         // merging into the same table). Fold those together so the panel never shows the same two
@@ -342,6 +363,347 @@ public class CompatibilityCheckerService
 
         return pairs.Values.ToList();
     }
+
+    // =============================================================================================
+    // Lua mods
+    // =============================================================================================
+    //
+    // Lua mods share no files and no DataTables, so everything above is blind to them. What they do
+    // share is UE4SS's process-wide registries, and only two of those can be read out of the script
+    // text with enough confidence to put a card on screen:
+    //
+    //   * console command names  (RegisterConsoleCommandHandler)
+    //   * key bindings           (RegisterKeyBind / RegisterKeyBindAsync)
+    //
+    // Plus the one filesystem case: two lua mods installed into the same ue4ss\Mods\<X> folder.
+    //
+    // DELIBERATELY NOT CHECKED: two mods hooking the same UFunction via RegisterHook. It reads like
+    // the obvious signal and it is the worst one. Measured against the 17 lua mods installed in the
+    // game's ue4ss\Mods folder it produces nine pairs of pure noise and not one real conflict: four
+    // separate mods hook /Script/Engine.PlayerController:ServerAcknowledgePossession purely to notice
+    // that the player spawned, two hook PlayerLocalPopupsWidget:DisplayShortNotify to read banners,
+    // the two built-in UE4SS mods both hook PlayerController:ClientRestart by design, and
+    // BotanistExpansion + EthanolExtraction both PRE-hook BlueprintHelpersLib:GetCraftingStationTypeMeta
+    // to append their own recipe rows to a widget - which their authors documented as safe precisely
+    // because neither touches the return value. UE4SS runs every registered callback, so a shared hook
+    // target is normal, not contested. The refinement that would make it a real signal - "and both
+    // mods write to the return value or a parameter" - has exactly two `:set(` calls across all 17
+    // mods, and neither is on a function another mod hooks, so there is nothing to build on.
+    //
+    // ALSO NOT CHECKED: hook targets and command names assembled at runtime. Most RegisterHook calls
+    // here build their path from a local constant plus a loop variable, and the same is true of some
+    // keybinds (see the blind spots listed above ExtractConsoleCommands). Resolving those means
+    // interpreting lua, and a half-interpreted string is exactly how a checker starts inventing
+    // conflicts - so an unresolvable form is dropped rather than approximated.
+
+    /// What one lua mod claims in the registries above, as parsed out of its own scripts.
+    private sealed class LuaRegistrations
+    {
+        public HashSet<string> ConsoleCommands { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> Keybinds { get; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private List<ModConflictGroup> BuildLuaConflicts(List<ModInfo> luaMods)
+    {
+        var groups = new List<ModConflictGroup>();
+        if (luaMods.Count < 2) return groups;
+
+        var folderClashes = BuildLuaFolderConflicts(luaMods);
+        groups.AddRange(folderClashes);
+
+        // Two rows pointing at one folder read the same scripts, so they "clash" on every command
+        // and every key in them - the same single finding counted a hundred times, and it would then
+        // merge into the folder card and relabel its list as files. The folder card says it once.
+        var sharedFolderPairs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var clash in folderClashes)
+            for (var i = 0; i < clash.ModNames.Count; i++)
+            for (var j = i + 1; j < clash.ModNames.Count; j++)
+                sharedFolderPairs.Add($"{clash.ModNames[i]}|{clash.ModNames[j]}");
+
+        var perMod = new Dictionary<ModInfo, LuaRegistrations>();
+        var unreadable = new List<string>();
+        foreach (var mod in luaMods)
+        {
+            var regs = ReadLuaRegistrations(mod);
+            if (regs != null) perMod[mod] = regs;
+            else unreadable.Add(mod.Name);
+        }
+
+        // Same argument as NeedsDataTableRefresh: a mod we could not read looks identical to a mod
+        // that conflicts with nothing, so say which ones we were blind to rather than let the panel
+        // imply it checked them.
+        if (unreadable.Count > 0)
+            LoggingService.Instance.Warn(
+                "Couldn't read the scripts of " + string.Join(", ", unreadable) +
+                " - their console commands and keybinds were not compared. Re-install them if the folder has moved.");
+
+        groups.AddRange(BuildLuaRegistrationConflicts(perMod, sharedFolderPairs, r => r.ConsoleCommands,
+            ConflictKind.LuaConsoleCommandClash, ModConflictGroup.LuaCommandLabel));
+        groups.AddRange(BuildLuaRegistrationConflicts(perMod, sharedFolderPairs, r => r.Keybinds,
+            ConflictKind.LuaKeybindClash, ModConflictGroup.LuaKeybindLabel));
+
+        return groups;
+    }
+
+    /// Two lua mods installed into the same ue4ss\Mods\&lt;X&gt; folder.
+    ///
+    /// InstallLuaMod names the folder after the archive's own root folder, never after mod.Name, so
+    /// two unrelated downloads that both ship a folder called "Mods" (or two copies of one mod) land
+    /// on top of each other: the second copy overwrites the first file by file, and mods.txt keys on
+    /// the folder so both rows share a single enable/disable switch. Compared on the real folder on
+    /// disk rather than on file lists - see the "Scripts/main.lua" trap in BuildAllConflicts.
+    private List<ModConflictGroup> BuildLuaFolderConflicts(List<ModInfo> luaMods)
+    {
+        return luaMods
+            .Where(m => !string.IsNullOrWhiteSpace(m.InstallPath))
+            .GroupBy(m => Path.GetFileName(m.InstallPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+                     StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.DistinctBy(m => m.Id).Count() > 1)
+            .Select(g =>
+            {
+                var involved = g.DistinctBy(m => m.Id).ToList();
+                return new ModConflictGroup
+                {
+                    ModNames = involved.Select(m => m.Name)
+                        .OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList(),
+                    Kind = ConflictKind.ModFolderNameClash,
+                    Severity = ConflictSeverity.Critical,
+                    // The one place the winner is a fact rather than a guess: nothing is being
+                    // mounted or load-ordered here, the second install simply copied its files over
+                    // the first one's, so whoever was installed last is what is on disk now.
+                    LikelyWinningModName = involved.OrderBy(m => m.InstalledAt).Last().Name
+                };
+            })
+            .ToList();
+    }
+
+    /// Pairs up the mods that claim the same registration name. Aggregated per pair, like the
+    /// DataTable check: two mods that collide on six commands are one relationship, not six cards.
+    private List<ModConflictGroup> BuildLuaRegistrationConflicts(
+        Dictionary<ModInfo, LuaRegistrations> perMod,
+        HashSet<string> sharedFolderPairs,
+        Func<LuaRegistrations, HashSet<string>> selector,
+        ConflictKind kind,
+        string entryLabel)
+    {
+        var byName = new Dictionary<string, List<ModInfo>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (mod, regs) in perMod)
+        foreach (var name in selector(regs))
+        {
+            if (!byName.TryGetValue(name, out var list))
+                byName[name] = list = new List<ModInfo>();
+            if (!list.Contains(mod)) list.Add(mod);
+        }
+
+        var pairs = new Dictionary<string, ModConflictGroup>();
+
+        foreach (var (name, involved) in byName.Where(kv => kv.Value.Count > 1))
+        {
+            var contenders = involved.DistinctBy(m => m.Id)
+                .OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            if (contenders.Count < 2) continue;
+
+            // Pairwise for the same reason the DataTable check is: three mods on one command name
+            // is clearer as the pairs that actually collide.
+            for (var i = 0; i < contenders.Count; i++)
+            for (var j = i + 1; j < contenders.Count; j++)
+            {
+                var key = $"{contenders[i].Name}|{contenders[j].Name}";
+                if (sharedFolderPairs.Contains(key)) continue;
+
+                if (!pairs.TryGetValue(key, out var group))
+                {
+                    pairs[key] = group = new ModConflictGroup
+                    {
+                        ModNames = new List<string> { contenders[i].Name, contenders[j].Name },
+                        Kind = kind,
+                        // Not Critical: neither mod is broken and no content is lost - one name is
+                        // contested and everything else about both mods keeps working. The panel is
+                        // only useful while red still means "you will lose something".
+                        Severity = ConflictSeverity.Warning
+                    };
+                }
+
+                var entry = entryLabel + name;
+                if (!group.AssetPaths.Contains(entry)) group.AssetPaths.Add(entry);
+            }
+        }
+
+        foreach (var group in pairs.Values)
+            group.AssetPaths.Sort(StringComparer.OrdinalIgnoreCase);
+
+        return pairs.Values.ToList();
+    }
+
+    /// Reads a lua mod's scripts off disk. Null when the folder isn't there to read.
+    ///
+    /// Disabling a lua mod only flips its mods.txt entry to 0 and leaves the files alone, so unlike
+    /// a disabled pak mod the scripts are always where InstallPath says they are.
+    private LuaRegistrations? ReadLuaRegistrations(ModInfo mod)
+    {
+        var root = mod.InstallPath;
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) return null;
+
+        var regs = new LuaRegistrations();
+
+        foreach (var file in EnumerateLuaFiles(mod, root))
+        {
+            string source;
+            try
+            {
+                source = File.ReadAllText(file);
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Instance.Warn($"Couldn't read '{file}' while checking '{mod.Name}': {ex.Message}");
+                continue;
+            }
+
+            var code = StripLuaComments(source);
+            foreach (var name in ExtractConsoleCommands(code)) regs.ConsoleCommands.Add(name);
+            foreach (var bind in ExtractKeybinds(code)) regs.Keybinds.Add(bind);
+        }
+
+        return regs;
+    }
+
+    /// Every script the mod actually ships, and ONLY files whose extension is exactly .lua.
+    ///
+    /// A lua mod folder that has been worked on fills up with main.lua.bak, main.lua.prewidget and
+    /// mif_cloth_probe.lua.disabled next to the live script. UE4SS loads none of those, and counting
+    /// them would credit a mod with commands it removed three revisions ago - a conflict the user
+    /// cannot find or fix because it does not exist. Windows wildcard matching is the reason for the
+    /// explicit extension check on the fallback: "*.lua" also matches "main.luac".
+    private static IEnumerable<string> EnumerateLuaFiles(ModInfo mod, string root)
+    {
+        var rootFull = Path.GetFullPath(root);
+        // Compared with the separator attached, so "...\Foo" does not accept "...\FooBar".
+        var rootPrefix = rootFull.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+        var fromRegistry = mod.ContainedAssetPaths
+            .Where(p => p.EndsWith(".lua", StringComparison.OrdinalIgnoreCase))
+            // Screened BEFORE GetFullPath, not after it.
+            //
+            // The containment check below treats a stored path as external input, which is
+            // right - but GetFullPath is reached first, and it THROWS on a NUL or other
+            // invalid character rather than returning something a later Where could reject.
+            // RunCompatibilityCheck is synchronous on the UI thread, so that throw leaves as
+            // an unhandled-exception dialog with the panel never updating. The registry is
+            // JSON on disk and JSON can encode  , which is the same reason the check
+            // below exists: distrust a stored path for its whole journey, not just the last
+            // step of it.
+            .Where(p => p.IndexOfAny(Path.GetInvalidPathChars()) < 0)
+            .Select(p => Path.GetFullPath(Path.Combine(rootFull, p.Replace('/', Path.DirectorySeparatorChar))))
+            // Refuse to follow one that "..." its way back out of the mod's own folder.
+            .Where(p => p.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase) && File.Exists(p))
+            .ToList();
+
+        if (fromRegistry.Count > 0) return fromRegistry;
+
+        // Mods installed before lua checking existed have no .lua entries stored (and unmanaged
+        // folders adopted later may have none either), so fall back to the folder itself rather
+        // than reporting them as conflict-free without having looked.
+        return Directory.EnumerateFiles(rootFull, "*.lua", SearchOption.AllDirectories)
+            .Where(f => Path.GetExtension(f).Equals(".lua", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // --- lua text parsing ------------------------------------------------------------------------
+    //
+    // Only literal, directly readable registrations are collected. Everything below is built to fail
+    // towards silence: a form we cannot resolve is dropped, never guessed at, because a guessed
+    // command name that happens to match another mod's real one is a conflict card about nothing.
+    //
+    // Known and accepted blind spots, all seen in real mods on this machine:
+    //   * RegisterKeyBind(Key[n], ...) driven by a table of candidate key names (MifTools binds
+    //     Ctrl+Shift+F5/F6/F4 this way) - the key is only decided at runtime.
+    //   * RegisterKeyBindAsync(Keybinds[name].Key, ...) - the built-in Keybinds mod, which reads its
+    //     keys out of a config table. It is also the one mod that already guards itself with
+    //     IsKeyBindRegistered, so missing it costs nothing.
+    //   * Registrations behind a wrapper more indirect than the one-parameter form below.
+
+    /// Lua block comments, including the long form (--[==[ ... ]==]). Stripped before the line form
+    /// because "--[[" starts with "--" too, and stripped at all because these mods carry long header
+    /// comments quoting the very function paths and commands they are documenting.
+    private static readonly Regex LuaBlockComment =
+        new(@"--\[(?<eq>=*)\[.*?\]\k<eq>\]", RegexOptions.Singleline | RegexOptions.Compiled);
+
+    /// Line comments. A "--" inside a string literal takes the rest of that line with it, which can
+    /// only ever lose a registration, never invent one.
+    private static readonly Regex LuaLineComment = new(@"--[^\r\n]*", RegexOptions.Compiled);
+
+    private static readonly Regex LuaConsoleCommand =
+        new(@"RegisterConsoleCommandHandler\s*\(\s*(?:""(?<name>[^""\r\n]+)""|'(?<name>[^'\r\n]+)')",
+            RegexOptions.Compiled);
+
+    /// The wrapper every hand-written mod here settles on:
+    ///
+    ///     local function cmd(name, fn)
+    ///         local ok = pcall(function()
+    ///             RegisterConsoleCommandHandler(name, function(...) ... end)
+    ///
+    /// Three of the 17 lua mods installed here (MifTools, MifQuestKit, MifEconLogger) register every
+    /// one of their commands through a function of exactly this shape and nothing else, so without
+    /// resolving it their 123 command names are invisible and the check quietly covers a third fewer
+    /// mods than it claims to. The backreference is what keeps it from matching any old two-argument
+    /// function: the wrapper's own first parameter has to be what gets handed to the registrar.
+    private static readonly Regex LuaConsoleCommandWrapper =
+        new(@"function\s+(?<fn>[A-Za-z_]\w*)\s*\(\s*(?<param>[A-Za-z_]\w*)\s*[,)][^\n]*\n(?:[^\n]*\n){0,6}?" +
+            @"[^\n]*RegisterConsoleCommandHandler\s*\(\s*\k<param>\b",
+            RegexOptions.Compiled);
+
+    private static readonly Regex LuaKeybind =
+        new(@"RegisterKeyBind(?:Async)?\s*\(\s*Key\.(?<key>[A-Za-z_0-9]+)\s*(?:,\s*\{(?<mods>[^}]*)\})?",
+            RegexOptions.Compiled);
+
+    private static readonly Regex LuaModifierKey = new(@"ModifierKey\.(?<mod>[A-Za-z_]+)", RegexOptions.Compiled);
+
+    private static string StripLuaComments(string source) =>
+        LuaLineComment.Replace(LuaBlockComment.Replace(source, " "), " ");
+
+    private static IEnumerable<string> ExtractConsoleCommands(string code)
+    {
+        var names = new List<string>();
+
+        foreach (Match m in LuaConsoleCommand.Matches(code))
+            names.Add(m.Groups["name"].Value.Trim());
+
+        foreach (Match wrapper in LuaConsoleCommandWrapper.Matches(code))
+        {
+            var call = new Regex(
+                @"\b" + Regex.Escape(wrapper.Groups["fn"].Value) +
+                @"\s*\(\s*(?:""(?<name>[^""\r\n]+)""|'(?<name>[^'\r\n]+)')");
+            foreach (Match m in call.Matches(code))
+                names.Add(m.Groups["name"].Value.Trim());
+        }
+
+        return names.Where(n => n.Length > 0);
+    }
+
+    /// "Ctrl+Shift+F5", "F3", "LEFT_MOUSE_BUTTON". Modifiers are sorted before they are joined so
+    /// that {CONTROL, SHIFT} and {SHIFT, CONTROL} - the same binding to UE4SS - compare equal here.
+    private static IEnumerable<string> ExtractKeybinds(string code)
+    {
+        foreach (Match m in LuaKeybind.Matches(code))
+        {
+            var modifiers = LuaModifierKey.Matches(m.Groups["mods"].Value)
+                .Select(x => x.Groups["mod"].Value.ToUpperInvariant())
+                .Distinct()
+                .OrderBy(x => x, StringComparer.Ordinal)
+                .Select(PrettyModifier)
+                .ToList();
+
+            var key = m.Groups["key"].Value;
+            yield return modifiers.Count == 0 ? key : string.Join("+", modifiers) + "+" + key;
+        }
+    }
+
+    private static string PrettyModifier(string modifier) => modifier switch
+    {
+        "CONTROL" => "Ctrl",
+        "SHIFT" => "Shift",
+        "ALT" => "Alt",
+        _ => modifier
+    };
 
     private void LogResult(List<ModConflictGroup> groups, string label)
     {
