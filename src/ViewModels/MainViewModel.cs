@@ -1,3 +1,4 @@
+using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CUE4Parse.UE4.Versions;
@@ -15,6 +16,39 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool isLogVisible = true;
     [ObservableProperty] private bool updateAvailable;
     [ObservableProperty] private string gamePathDisplay = "Not detected";
+
+    /// Shown next to the title, not just in Settings.
+    ///
+    /// A bug report that names a version is worth several that don't, and nobody thinks to go
+    /// digging through Settings for it before pasting a log into Discord. Includes the commit
+    /// when the build carries one - "v1.0.6" does not identify which build somebody is on if
+    /// several were cut from that version, and the short SHA does.
+    public static string AppVersionDisplay
+    {
+        get
+        {
+            // Trim the trailing .0 that Version always carries - the csproj says 1.0.6, so
+            // showing "1.0.6.0" invites people to wonder which of the two is real.
+            var v = AppUpdateService.GetCurrentVersion();
+            var version = "v" + (v.Revision <= 0 ? v.ToString(3) : v.ToString());
+
+            // AssemblyInformationalVersion is "1.0.6+<sha>" when the build recorded a commit,
+            // and just "1.0.6" when it did not. Only the suffix is useful here.
+            var informational = Assembly.GetExecutingAssembly()
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion;
+
+            var plus = informational?.IndexOf('+') ?? -1;
+            if (plus > 0 && informational!.Length > plus + 1)
+            {
+                var sha = informational[(plus + 1)..];
+                if (sha.Length > 7) sha = sha[..7];
+                version += $"  {sha}";
+            }
+
+            return version;
+        }
+    }
 
     public ObservableCollection<ModInfo> Mods { get; } = new();
 

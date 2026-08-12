@@ -12,6 +12,10 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = new MainViewModel();
 
+        // The taskbar and Alt-Tab show the title, so the version travels with any screenshot
+        // somebody posts - which is usually all you get to work from in a bug report.
+        Title = $"DDS2 Mod Manager  {MainViewModel.AppVersionDisplay}";
+
         RestoreWindowSize();
         Closing += (_, _) => SaveWindowSize();
 

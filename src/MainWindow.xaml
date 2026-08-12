@@ -40,7 +40,14 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0">
-                <TextBlock Text="DDS2 Mod Manager" FontSize="24" FontWeight="Bold"/>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="DDS2 Mod Manager" FontSize="24" FontWeight="Bold"/>
+                    <!-- On screen, not just buried in Settings. A bug report that names a
+                         version is worth several that don't, and nobody goes looking for it. -->
+                    <TextBlock Text="{Binding AppVersionDisplay}" FontSize="13" Margin="10,0,0,0"
+                               VerticalAlignment="Bottom" Padding="0,0,0,4"
+                               Foreground="{StaticResource TextMutedBrush}"/>
+                </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                     <TextBlock Text="Game folder:" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,6,0"/>
                     <TextBlock Text="{Binding GamePathDisplay}" Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis" MaxWidth="600"/>
