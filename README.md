@@ -189,6 +189,24 @@ updates from someone else's repository.
 Publish releases with the version as the tag (`v1.2.0` or `1.2.0`), and attach the mod as a
 `.zip`/`.7z`/`.rar`. The release description is shown to users as the changelog.
 
+### Trusting an author
+
+Each mod has its own **Trusted** tick in the mod list (and in the update prompt). It's per
+mod on purpose — trusting the author of a mod whose source you've read says nothing about
+the next mod you install.
+
+Ticking it alone changes nothing. Skipping the confirmation prompt needs **three** separate
+things to be true:
+
+1. the mod is ticked as trusted,
+2. **Install updates from trusted authors automatically** is on in Settings (off by default), and
+3. the mod's update address hasn't changed since you installed it.
+
+That third one is the point. A moved update address is exactly the situation where trust
+would be worth exploiting, so it always interrupts — the tick is disabled, existing trust is
+revoked, and the prompt says so in stronger words. Trust also doesn't survive an update that
+moves the address.
+
 ### Limits and safety
 
 - **GitHub only.** Any other host is rejected, and so is plain `http`. An arbitrary URL field

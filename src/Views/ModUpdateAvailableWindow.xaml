@@ -44,12 +44,25 @@
             </ScrollViewer>
         </Border>
 
-        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-            <Button Content="Open the release page" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
-                    Margin="0,0,16,0" Click="ViewOnGitHub_Click"/>
-            <Button Content="Not now" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Later_Click"/>
-            <Button x:Name="UpdateButton" Content="Download and install" Style="{StaticResource AccentButton}"
-                    Click="Update_Click"/>
-        </StackPanel>
+        <Grid Grid.Row="5" Margin="0,16,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                <CheckBox x:Name="TrustAuthorBox" VerticalAlignment="Center"/>
+                <TextBlock x:Name="TrustHintText" FontSize="11" Foreground="{StaticResource TextMutedBrush}"
+                           TextWrapping="Wrap" Margin="24,2,12,0"/>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Open the release page" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
+                        Margin="0,0,16,0" Click="ViewOnGitHub_Click"/>
+                <Button Content="Not now" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Later_Click"/>
+                <Button x:Name="UpdateButton" Content="Download and install" Style="{StaticResource AccentButton}"
+                        Click="Update_Click"/>
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>

@@ -84,6 +84,37 @@ public partial class MainViewModel : ObservableObject
         ResetGameToVanillaCommand = new RelayCommand(ResetGameToVanilla);
         CheckModUpdatesCommand = new AsyncRelayCommand(() => CheckModUpdatesAsync(manual: true));
         UpdateModCommand = new AsyncRelayCommand<ModInfo>(UpdateModAsync);
+
+        // The trust tick in the grid writes straight to the ModInfo, which would otherwise be
+        // forgotten on restart. Watching the collection rather than subscribing at each of the
+        // several places mods get added means a new one can't be missed later.
+        Mods.CollectionChanged += (_, e) =>
+        {
+            foreach (var added in e.NewItems?.OfType<ModInfo>() ?? Enumerable.Empty<ModInfo>())
+                added.PropertyChanged += OnModPropertyChanged;
+            foreach (var removed in e.OldItems?.OfType<ModInfo>() ?? Enumerable.Empty<ModInfo>())
+                removed.PropertyChanged -= OnModPropertyChanged;
+        };
+    }
+
+    private void OnModPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(ModInfo.TrustedAuthor) || sender is not ModInfo mod) return;
+
+        // Trust cannot be granted while the update address is in dispute. The tick is disabled
+        // in that state, but a binding is not a security boundary - enforce it here too.
+        if (mod.TrustedAuthor && mod.UpdateUrlChanged)
+        {
+            mod.TrustedAuthor = false;
+            LoggingService.Instance.Warn(
+                $"'{mod.Name}' can't be trusted automatically while its update address differs from the one it was installed with.");
+            return;
+        }
+
+        _registry?.Upsert(mod);
+        LoggingService.Instance.Info(mod.TrustedAuthor
+            ? $"Trusting {(string.IsNullOrWhiteSpace(mod.UpdateAuthor) ? "the author" : mod.UpdateAuthor)} for '{mod.Name}'."
+            : $"No longer trusting updates for '{mod.Name}' automatically.");
     }
 
     /// How many installed mods currently have a newer release waiting. Drives the banner - kept
@@ -165,12 +196,25 @@ public partial class MainViewModel : ObservableObject
                 !string.Equals(mod.ModUpdateUrl, found.UpdateUrl, StringComparison.OrdinalIgnoreCase))
             {
                 mod.UpdateUrlChanged = true;
+
+                // Trust was granted to the author at the OLD address. Whoever now controls the
+                // new one never earned it, and a manifest on disk can be rewritten by anything
+                // that can write to the mods folder - so revoke rather than carry it over.
+                if (mod.TrustedAuthor)
+                {
+                    mod.TrustedAuthor = false;
+                    LoggingService.Instance.Warn(
+                        $"'{mod.Name}' is no longer trusted automatically - its update address changed.");
+                }
+
                 LoggingService.Instance.Warn(
                     $"'{mod.Name}' update address changed on disk ({mod.ModUpdateUrl} -> {found.UpdateUrl}).");
             }
 
             mod.ModUpdateUrl = found.UpdateUrl;
             mod.UpdateSource = found.Source;
+            if (ModUpdateSourceReader.TryParseGitHubRepo(found.UpdateUrl, out var declOwner, out _))
+                mod.UpdateAuthor = declOwner;
             if (string.IsNullOrWhiteSpace(mod.InstalledVersion) && !string.IsNullOrWhiteSpace(found.Version))
                 mod.InstalledVersion = found.Version!;
         }
@@ -224,20 +268,55 @@ public partial class MainViewModel : ObservableObject
                 a.Name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) ||
                 a.Name.EndsWith(".rar", StringComparison.OrdinalIgnoreCase));
 
-            var prompt = new ModUpdateAvailableWindow(
-                mod.Name,
-                mod.InstalledVersion,
-                ModUpdateService.NormalizeVersion(release.TagName),
-                release.Body,
-                mod.ModUpdateUrl!,
-                $"https://github.com/{owner}/{repo}/releases/tag/{release.TagName}",
-                canAutoInstall: asset != null,
-                urlChanged: mod.UpdateUrlChanged)
-            {
-                Owner = System.Windows.Application.Current.MainWindow
-            };
+            // Skipping the prompt takes THREE things, not one: the user trusted this author,
+            // they separately turned on automatic installs for trusted authors, and this mod's
+            // update address has not moved since it was installed. A moved address is exactly
+            // the situation trust would be exploited in, so it always interrupts.
+            var autoInstall = AppSettingsService.Instance.Current.AutoInstallTrustedModUpdates;
+            var silent = mod.TrustedAuthor && autoInstall && !mod.UpdateUrlChanged && asset != null;
 
-            if (prompt.ShowDialog() != true || asset == null) return;
+            if (silent)
+            {
+                log.Info($"Installing '{mod.Name}' {release.TagName} automatically - {owner} is a trusted author.");
+            }
+            else
+            {
+                var prompt = new ModUpdateAvailableWindow(
+                    mod.Name,
+                    mod.InstalledVersion,
+                    ModUpdateService.NormalizeVersion(release.TagName),
+                    release.Body,
+                    mod.ModUpdateUrl!,
+                    $"https://github.com/{owner}/{repo}/releases/tag/{release.TagName}",
+                    canAutoInstall: asset != null,
+                    urlChanged: mod.UpdateUrlChanged,
+                    author: owner,
+                    alreadyTrusted: mod.TrustedAuthor,
+                    autoInstallEnabled: autoInstall)
+                {
+                    Owner = System.Windows.Application.Current.MainWindow
+                };
+
+                var accepted = prompt.ShowDialog() == true;
+
+                // Record the trust decision either way - someone who ticks trust and then
+                // decides not to update today still meant to tick it.
+                if (prompt.TrustAuthor != mod.TrustedAuthor && !mod.UpdateUrlChanged)
+                {
+                    mod.TrustedAuthor = prompt.TrustAuthor;
+                    _registry.Upsert(mod);
+                    log.Info(mod.TrustedAuthor
+                        ? $"'{owner}' marked as a trusted author for '{mod.Name}'."
+                        : $"'{owner}' is no longer trusted for '{mod.Name}'.");
+                }
+
+                if (!accepted || asset == null) return;
+            }
+
+            // Both branches above already guarantee this, but across an if/else the compiler
+            // can't see it - and an explicit guard is worth more than a null-forgiving `!`
+            // in the one place that decides what gets downloaded.
+            if (asset == null) return;
 
             // 1. Download first. Nothing about the installed mod has changed yet, so a failure
             //    here costs the user nothing.
@@ -284,6 +363,12 @@ public partial class MainViewModel : ObservableObject
                 installed.InstalledVersion = installed.LatestVersion;
             installed.UpdateAvailable = false;
             installed.LastUpdateCheck = DateTime.Now;
+            installed.UpdateAuthor = owner;
+
+            // Installing produces a brand new ModInfo, so trust has to be carried across
+            // deliberately - and NOT if the address moved, because that is the one case where
+            // inheriting trust would be handing it to whoever moved it.
+            installed.TrustedAuthor = mod.TrustedAuthor && !installed.UpdateUrlChanged;
 
             Mods.Add(installed);
             _registry.Upsert(installed);

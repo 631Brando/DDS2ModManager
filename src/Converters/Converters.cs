@@ -84,10 +84,36 @@ public class InverseBoolToVisibilityConverter : IValueConverter
 /// Visible only when the bound count is zero - used for "empty state" placeholder text
 /// (e.g. "No conflicts detected"). A plain int-to-bool coercion isn't reliable in XAML,
 /// so this handles the int explicitly.
+///
+/// NOTE the direction: this shows its target when the count IS zero. Binding a "you have N
+/// things" banner to it displays that banner precisely when there is nothing to say.
 public class ZeroCountToVisibilityConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         (value is int i && i == 0) ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
 
     public object ConvertBack(object v, Type t, object p, CultureInfo c) => throw new NotSupportedException();
+}
+
+/// Collapses anything bound to a null or empty string. Used to hide the per-mod trust tick on
+/// mods that publish no update address, where trusting an author would mean nothing.
+public class NullToCollapsedConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        string.IsNullOrWhiteSpace(value as string)
+            ? System.Windows.Visibility.Collapsed
+            : System.Windows.Visibility.Visible;
+
+    public object ConvertBack(object v, Type t, object p, CultureInfo c) => throw new NotSupportedException();
+}
+
+/// Plain boolean inversion, for IsEnabled bindings. Kept separate from the visibility
+/// converters above because those return Visibility, not bool, and binding one to IsEnabled
+/// silently gives you "enabled" for every value.
+public class InverseBoolConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is not true;
+
+    public object ConvertBack(object? value, Type t, object? p, CultureInfo c) => value is not true;
 }

@@ -87,4 +87,20 @@ public partial class ModInfo : ObservableObject
     /// than derived on read - version strings are author-authored free text, and doing the
     /// comparison once where it can be logged beats re-guessing it on every grid refresh.
     [ObservableProperty] private bool updateAvailable;
+
+    /// The user has decided they trust whoever publishes this mod's updates.
+    ///
+    /// Per mod, and deliberately opt-in per mod rather than a blanket setting: trusting the
+    /// author of a mod you have read the source of says nothing about the next mod you install.
+    ///
+    /// Trust on its own changes nothing. It only has an effect when the user has ALSO turned on
+    /// AppSettings.AutoInstallTrustedModUpdates - two separate decisions, because "I know this
+    /// author" and "install their code on my machine without telling me" are not the same
+    /// statement. And trust is ignored entirely when UpdateUrlChanged is set: a moved update
+    /// address is precisely the situation trust would be exploited in.
+    [ObservableProperty] private bool trustedAuthor;
+
+    /// GitHub owner extracted from ModUpdateUrl, cached so the UI can name who is being
+    /// trusted without re-parsing the URL on every row render.
+    [ObservableProperty] private string updateAuthor = "";
 }

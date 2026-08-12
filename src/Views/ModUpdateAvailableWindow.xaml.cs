@@ -14,6 +14,10 @@ public partial class ModUpdateAvailableWindow : Window
 {
     private readonly string _releaseUrl;
 
+    /// Whether the user ticked "trust this author" before accepting. Only meaningful when
+    /// the dialog returned true.
+    public bool TrustAuthor => TrustAuthorBox.IsChecked == true;
+
     public ModUpdateAvailableWindow(
         string modName,
         string installedVersion,
@@ -22,10 +26,35 @@ public partial class ModUpdateAvailableWindow : Window
         string sourceUrl,
         string releaseUrl,
         bool canAutoInstall,
-        bool urlChanged)
+        bool urlChanged,
+        string author,
+        bool alreadyTrusted,
+        bool autoInstallEnabled)
     {
         InitializeComponent();
         _releaseUrl = releaseUrl;
+
+        TrustAuthorBox.Content = string.IsNullOrWhiteSpace(author)
+            ? "Trust this author"
+            : $"Trust {author}";
+        TrustAuthorBox.IsChecked = alreadyTrusted;
+
+        // Say what ticking it actually does, which depends on whether the user has turned on
+        // the setting that gives trust any teeth. Promising "we won't ask again" when the
+        // setting is off would simply be false.
+        TrustHintText.Text = autoInstallEnabled
+            ? "Future updates for this mod will install without asking. A change of update address still prompts."
+            : "Remembered, but updates will still ask - turn on \"install updates from trusted authors automatically\" " +
+              "in Settings for this to skip the prompt.";
+
+        // Trust must not quietly carry through a moved update address, so don't invite it here.
+        if (urlChanged)
+        {
+            TrustAuthorBox.IsChecked = false;
+            TrustAuthorBox.IsEnabled = false;
+            TrustHintText.Text = "Trust is unavailable while this mod's update address is different from the one it " +
+                                 "was installed with.";
+        }
 
         HeaderText.Text = $"{modName} {newVersion} is available";
         VersionText.Text = string.IsNullOrWhiteSpace(installedVersion)

@@ -17,6 +17,8 @@
         <conv:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
         <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
         <conv:ZeroCountToVisibilityConverter x:Key="ZeroCountToVisibility"/>
+        <conv:NullToCollapsedConverter x:Key="NullToCollapsed"/>
+        <conv:InverseBoolConverter x:Key="InverseBool"/>
         <conv:ConflictSeverityToBrushConverter x:Key="SeverityToBrush"/>
         <conv:ConflictSeverityToLabelConverter x:Key="SeverityToLabel"/>
     </Window.Resources>
@@ -218,6 +220,21 @@
                                             Command="{Binding DataContext.UpdateModCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                             CommandParameter="{Binding}"
                                             ToolTip="{Binding ModUpdateUrl, StringFormat='Updates come from {0}'}"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <!-- Only shown for mods that actually publish updates - a trust tick on a
+                             mod with no update channel would mean nothing. TwoWay so ticking it
+                             writes straight back to the mod; the ViewModel persists on change. -->
+                        <DataGridTemplateColumn Header="Trusted" Width="80">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding TrustedAuthor, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Visibility="{Binding ModUpdateUrl, Converter={StaticResource NullToCollapsed}}"
+                                              IsEnabled="{Binding UpdateUrlChanged, Converter={StaticResource InverseBool}}"
+                                              ToolTip="{Binding UpdateAuthor, StringFormat='Trust {0} to publish updates for this mod'}"/>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>

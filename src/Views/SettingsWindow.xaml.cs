@@ -21,6 +21,7 @@ public partial class SettingsWindow : Window
         AutoCheckBox.IsChecked = current.AutoCheckUE4SSUpdatesOnStartup;
         AutoCheckAppUpdateBox.IsChecked = current.CheckForAppUpdatesOnStartup;
         AutoCheckModUpdateBox.IsChecked = current.CheckForModUpdatesOnStartup;
+        AutoInstallTrustedBox.IsChecked = current.AutoInstallTrustedModUpdates;
         AppVersionText.Text = $"Current version: v{AppUpdateService.GetCurrentVersion()}";
         LogsPathText.Text = "Logs: " + AppSettingsService.Instance.GetLogsFolder();
 
@@ -81,6 +82,7 @@ public partial class SettingsWindow : Window
         AutoCheckBox.IsChecked = defaults.AutoCheckUE4SSUpdatesOnStartup;
         AutoCheckAppUpdateBox.IsChecked = defaults.CheckForAppUpdatesOnStartup;
         AutoCheckModUpdateBox.IsChecked = defaults.CheckForModUpdatesOnStartup;
+        AutoInstallTrustedBox.IsChecked = defaults.AutoInstallTrustedModUpdates;
     }
 
     private void ResetAppData_Click(object sender, RoutedEventArgs e)
@@ -146,6 +148,7 @@ public partial class SettingsWindow : Window
         settings.AutoCheckUE4SSUpdatesOnStartup = AutoCheckBox.IsChecked ?? true;
         settings.CheckForAppUpdatesOnStartup = AutoCheckAppUpdateBox.IsChecked ?? true;
         settings.CheckForModUpdatesOnStartup = AutoCheckModUpdateBox.IsChecked ?? true;
+        settings.AutoInstallTrustedModUpdates = AutoInstallTrustedBox.IsChecked ?? false;
 
         AppSettingsService.Instance.Save();
         _mainViewModel.ReapplySettings();

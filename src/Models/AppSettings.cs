@@ -29,6 +29,16 @@ public class AppSettings
     /// nothing is ever downloaded without asking - see ModUpdateService.
     public bool CheckForModUpdatesOnStartup { get; set; } = true;
 
+    /// Installs updates for mods marked TrustedAuthor without showing the confirmation dialog.
+    ///
+    /// OFF by default, and it should stay that way unless someone deliberately turns it on.
+    /// These updates come from the author's own repository rather than Nexus, so they have not
+    /// been virus scanned - silently running unscanned code is a decision a user has to make
+    /// explicitly, not one they inherit by ticking "trust" on a single mod.
+    ///
+    /// Even with this on, a mod whose update address has CHANGED since install still prompts.
+    public bool AutoInstallTrustedModUpdates { get; set; } = false;
+
     /// Optional AES-256 key (hex), only needed if CUE4Parse reports it can't decrypt a pak.
     public string? AesKeyHex { get; set; }
 
