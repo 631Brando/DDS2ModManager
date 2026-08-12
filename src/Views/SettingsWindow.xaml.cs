@@ -20,6 +20,7 @@ public partial class SettingsWindow : Window
         AesKeyBox.Text = current.AesKeyHex;
         AutoCheckBox.IsChecked = current.AutoCheckUE4SSUpdatesOnStartup;
         AutoCheckAppUpdateBox.IsChecked = current.CheckForAppUpdatesOnStartup;
+        AutoCheckModUpdateBox.IsChecked = current.CheckForModUpdatesOnStartup;
         AppVersionText.Text = $"Current version: v{AppUpdateService.GetCurrentVersion()}";
         LogsPathText.Text = "Logs: " + AppSettingsService.Instance.GetLogsFolder();
 
@@ -79,6 +80,7 @@ public partial class SettingsWindow : Window
         AesKeyBox.Text = defaults.AesKeyHex;
         AutoCheckBox.IsChecked = defaults.AutoCheckUE4SSUpdatesOnStartup;
         AutoCheckAppUpdateBox.IsChecked = defaults.CheckForAppUpdatesOnStartup;
+        AutoCheckModUpdateBox.IsChecked = defaults.CheckForModUpdatesOnStartup;
     }
 
     private void ResetAppData_Click(object sender, RoutedEventArgs e)
@@ -143,6 +145,7 @@ public partial class SettingsWindow : Window
         settings.AesKeyHex = string.IsNullOrWhiteSpace(AesKeyBox.Text) ? null : AesKeyBox.Text.Trim();
         settings.AutoCheckUE4SSUpdatesOnStartup = AutoCheckBox.IsChecked ?? true;
         settings.CheckForAppUpdatesOnStartup = AutoCheckAppUpdateBox.IsChecked ?? true;
+        settings.CheckForModUpdatesOnStartup = AutoCheckModUpdateBox.IsChecked ?? true;
 
         AppSettingsService.Instance.Save();
         _mainViewModel.ReapplySettings();

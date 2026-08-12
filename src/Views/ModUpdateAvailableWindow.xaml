@@ -1,0 +1,55 @@
+<Window x:Class="DDS2ModManager.Views.ModUpdateAvailableWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Mod update available" Height="600" Width="660" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BgBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}"
+        TextElement.Foreground="{StaticResource TextPrimaryBrush}"
+        FontFamily="Segoe UI">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" x:Name="HeaderText" FontSize="18" FontWeight="Bold" Margin="0,0,0,4"/>
+        <TextBlock Grid.Row="1" x:Name="VersionText" FontSize="12"
+                   Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,14"/>
+
+        <!--
+            The source is shown, not hidden behind a "trust us". This update does not come from
+            Nexus and has not been through Nexus's virus scanning - it comes from wherever the
+            mod author said, and the user is entitled to see exactly where before agreeing.
+        -->
+        <Border Grid.Row="2" Style="{StaticResource CardBorder}" Padding="12" Margin="0,0,0,14">
+            <StackPanel>
+                <TextBlock Text="Where this comes from" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                <TextBlock x:Name="SourceUrlText" TextWrapping="Wrap" FontSize="12"
+                           Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,6"/>
+                <TextBlock x:Name="TrustNoteText" TextWrapping="Wrap" FontSize="11"
+                           Foreground="{StaticResource TextMutedBrush}" LineHeight="16"/>
+            </StackPanel>
+        </Border>
+
+        <TextBlock Grid.Row="3" Text="What's new" FontWeight="SemiBold" Margin="0,0,0,6"/>
+
+        <Border Grid.Row="4" Style="{StaticResource CardBorder}" Padding="12">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <TextBlock x:Name="ChangelogText" TextWrapping="Wrap" FontSize="12"
+                           Foreground="{StaticResource TextPrimaryBrush}" LineHeight="18"/>
+            </ScrollViewer>
+        </Border>
+
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Open the release page" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
+                    Margin="0,0,16,0" Click="ViewOnGitHub_Click"/>
+            <Button Content="Not now" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Later_Click"/>
+            <Button x:Name="UpdateButton" Content="Download and install" Style="{StaticResource AccentButton}"
+                    Click="Update_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

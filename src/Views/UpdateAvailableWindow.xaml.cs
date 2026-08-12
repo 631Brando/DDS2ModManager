@@ -20,7 +20,10 @@ public partial class UpdateAvailableWindow : Window
     /// GitHub release bodies are markdown. Rendering markdown properly would mean pulling in a
     /// whole renderer for one dialog, so this just strips the handful of markers that would
     /// otherwise show up as literal noise (#, *, -, `) and leaves the text readable as-is.
-    private static string FormatChangelog(string body)
+    ///
+    /// Shared with ModUpdateAvailableWindow rather than copied - both show a GitHub release
+    /// body, and two formatters would drift the moment one of them learned a new marker.
+    internal static string FormatChangelog(string body)
     {
         if (string.IsNullOrWhiteSpace(body))
             return "No release notes were provided for this version.";

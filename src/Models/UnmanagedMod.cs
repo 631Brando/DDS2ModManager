@@ -40,6 +40,10 @@ public partial class UnmanagedMod : ObservableObject
     /// "enabled" if they're sitting in a game folder at all - UE loads any pak it finds.
     public bool IsEnabled { get; set; } = true;
 
+    /// Where this mod says its updates come from, read during the same mount that identified
+    /// it - so an adopted mod gets update checking straight away, exactly like an installed one.
+    public ModUpdateDeclaration UpdateDeclaration { get; set; } = ModUpdateDeclaration.None;
+
     /// Human-readable problems found with this mod, shown in the dialog. Empty means it looks fine.
     public List<string> Issues { get; set; } = new();
 

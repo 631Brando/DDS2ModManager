@@ -23,6 +23,12 @@ public class AppSettings
     /// Checks GitHub for a newer DDS2ModManager release on startup and prompts to install it.
     public bool CheckForAppUpdatesOnStartup { get; set; } = true;
 
+    /// Checks each installed mod's declared ModUpdateUrl for a newer release on startup.
+    ///
+    /// Only mods that publish an update URL are checked, results are cached for six hours, and
+    /// nothing is ever downloaded without asking - see ModUpdateService.
+    public bool CheckForModUpdatesOnStartup { get; set; } = true;
+
     /// Optional AES-256 key (hex), only needed if CUE4Parse reports it can't decrypt a pak.
     public string? AesKeyHex { get; set; }
 

@@ -64,6 +64,8 @@
                         ToolTip="Re-reads every installed mod's pak from disk. Conflict checking is automatic, so you only need this if a mod's files changed outside the manager."/>
                 <Button Content="Find Existing Mods" Style="{StaticResource GhostButton}" Command="{Binding ScanForExistingModsCommand}" Margin="0,0,8,0"
                         ToolTip="Finds mods already in your game folders that this manager isn't tracking yet, and offers to import them."/>
+                <Button Content="Check Mod Updates" Style="{StaticResource GhostButton}" Command="{Binding CheckModUpdatesCommand}" Margin="0,0,8,0"
+                        ToolTip="Checks each mod that publishes an update address for a newer release. Those updates come from the mod author's own repository, not from Nexus, and nothing is downloaded without asking."/>
                 <Button Content="Saves &amp; Config" Style="{StaticResource GhostButton}" Command="{Binding OpenGameDataCommand}"
                         ToolTip="View, clone, disable or delete save games, and edit the game's config files."/>
             </StackPanel>
@@ -146,9 +148,40 @@
                 <ColumnDefinition Width="14"/>
                 <ColumnDefinition Width="1*"/>
             </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>   <!-- mod update banner -->
+                <RowDefinition Height="*"/>      <!-- lists -->
+            </Grid.RowDefinitions>
+
+            <!-- Collapses to nothing when there are no updates, so it costs no space in the
+                 normal case. Says where updates come from, because they are not from Nexus. -->
+            <Border Grid.Row="0" Grid.ColumnSpan="3" Style="{StaticResource CardBorder}"
+                    Padding="12,9" Margin="0,0,0,12"
+                    Visibility="{Binding HasModUpdates, Converter={StaticResource BoolToVisibility}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Ellipse Grid.Column="0" Width="9" Height="9" VerticalAlignment="Center" Margin="0,0,9,0"
+                             Fill="{StaticResource AccentBrush}"/>
+
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding ModUpdateBannerText}" FontWeight="SemiBold" FontSize="13"/>
+                        <TextBlock Text="Updates come from each mod author's own repository, not from Nexus."
+                                   FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <Button Grid.Column="2" Content="Check again" Style="{StaticResource SmallActionButton}"
+                            VerticalAlignment="Center"
+                            Command="{Binding CheckModUpdatesCommand}"/>
+                </Grid>
+            </Border>
 
             <!-- Mod list -->
-            <Border Grid.Column="0" Style="{StaticResource CardBorder}" Padding="0">
+            <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource CardBorder}" Padding="0">
                 <DataGrid ItemsSource="{Binding Mods}" BorderThickness="0" Margin="0">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
@@ -169,6 +202,25 @@
                              mode leaves that one edit away from throwing. -->
                         <DataGridTextColumn Header="Status" Width="90"
                                             Binding="{Binding IsEnabled, Mode=OneWay, Converter={StaticResource BoolToEnabledText}}"/>
+
+                        <!-- Only ever populated for mods that publish a ModUpdateUrl. A blank
+                             cell means "this mod doesn't offer updates", which is the normal
+                             case and deliberately reads as nothing rather than as a problem. -->
+                        <DataGridTextColumn Header="Version" Width="90"
+                                            Binding="{Binding InstalledVersion, Mode=OneWay}"/>
+
+                        <DataGridTemplateColumn Header="Update" Width="110">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="{Binding LatestVersion, StringFormat='Get {0}'}"
+                                            Style="{StaticResource SmallActionButton}"
+                                            Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVisibility}}"
+                                            Command="{Binding DataContext.UpdateModCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip="{Binding ModUpdateUrl, StringFormat='Updates come from {0}'}"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
 
                         <DataGridTemplateColumn Header="Actions" Width="300">
                             <DataGridTemplateColumn.CellTemplate>
@@ -197,7 +249,7 @@
             </Border>
 
             <!-- Conflicts panel -->
-            <Border Grid.Column="2" Style="{StaticResource CardBorder}">
+            <Border Grid.Row="1" Grid.Column="2" Style="{StaticResource CardBorder}">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="Compatibility" FontWeight="Bold" FontSize="15" Margin="0,0,0,6"/>
 

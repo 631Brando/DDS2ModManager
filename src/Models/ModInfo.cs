@@ -42,4 +42,49 @@ public partial class ModInfo : ObservableObject
     /// without this the auto-refresh below would re-scan mods that genuinely have no appends on
     /// every single launch.
     [ObservableProperty] private bool dataTableScanCompleted;
+
+    // ---- update tracking ------------------------------------------------------------------
+    //
+    // Mods are downloaded from Nexus but declare their own update source: a ModUpdateUrl
+    // variable on the ModActor (LogicMods) or a .dds2mod.json manifest (everything else).
+    // That keeps update checks off the Nexus API entirely - no API key, no rate limit, no
+    // premium gate on downloads.
+    //
+    // The trade is real and deliberate: an update fetched from the author's repo has NOT been
+    // through Nexus's virus scanning. Hence the host allowlist in ModUpdateManifest, the fact
+    // that nothing is ever installed without the user seeing the URL and the changelog, and
+    // UpdateUrlChanged below.
+
+    /// Where this mod publishes its updates. Always a github.com URL - see
+    /// ModUpdateManifest.IsAllowedUpdateUrl for why anything else is rejected.
+    [ObservableProperty] private string? modUpdateUrl;
+
+    /// How ModUpdateUrl was obtained, so "declares no updates" stays distinguishable from
+    /// "we could not read it".
+    [ObservableProperty] private ModUpdateSource updateSource;
+
+    /// The version currently installed, as reported by the mod itself. Free text, because it
+    /// is whatever the author wrote - compared leniently, never parsed as a strict Version.
+    [ObservableProperty] private string installedVersion = "";
+
+    /// Latest version seen upstream at the last successful check. Cached so the grid can show
+    /// "update available" while offline, instead of going blank whenever GitHub is unreachable.
+    [ObservableProperty] private string? latestVersion;
+
+    /// When the last SUCCESSFUL check ran. Null means never checked. Unauthenticated GitHub
+    /// allows 60 requests an hour per IP, so this is what stops a user with thirty mods
+    /// burning half their quota on every launch.
+    [ObservableProperty] private DateTime? lastUpdateCheck;
+
+    /// Set when a mod's declared update URL differs from the one recorded at install time.
+    ///
+    /// The URL is captured from the copy the user downloaded through Nexus, which was scanned.
+    /// If a later version points somewhere else, that is the exact shape of a hijacked update
+    /// channel, so it is surfaced and the update is not offered until the user re-confirms.
+    [ObservableProperty] private bool updateUrlChanged;
+
+    /// True when LatestVersion is newer than InstalledVersion. Computed at check time rather
+    /// than derived on read - version strings are author-authored free text, and doing the
+    /// comparison once where it can be logged beats re-guessing it on every grid refresh.
+    [ObservableProperty] private bool updateAvailable;
 }

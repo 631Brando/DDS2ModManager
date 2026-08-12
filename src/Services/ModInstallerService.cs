@@ -109,7 +109,15 @@ public class ModInstallerService
                 DataTableAppends = analysis.DataTableAppends,
                 // The analyzer scans appends for anything with a ModActor, so a mod that has one
                 // has definitively been checked - even if the result was "merges nothing".
-                DataTableScanCompleted = analysis.HasModActor
+                DataTableScanCompleted = analysis.HasModActor,
+
+                // Pinned here, at install time, from the copy the user actually downloaded -
+                // which for a Nexus download is a copy Nexus scanned. ModUpdateService compares
+                // against this later, so an update that starts pointing somewhere new is
+                // visible rather than silently followed.
+                ModUpdateUrl = analysis.UpdateDeclaration.UpdateUrl,
+                UpdateSource = analysis.UpdateDeclaration.Source,
+                InstalledVersion = analysis.UpdateDeclaration.Version ?? ""
             };
 
             switch (analysis.Type)
@@ -186,7 +194,10 @@ public class ModInstallerService
                 InstallPath = found.CurrentFolder,
                 InstallFiles = found.Files,
                 IsInstalled = true,
-                IsEnabled = found.IsEnabled
+                IsEnabled = found.IsEnabled,
+                ModUpdateUrl = found.UpdateDeclaration.UpdateUrl,
+                UpdateSource = found.UpdateDeclaration.Source,
+                InstalledVersion = found.UpdateDeclaration.Version ?? ""
             };
 
             if (found.DetectedType == ModType.LuaMod)

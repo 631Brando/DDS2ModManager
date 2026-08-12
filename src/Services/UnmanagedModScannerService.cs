@@ -61,7 +61,17 @@ public class UnmanagedModScannerService
                 {
                     var mod = BuildPakMod(game, group, provider);
                     if (mod.HasModActor)
+                    {
                         mod.DataTableAppends = appendScanner.Scan(provider, mod.Name, mod.ContainedAssetPaths);
+                        mod.UpdateDeclaration = ModUpdateSourceReader.ReadFromModActor(
+                            provider, mod.ContainedAssetPaths, mod.Name);
+                    }
+
+                    // Patch mods have no ModActor, and a LogicMod author may have used the
+                    // manifest instead, so fall back to it either way.
+                    if (mod.UpdateDeclaration.Source == ModUpdateSource.None)
+                        mod.UpdateDeclaration = ModUpdateSourceReader.ReadFromManifest(mod.CurrentFolder);
+
                     results.Add(mod);
                 }
             }
@@ -206,7 +216,12 @@ public class UnmanagedModScannerService
                 IsEnabled = enabledEntries.TryGetValue(name, out var on) && on,
                 ContainedAssetPaths = Directory.GetFiles(dir, "*", SearchOption.AllDirectories)
                     .Select(f => Path.GetRelativePath(dir, f).Replace('\\', '/'))
-                    .ToList()
+                    .ToList(),
+
+                // dir, not CurrentFolder: CurrentFolder is the shared UE4SS Mods root, and
+                // scanning that would pick up a neighbouring mod's manifest and attribute it
+                // to this one.
+                UpdateDeclaration = ModUpdateSourceReader.ReadFromManifest(dir)
             };
 
             if (!enabledEntries.ContainsKey(name))

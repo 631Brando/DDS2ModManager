@@ -30,6 +30,8 @@ WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
   disable, uninstall and reset, so the panel always reflects the current state. There's also a
   **Re-scan Mod Files** button that re-reads every pak from disk, for the uncommon case where a
   mod's files changed outside the manager.
+- **Mod update checking** — mods can publish their own update address, and the manager
+  checks it for newer releases. See [Mod updates](#mod-updates) below.
 - **Finds mods you installed by hand** before ever using this manager (automatically on
   startup, or via the **Find Existing Mods** button). It reads each one's pak to work out
   what it actually is, flags anything that's in the wrong folder (a LogicMod sitting in
@@ -148,6 +150,59 @@ running assembly version against the release tag name and expect an asset named 
 `DDS2ModManager.exe` - the workflow already produces that name, so don't rename it without
 updating `AssetName` in both `src/Services/AppUpdateService.cs` and
 `setup/MainWindow.xaml.cs` to match.
+
+## Mod updates
+
+Mods are distributed through Nexus, but they can declare **their own update address**, and
+the manager checks that rather than the Nexus API. That means no API key to enter, no
+2,500-request daily cap, and no premium account — Nexus only issues download links through
+its API to premium members, which would have made one-click updates a paid feature.
+
+### For mod authors: how to opt in
+
+Two ways, depending on what your mod is.
+
+**LogicMods** — add a **string variable called `ModUpdateUrl`** to your `ModActor`, with your
+repository as its default value. Optionally add `ModVersion` too, so the manager can tell
+which version someone has. No extra files: you ship the same `.pak`/`.ucas`/`.utoc` as before.
+
+```
+ModUpdateUrl  =  https://github.com/yourname/yourmod
+ModVersion    =  1.2.0
+```
+
+**Patch mods and lua mods** have no `ModActor`, so ship a `<YourMod>.dds2mod.json` next to
+the mod instead:
+
+```json
+{
+  "modUpdateUrl": "https://github.com/yourname/yourmod",
+  "version": "1.2.0"
+}
+```
+
+For lua mods, put it anywhere in your mod's folder. For pak mods, the file **must** be named
+after the mod (`MyMod.dds2mod.json`) — pak mods all share `Content\Paks\LogicMods`, and
+without the name match the manager could pick up a neighbouring mod's manifest and offer
+updates from someone else's repository.
+
+Publish releases with the version as the tag (`v1.2.0` or `1.2.0`), and attach the mod as a
+`.zip`/`.7z`/`.rar`. The release description is shown to users as the changelog.
+
+### Limits and safety
+
+- **GitHub only.** Any other host is rejected, and so is plain `http`. An arbitrary URL field
+  would be a malware delivery channel; a `github.com`-only field is a public repo anyone can
+  read before running it.
+- **These updates do not pass through Nexus's virus scanning.** That is the real trade for
+  avoiding the Nexus API. So nothing is ever downloaded without a prompt that shows the source
+  URL and the release notes, and the new file is downloaded *before* the old version is
+  removed — an interrupted update leaves your mod working.
+- The URL is pinned at install time. If a later version points somewhere different, the
+  manager flags it rather than following it quietly.
+- Results are cached for six hours. Unauthenticated GitHub allows 60 requests an hour per IP.
+- A mod that declares no version is never reported as out of date — "we can't tell" is not
+  the same as "up to date".
 
 ## Known gotchas
 

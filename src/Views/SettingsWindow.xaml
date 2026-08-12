@@ -66,7 +66,10 @@
                          Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,16"/>
 
                 <CheckBox x:Name="AutoCheckBox" Content="Automatically check for UE4SS updates on startup" Margin="0,0,0,8"/>
-                <CheckBox x:Name="AutoCheckAppUpdateBox" Content="Automatically check for DDS2 Mod Manager updates on startup" Margin="0,0,0,6"/>
+                <CheckBox x:Name="AutoCheckAppUpdateBox" Content="Automatically check for DDS2 Mod Manager updates on startup" Margin="0,0,0,8"/>
+                <CheckBox x:Name="AutoCheckModUpdateBox" Content="Automatically check installed mods for updates on startup" Margin="0,0,0,4"/>
+                <TextBlock Text="Only mods that publish an update address are checked. Those updates come from the mod author's own repository rather than Nexus, so nothing is ever downloaded without asking you first."
+                           FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="24,0,0,10"/>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
                     <Button Content="Check for Updates Now" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
                             Click="CheckForAppUpdate_Click" Margin="0,0,8,0"/>

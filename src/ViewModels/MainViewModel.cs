@@ -33,6 +33,8 @@ public partial class MainViewModel : ObservableObject
     private readonly CompatibilityCheckerService _compat = new();
     private readonly AppUpdateService _appUpdater = new();
     private readonly UnmanagedModScannerService _unmanagedScanner = new();
+    private readonly ModUpdateService _modUpdater = new();
+    private readonly GitHubReleaseService _github = new();
 
     private ModRegistryService? _registry;
     private ModAnalyzerService? _analyzer;
@@ -58,6 +60,8 @@ public partial class MainViewModel : ObservableObject
     public IAsyncRelayCommand ScanForExistingModsCommand { get; }
     public IRelayCommand OpenGameDataCommand { get; }
     public IRelayCommand ResetGameToVanillaCommand { get; }
+    public IAsyncRelayCommand CheckModUpdatesCommand { get; }
+    public IAsyncRelayCommand<ModInfo> UpdateModCommand { get; }
 
     public MainViewModel()
     {
@@ -78,6 +82,227 @@ public partial class MainViewModel : ObservableObject
         ScanForExistingModsCommand = new AsyncRelayCommand(() => ScanForExistingModsAsync(manual: true));
         OpenGameDataCommand = new RelayCommand(OpenGameData);
         ResetGameToVanillaCommand = new RelayCommand(ResetGameToVanilla);
+        CheckModUpdatesCommand = new AsyncRelayCommand(() => CheckModUpdatesAsync(manual: true));
+        UpdateModCommand = new AsyncRelayCommand<ModInfo>(UpdateModAsync);
+    }
+
+    /// How many installed mods currently have a newer release waiting. Drives the banner - kept
+    /// as a count rather than recomputed in the view so the banner and the grid can never
+    /// disagree about how many there are.
+    [ObservableProperty] private int modUpdatesAvailable;
+
+    [ObservableProperty] private string modUpdateBannerText = "";
+
+    /// Drives the banner's visibility. A bool rather than binding the count through a
+    /// converter: the existing ZeroCountToVisibilityConverter shows its target when the count
+    /// IS zero (it's used for empty-state placeholders), so reusing it here would have shown
+    /// the banner precisely when there was nothing to say.
+    [ObservableProperty] private bool hasModUpdates;
+
+    /// Checks every mod that declares a ModUpdateUrl.
+    ///
+    /// Results are cached for six hours (see ModUpdateService.CheckInterval) unless the user
+    /// asked for this explicitly, because unauthenticated GitHub only allows 60 requests an
+    /// hour per IP and a user with thirty mods would burn half of that on one startup.
+    private async Task CheckModUpdatesAsync(bool manual = false)
+    {
+        var log = LoggingService.Instance;
+        try
+        {
+            // Pick up manifests added since a mod was installed. Everyone's existing mods
+            // predate this feature, so without a re-read the whole thing would look broken
+            // until they reinstalled every mod they own.
+            RefreshManifestDeclarations();
+
+            var result = await _modUpdater.CheckAllAsync(
+                Mods,
+                force: manual,
+                progress: new Progress<string>(s => { if (manual) StatusMessage = s; }));
+
+            RefreshModUpdateBanner();
+
+            // Whatever we learned (latest version, when we last looked) is worth keeping - it is
+            // what lets the grid stay useful offline instead of blanking out.
+            _registry?.Save();
+
+            if (!manual) return;
+
+            if (!result.Succeeded)
+                log.Warn(result.Error ?? "Couldn't check for mod updates.");
+            else if (result.Checked == 0 && result.Skipped == 0)
+                log.Info("None of your mods publish an update address yet, so there's nothing to check. " +
+                         $"Authors can add one with a {ModUpdateSourceReader.ModActorUrlProperty} variable on their " +
+                         $"ModActor, or a {ModUpdateSourceReader.ManifestSuffix} file.");
+            else if (result.UpdatesFound == 0)
+                log.Info($"Checked {result.Checked} mod(s) - everything is up to date.");
+
+            StatusMessage = "Ready";
+        }
+        catch (Exception ex)
+        {
+            log.Error($"Mod update check failed: {ex.Message}");
+        }
+    }
+
+    /// Re-reads .dds2mod.json for installed mods, so a manifest added after install is picked
+    /// up. Cheap - a file existence check per mod, no CUE4Parse mount.
+    ///
+    /// A mod whose URL came from its ModActor is left alone: re-reading that needs a full game
+    /// mount (Deep Scan), and a manifest sitting in a shared folder must not be able to
+    /// override what the mod's own packaged ModActor said.
+    private void RefreshManifestDeclarations()
+    {
+        foreach (var mod in Mods)
+        {
+            if (mod.UpdateSource == ModUpdateSource.ModActor) continue;
+
+            var found = ModUpdateSourceReader.ReadForInstalledMod(mod);
+            if (found.Source == ModUpdateSource.None) continue;
+
+            // A manifest that now points somewhere else than the one we recorded is worth
+            // flagging rather than quietly adopting - same reasoning as UpdateUrlChanged.
+            if (!string.IsNullOrEmpty(mod.ModUpdateUrl) &&
+                !string.Equals(mod.ModUpdateUrl, found.UpdateUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                mod.UpdateUrlChanged = true;
+                LoggingService.Instance.Warn(
+                    $"'{mod.Name}' update address changed on disk ({mod.ModUpdateUrl} -> {found.UpdateUrl}).");
+            }
+
+            mod.ModUpdateUrl = found.UpdateUrl;
+            mod.UpdateSource = found.Source;
+            if (string.IsNullOrWhiteSpace(mod.InstalledVersion) && !string.IsNullOrWhiteSpace(found.Version))
+                mod.InstalledVersion = found.Version!;
+        }
+    }
+
+    private void RefreshModUpdateBanner()
+    {
+        ModUpdatesAvailable = Mods.Count(m => m.UpdateAvailable);
+        HasModUpdates = ModUpdatesAvailable > 0;
+        ModUpdateBannerText = ModUpdatesAvailable switch
+        {
+            0 => "",
+            1 => $"1 mod has an update available: {Mods.First(m => m.UpdateAvailable).Name}",
+            _ => $"{ModUpdatesAvailable} mods have updates available"
+        };
+    }
+
+    /// Downloads and installs one mod's update, after the user has seen where it comes from.
+    ///
+    /// Order matters and is deliberate: the new version is downloaded and verified to exist
+    /// BEFORE the old one is removed. Uninstalling first would mean a failed or interrupted
+    /// download leaves the user with no mod at all - which is a far worse outcome than an
+    /// update that simply didn't happen.
+    private async Task UpdateModAsync(ModInfo? mod)
+    {
+        if (mod == null || _installer == null || _registry == null) return;
+
+        var log = LoggingService.Instance;
+        if (!ModUpdateSourceReader.TryParseGitHubRepo(mod.ModUpdateUrl, out var owner, out var repo))
+        {
+            log.Warn($"'{mod.Name}' has no usable update address.");
+            return;
+        }
+
+        try
+        {
+            IsBusy = true;
+            StatusMessage = $"Looking up {mod.Name}...";
+
+            var release = await _github.GetLatestReleaseAsync(owner, repo);
+            if (release == null)
+            {
+                log.Warn($"Couldn't reach the release page for '{mod.Name}'.");
+                return;
+            }
+
+            // Anything the manager can actually install. A release full of source archives or
+            // loose .dll files is not something to hand to the mod installer.
+            var asset = release.Assets.FirstOrDefault(a =>
+                a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+                a.Name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) ||
+                a.Name.EndsWith(".rar", StringComparison.OrdinalIgnoreCase));
+
+            var prompt = new ModUpdateAvailableWindow(
+                mod.Name,
+                mod.InstalledVersion,
+                ModUpdateService.NormalizeVersion(release.TagName),
+                release.Body,
+                mod.ModUpdateUrl!,
+                $"https://github.com/{owner}/{repo}/releases/tag/{release.TagName}",
+                canAutoInstall: asset != null,
+                urlChanged: mod.UpdateUrlChanged)
+            {
+                Owner = System.Windows.Application.Current.MainWindow
+            };
+
+            if (prompt.ShowDialog() != true || asset == null) return;
+
+            // 1. Download first. Nothing about the installed mod has changed yet, so a failure
+            //    here costs the user nothing.
+            StatusMessage = $"Downloading {mod.Name} {release.TagName}...";
+            var temp = Path.Combine(Path.GetTempPath(),
+                $"DDS2MM_modupdate_{Guid.NewGuid():N}_{asset.Name}");
+            await _github.DownloadAssetAsync(asset.BrowserDownloadUrl, temp,
+                new Progress<double>(p => ProgressValue = p));
+
+            if (!File.Exists(temp) || new FileInfo(temp).Length == 0)
+            {
+                log.Error($"The download for '{mod.Name}' produced no file. Nothing was changed.");
+                return;
+            }
+
+            // 2. Only now remove the old version.
+            StatusMessage = $"Replacing {mod.Name}...";
+            var previousUrl = mod.ModUpdateUrl;
+            _installer.Uninstall(mod);
+            Mods.Remove(mod);
+
+            // 3. Install the downloaded copy through the normal path, so it gets analyzed,
+            //    type-checked and conflict-scanned exactly like any other install.
+            var installed = await _installer.InstallAsync(temp);
+            if (installed == null)
+            {
+                log.Error($"'{mod.Name}' was removed but the new version could not be installed. " +
+                          $"The download is still at {temp} - install it with \"Install Mod\".");
+                return;
+            }
+
+            // A mod that now points somewhere else than it did when installed is flagged, not
+            // silently accepted. See ModInfo.UpdateUrlChanged.
+            if (!string.IsNullOrEmpty(previousUrl) &&
+                !string.Equals(previousUrl, installed.ModUpdateUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                installed.UpdateUrlChanged = true;
+                log.Warn($"'{installed.Name}' now publishes updates at a different address " +
+                         $"({previousUrl} -> {installed.ModUpdateUrl ?? "none"}). Worth a look.");
+            }
+
+            installed.LatestVersion = ModUpdateService.NormalizeVersion(release.TagName);
+            if (string.IsNullOrWhiteSpace(installed.InstalledVersion))
+                installed.InstalledVersion = installed.LatestVersion;
+            installed.UpdateAvailable = false;
+            installed.LastUpdateCheck = DateTime.Now;
+
+            Mods.Add(installed);
+            _registry.Upsert(installed);
+            RunCompatibilityCheck();
+            RefreshModUpdateBanner();
+
+            log.Success($"'{installed.Name}' updated to {release.TagName}.");
+            try { File.Delete(temp); } catch { /* a leftover temp file is not worth reporting */ }
+        }
+        catch (Exception ex)
+        {
+            log.Error($"Updating '{mod.Name}' failed: {ex.Message}");
+        }
+        finally
+        {
+            IsBusy = false;
+            ProgressValue = 0;
+            StatusMessage = "Ready";
+        }
     }
 
     private async Task InitializeAsync()
@@ -157,6 +382,12 @@ public partial class MainViewModel : ObservableObject
 
         if (AppSettingsService.Instance.Current.AutoCheckUE4SSUpdatesOnStartup)
             _ = CheckUE4SSUpdateAsync();
+
+        // Fire-and-forget, like the app and UE4SS checks above: a slow or unreachable GitHub
+        // must never hold up startup. Not forced, so the six-hour cache applies and relaunching
+        // repeatedly doesn't burn the unauthenticated rate limit.
+        if (AppSettingsService.Instance.Current.CheckForModUpdatesOnStartup)
+            _ = CheckModUpdatesAsync();
 
         // Awaited rather than fire-and-forget: this one opens a modal dialog, and racing it
         // against the UE4SS update prompt above would stack two dialogs on the user at once.

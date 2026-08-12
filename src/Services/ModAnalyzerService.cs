@@ -19,6 +19,11 @@ public class ModAnalysisResult
     /// blocked rather than guessing a type, since a wrong guess (PatchMod instead of LogicMod)
     /// means the mod gets copied to the wrong folder and silently won't load in-game.
     public bool ParseFailed { get; set; }
+
+    /// Where this mod says its updates come from, read during the same mount that produced
+    /// AssetPaths. ModUpdateDeclaration.None when it declares nothing, which is the normal
+    /// case for mods published before the ModUpdateUrl convention existed.
+    public ModUpdateDeclaration UpdateDeclaration { get; set; } = ModUpdateDeclaration.None;
 }
 
 /// Uses CUE4Parse to read a mod's .pak/.ucas/.utoc and enumerate the asset paths inside it,
@@ -68,6 +73,10 @@ public class ModAnalyzerService
             var modRoot = Path.GetDirectoryName(Path.GetDirectoryName(mainLua)!)!;
             foreach (var f in Directory.GetFiles(modRoot, "*", SearchOption.AllDirectories))
                 result.AssetPaths.Add(Path.GetRelativePath(modRoot, f).Replace('\\', '/'));
+
+            // Lua mods have no ModActor, so a manifest is the only place they can declare
+            // an update source. They ship folders anyway, so the extra file costs nothing.
+            result.UpdateDeclaration = ModUpdateSourceReader.ReadFromManifest(modFolderPath);
             return result;
         }
 
@@ -140,7 +149,21 @@ public class ModAnalyzerService
                     .Scan(provider, Path.GetFileName(modFolderPath), result.AssetPaths);
                 if (result.DataTableAppends.Count > 0)
                     log.Info($"Reads/merges {result.DataTableAppends.Count} game DataTable(s) at runtime.");
+
+                // Same mount, same loaded package - reading the update URL here costs nothing
+                // beyond the property lookup.
+                result.UpdateDeclaration = ModUpdateSourceReader.ReadFromModActor(
+                    provider, result.AssetPaths, Path.GetFileName(modFolderPath));
             }
+
+            // Patch mods have no ModActor by definition, and a LogicMod author may prefer the
+            // manifest, so fall back to it whenever the ModActor did not supply one.
+            if (result.UpdateDeclaration.Source == ModUpdateSource.None)
+                result.UpdateDeclaration = ModUpdateSourceReader.ReadFromManifest(modFolderPath);
+
+            if (result.UpdateDeclaration.Source != ModUpdateSource.None)
+                log.Info($"Declares updates at {result.UpdateDeclaration.UpdateUrl} " +
+                         $"(from {result.UpdateDeclaration.Source}).");
         }
         catch (Exception ex)
         {
