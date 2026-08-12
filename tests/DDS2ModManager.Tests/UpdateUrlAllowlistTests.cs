@@ -57,6 +57,79 @@ public class GitHubUrlParserTests
         Assert.False(GitHubUrlParser.TryParse("https://github.com:x@evil.example.com/o/r", out _, out _));
     }
 
+    // ---- a trailing full stop must not become part of the name ------------------------------
+
+    /// The most plausible silent failure on this whole surface: a URL written at the end of a
+    /// sentence. Every other trailing punctuation mark already failed the character check; the
+    /// full stop survived into the repository name and produced a 404 mentioning no dot.
+    [Theory]
+    [InlineData("https://github.com/owner/repo.")]
+    [InlineData("https://github.com/631Brando/DDS2ModManager.")]
+    [InlineData("https://github.com/owner/repo..")]
+    [InlineData("https://github.com/owner./repo")]
+    [InlineData("owner/repo.")]
+    public void A_trailing_full_stop_is_refused_rather_than_absorbed(string url) =>
+        Assert.False(GitHubUrlParser.TryParse(url, out _, out _));
+
+    /// ...but a LEADING dot stays legal. ".github" is a real and widely used repository name, so
+    /// this must not be "reject dots at the edges".
+    [Fact]
+    public void A_leading_dot_is_still_a_valid_repository_name()
+    {
+        Assert.True(GitHubUrlParser.TryParse("https://github.com/owner/.github", out var owner, out var repo));
+        Assert.Equal("owner", owner);
+        Assert.Equal(".github", repo);
+    }
+
+    [Fact]
+    public void A_dot_inside_a_name_is_still_fine()
+    {
+        Assert.True(GitHubUrlParser.TryParse("https://github.com/my.owner/My.Mod", out var owner, out var repo));
+        Assert.Equal("my.owner", owner);
+        Assert.Equal("My.Mod", repo);
+    }
+
+    // ---- github.com pages that are not repositories ------------------------------------------
+
+    /// Any two-segment github.com link used to parse as a confident owner/repo pair, so pasting an
+    /// organisation page gave players a trust prompt for a publisher called "orgs". The owner is
+    /// the identity ModTrustService keys on, so a wrong one is not cosmetic.
+    [Theory]
+    [InlineData("https://github.com/orgs/631Brando/repositories")]
+    [InlineData("https://github.com/sponsors/631Brando")]
+    [InlineData("https://github.com/users/631Brando/projects")]
+    [InlineData("https://github.com/topics/modding")]
+    [InlineData("https://github.com/settings/profile")]
+    [InlineData("https://github.com/apps/dependabot")]
+    [InlineData("https://github.com/marketplace/actions/checkout")]
+    [InlineData("https://github.com/collections/game-engines")]
+    [InlineData("https://github.com/codespaces/new")]
+    [InlineData("https://github.com/stars/631Brando/lists/mods")]
+    [InlineData("orgs/631Brando")]
+    public void Site_routes_are_not_owners(string url) =>
+        Assert.False(GitHubUrlParser.TryParse(url, out _, out _));
+
+    /// The reserved list is route-based, not "words that look reserved", and this is the case that
+    /// forced that distinction: 'watching' IS a live GitHub user account (verified against the
+    /// API), even though github.com/watching is also a page. It is safe because that page takes no
+    /// second segment. Blocking it would break a real owner with no workaround.
+    [Fact]
+    public void A_real_account_whose_name_matches_a_single_segment_page_still_works()
+    {
+        Assert.True(GitHubUrlParser.TryParse("https://github.com/watching/SomeMod", out var owner, out var repo));
+        Assert.Equal("watching", owner);
+        Assert.Equal("SomeMod", repo);
+    }
+
+    /// Only the OWNER position is restricted. A repository may legitimately be called "topics".
+    [Fact]
+    public void A_repository_may_be_named_after_a_route()
+    {
+        Assert.True(GitHubUrlParser.TryParse("https://github.com/631Brando/topics", out var owner, out var repo));
+        Assert.Equal("631Brando", owner);
+        Assert.Equal("topics", repo);
+    }
+
     /// Whatever comes out of here is interpolated straight into a GitHub API path, so a segment
     /// that isn't a plain repository reference has to be refused rather than passed along. A
     /// traversal attempt must never come back out as a usable owner/repo pair.

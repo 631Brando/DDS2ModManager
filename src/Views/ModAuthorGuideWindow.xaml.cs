@@ -42,7 +42,8 @@ public partial class ModAuthorGuideWindow : Window
             "    yourname/YourMod\n\n" +
             "Only the first two path segments are read, so a link to a release, a branch or a file all resolve to the repository. Casing of the scheme and host does not matter.\n\n" +
             "The short yourname/YourMod form is stricter than it looks: it needs exactly one slash and NO dot anywhere, so yourname/My.Mod and yourname/YourMod.git are both refused. If your repository name contains a dot, write the full https URL instead.\n\n" +
-            "Not accepted: plain http, the git@github.com:you/mod.git clone string, gists, raw.githubusercontent.com, and any host other than github.com. Watch for a trailing full stop - it is read as part of the repository name.");
+            "Not accepted: plain http, the git@github.com:you/mod.git clone string, gists, raw.githubusercontent.com, and any host other than github.com.\n\n" +
+            "Also refused: an address ending in a full stop (so don't put one at the end of a sentence), and GitHub's own pages such as github.com/orgs/you/repositories - they have the same shape as a repository URL but are not one. Link the repository itself.");
 
         AddStep(2, "Logic mods: a variable on your ModActor",
             $"Add a String variable called {ModUpdateSourceResolver.UrlProperty} to your mod's ModActor, and set its DEFAULT VALUE to your repository:\n\n" +

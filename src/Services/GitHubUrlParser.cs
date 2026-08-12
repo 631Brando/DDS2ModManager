@@ -45,6 +45,29 @@ public static class GitHubUrlParser
         return TrySplitPath(uri.AbsolutePath, out owner, out repo);
     }
 
+    /// github.com paths that are SITE ROUTES rather than an owner, and that take a further path
+    /// segment after them - so the two-segment shape of a repository URL matches them exactly.
+    ///
+    /// Without this, any two-segment github.com link parses as a confident owner/repo pair:
+    /// github.com/orgs/yourname/repositories reads as owner "orgs", repo "yourname". The owner is
+    /// not cosmetic - it is the identity trust is granted against (ModTrustService keys on it, and
+    /// the install prompt names it), so an author who pasted their organisation page would have
+    /// players granting trust to a publisher called "orgs".
+    ///
+    /// The list is route-based, NOT "words that look reserved", and that distinction is load
+    /// bearing. It was checked against the real API before being written: 'watching' is a live
+    /// GitHub USER account, even though github.com/watching is also a page - it is safe precisely
+    /// because that page takes no second segment, so it can never collide with a repository URL.
+    /// A name is only listed here when GitHub serves a route AT name/<something>, which is what
+    /// makes it permanently unregisterable as an owner. Adding a merely-unregistered word here
+    /// would break whoever registers it next, with no workaround available to them.
+    private static readonly HashSet<string> ReservedOwnerRoutes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "orgs", "organizations", "sponsors", "users", "topics", "settings", "apps",
+        "marketplace", "collections", "enterprise", "codespaces", "account",
+        "notifications", "stars", "new"
+    };
+
     private static bool TrySplitPath(string path, out string owner, out string repo)
     {
         owner = "";
@@ -61,6 +84,9 @@ public static class GitHubUrlParser
 
         if (!IsValidSegment(candidateOwner) || !IsValidSegment(candidateRepo)) return false;
 
+        // Only the owner position: a REPOSITORY may legitimately be called "topics" or "new".
+        if (ReservedOwnerRoutes.Contains(candidateOwner)) return false;
+
         owner = candidateOwner;
         repo = candidateRepo;
         return true;
@@ -72,7 +98,16 @@ public static class GitHubUrlParser
     private static bool IsValidSegment(string segment)
     {
         if (segment.Length is 0 or > 100) return false;
-        if (segment is "." or "..") return false;
+
+        // A trailing dot is the one piece of punctuation that used to survive into the name.
+        // Every other trailing mark already fails the character check, so a URL written at the end
+        // of a sentence - "get it at https://github.com/me/MyMod." - silently became a request for
+        // a repository called "MyMod.", which cannot exist: GitHub refuses a name ending in a dot.
+        // The result was a 404 that mentioned nothing about a stray full stop.
+        //
+        // A LEADING dot stays legal on purpose - ".github" is a real and widely-used repository.
+        // This also subsumes the old "." and ".." cases.
+        if (segment.EndsWith('.')) return false;
 
         foreach (var c in segment)
         {

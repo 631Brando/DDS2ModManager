@@ -75,17 +75,8 @@ perfectly fine there.
 | `https://raw.githubusercontent.com/...`, `https://api.github.com/...` | Only `github.com` and `www.github.com` are accepted. |
 | `https://gitlab.com/...`, and every other host | GitHub only. A mod hosted elsewhere cannot auto-update. |
 | Anything with a non-ASCII letter, a space, or an invisible character pasted from a web page | Owner and repository are ASCII only. If an address that *looks* right is refused, retype it by hand rather than pasting it again. |
-
-### Two that are accepted but probably aren't what you meant
-
-- **A trailing full stop becomes part of the name.** `https://github.com/yourname/YourMod.` is
-  accepted as a repository called `YourMod.`, which doesn't exist — and nothing in the error
-  mentions the stray dot. Don't end the line with a sentence. (Every *other* trailing punctuation
-  mark is refused; the full stop is the one that gets through.)
-- **Any two-segment `github.com` link parses**, including pages that aren't repositories.
-  `https://github.com/orgs/yourname/repositories` is read as owner `orgs`, repository `yourname` —
-  and the owner is the name your players are asked to trust. Link the repository itself, not your
-  organisation, sponsors or topics page.
+| `https://github.com/yourname/YourMod.` | A trailing full stop. GitHub won't let a repository name end in one, so this is refused rather than being read as a repository called `YourMod.` — but it means a URL written at the end of a sentence stops working. A *leading* dot is fine (`.github` is a real repository name). |
+| `https://github.com/orgs/yourname/repositories`, `/sponsors/...`, `/users/...`, `/topics/...`, `/settings/...` | GitHub's own pages, not repositories. They have the same two-segment shape as a repository URL, so they used to parse as owner `orgs`, repository `yourname`. Link the repository itself, not your organisation, sponsors or topics page. |
 
 ### Once it works, never reformat it
 

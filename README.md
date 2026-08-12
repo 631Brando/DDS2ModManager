@@ -243,10 +243,9 @@ updates from someone else's repository.
 
 **The address itself** may be written several ways — the full `https://github.com/you/YourMod`,
 with `.git` or a deep link on the end, without the scheme, or as the short `you/YourMod`. They
-all resolve to the same repository, and only `github.com` is accepted. There are a couple of
-sharp edges worth knowing (the short form breaks on a dot; a trailing full stop becomes part of
-the repository name; and reformatting a working address in a later release reads as the address
-having *moved*). All of it is spelled out in
+all resolve to the same repository, and only `github.com` is accepted. Two sharp edges are worth
+knowing: the short form breaks if the name contains a dot, and reformatting a working address in
+a later release reads as the address having *moved*. All of it is spelled out in
 [What the address may look like](MODDING.md#what-the-address-may-look-like).
 
 Publish releases with the version as the tag (`v1.2.0` or `1.2.0`), and attach the mod as a
