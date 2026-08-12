@@ -33,6 +33,8 @@ public partial class MainViewModel : ObservableObject
     private readonly CompatibilityCheckerService _compat = new();
     private readonly AppUpdateService _appUpdater = new();
     private readonly UnmanagedModScannerService _unmanagedScanner = new();
+    private readonly ModUpdateSourceResolver _updateSources = new();
+    private readonly ModUpdateService _modUpdater = new();
 
     private ModRegistryService? _registry;
     private ModAnalyzerService? _analyzer;
@@ -58,6 +60,9 @@ public partial class MainViewModel : ObservableObject
     public IAsyncRelayCommand ScanForExistingModsCommand { get; }
     public IRelayCommand OpenGameDataCommand { get; }
     public IRelayCommand ResetGameToVanillaCommand { get; }
+    public IAsyncRelayCommand CheckModUpdatesCommand { get; }
+    public IAsyncRelayCommand<ModInfo> UpdateModCommand { get; }
+    public IRelayCommand BrowseModsCommand { get; }
 
     public MainViewModel()
     {
@@ -78,6 +83,20 @@ public partial class MainViewModel : ObservableObject
         ScanForExistingModsCommand = new AsyncRelayCommand(() => ScanForExistingModsAsync(manual: true));
         OpenGameDataCommand = new RelayCommand(OpenGameData);
         ResetGameToVanillaCommand = new RelayCommand(ResetGameToVanilla);
+        CheckModUpdatesCommand = new AsyncRelayCommand(() => CheckModUpdatesAsync(manual: true));
+        UpdateModCommand = new AsyncRelayCommand<ModInfo>(UpdateModAsync);
+        BrowseModsCommand = new RelayCommand(BrowseMods);
+    }
+
+    private void BrowseMods()
+    {
+        if (Game == null)
+        {
+            StatusMessage = "Locate the game folder first.";
+            return;
+        }
+
+        new ModCatalogWindow(this) { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
     }
 
     private async Task InitializeAsync()
@@ -87,6 +106,11 @@ public partial class MainViewModel : ObservableObject
         // startup; failures are logged and otherwise silent (see AppUpdateService).
         if (AppSettingsService.Instance.Current.CheckForAppUpdatesOnStartup)
             _ = CheckForAppUpdateAsync();
+
+        // Kept current in the background. It's only used to label a source as verified, so a slow
+        // or unreachable fetch costs nothing - the cached copy stays in use, and no list at all
+        // just means nothing shows as verified.
+        _ = ModTrustService.Instance.RefreshVerifiedListAsync();
 
         IsBusy = true;
         StatusMessage = "Detecting game installation...";
@@ -423,6 +447,166 @@ public partial class MainViewModel : ObservableObject
         {
             LoggingService.Instance.Error($"Deep scan failed: {ex.Message}");
             StatusMessage = "Deep scan failed - see log.";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// Finds out where each mod's updates come from, then asks GitHub whether there are any.
+    ///
+    /// Discovery runs here rather than at startup because the LogicMod half needs the game mounted,
+    /// which is far too expensive to do on every launch. Manifest-based mods are cheap to read, so
+    /// they're picked up first and the mount only happens if some LogicMod still has no source.
+    private async Task CheckModUpdatesAsync(bool manual = false)
+    {
+        if (Game == null)
+        {
+            if (manual) StatusMessage = "Locate the game folder first.";
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = "Looking for mod updates...";
+        try
+        {
+            var discovered = await Task.Run(() => ResolveUpdateSources(Game));
+            _registry?.Save();
+
+            var checkable = Mods.Where(m => m.HasUpdateSource).ToList();
+            if (checkable.Count == 0)
+            {
+                StatusMessage = "No mods have an update source set up.";
+                if (manual)
+                {
+                    LoggingService.Instance.Info(
+                        "None of your mods tell the manager where their updates come from. That's up to each mod's " +
+                        "author to add - see MODDING.md for how. Nothing is wrong with the mods themselves.");
+                }
+                return;
+            }
+
+            if (discovered > 0) LoggingService.Instance.Info($"Found an update source for {discovered} mod(s).");
+
+            var results = await _modUpdater.CheckAllAsync(checkable,
+                new Progress<string>(s => StatusMessage = s));
+
+            foreach (var result in results)
+            {
+                result.Mod.AvailableUpdateTag = result.HasUpdate ? result.Tag : null;
+                result.Mod.AvailableUpdateNotes = result.HasUpdate ? result.Notes : null;
+                result.Mod.AvailableUpdateAssetUrl = result.HasUpdate ? result.Asset!.BrowserDownloadUrl : null;
+            }
+
+            var available = results.Count(r => r.HasUpdate);
+            StatusMessage = available == 0
+                ? $"Checked {checkable.Count} mod(s) - all up to date."
+                : $"{available} mod update(s) available.";
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Instance.Error($"Mod update check failed: {ex.Message}");
+            StatusMessage = "Mod update check failed - see log.";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// Reads each mod's declared update source. Returns how many were newly found.
+    private int ResolveUpdateSources(GameInstallation game)
+    {
+        var found = 0;
+
+        foreach (var mod in Mods.Where(m => m.UpdateSource == null))
+        {
+            var source = _updateSources.FromManifest(mod);
+            if (source == null) continue;
+            mod.UpdateSource = source;
+            found++;
+        }
+
+        // Only mount if a LogicMod might still be hiding a ModUpdateUrl in its ModActor.
+        var needMount = Mods.Any(m => m.UpdateSource == null && m.HasModActor);
+        if (!needMount) return found;
+
+        var settings = AppSettingsService.Instance.Current;
+        var mappingsPath = !string.IsNullOrWhiteSpace(settings.MappingsOverridePath) && File.Exists(settings.MappingsOverridePath)
+            ? settings.MappingsOverridePath!
+            : MappingsProviderService.EnsureExtracted();
+        var egame = Enum.TryParse<EGame>(settings.EGameVersion, out var parsed) ? parsed : EGame.GAME_UE5_3;
+
+        try
+        {
+            using var provider = GameMountService.Mount(game.PaksPath, mappingsPath, egame, settings.AesKeyHex);
+            DataTableAppendScanner.EnableScriptReading(provider);
+
+            foreach (var mod in Mods.Where(m => m.UpdateSource == null && m.HasModActor))
+            {
+                var source = _updateSources.FromModActor(provider, mod);
+                if (source == null) continue;
+                mod.UpdateSource = source;
+                found++;
+            }
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Instance.Warn($"Couldn't read update info from installed paks: {ex.Message}");
+        }
+
+        return found;
+    }
+
+    /// Applies one mod's update, after asking. Trust never skips this prompt - it only changes how
+    /// much the prompt has to explain about who the download is coming from.
+    private async Task UpdateModAsync(ModInfo? mod)
+    {
+        if (mod?.UpdateSource is not { IsUsable: true } source) return;
+        if (!mod.HasAvailableUpdate || _installer == null) return;
+
+        var trust = ModTrustService.Instance;
+        var prompt = new ModUpdatePromptWindow(mod, source, trust.LevelFor(source))
+        {
+            Owner = System.Windows.Application.Current.MainWindow
+        };
+        if (prompt.ShowDialog() != true) return;
+
+        if (prompt.TrustAuthorChecked) trust.Trust(source.Owner);
+
+        IsBusy = true;
+        try
+        {
+            StatusMessage = $"Downloading {mod.Name} {mod.AvailableUpdateTag}...";
+
+            var asset = new GitHubAsset
+            {
+                Name = Path.GetFileName(new Uri(mod.AvailableUpdateAssetUrl!).LocalPath),
+                BrowserDownloadUrl = mod.AvailableUpdateAssetUrl!
+            };
+
+            var downloaded = await _modUpdater.DownloadAsync(asset, new Progress<double>(p => ProgressValue = p));
+            if (downloaded == null)
+            {
+                StatusMessage = "Download failed - see log.";
+                return;
+            }
+
+            // Reinstalling through the normal installer means an update gets exactly the same type
+            // detection, placement and conflict checking as a manual install - no second path that
+            // could disagree with the first.
+            StatusMessage = $"Installing {mod.Name} {mod.AvailableUpdateTag}...";
+            await InstallFromPathAsync(downloaded);
+
+            mod.AvailableUpdateTag = null;
+            mod.AvailableUpdateNotes = null;
+            mod.AvailableUpdateAssetUrl = null;
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Instance.Error($"Updating '{mod.Name}' failed: {ex.Message}");
+            StatusMessage = "Mod update failed - see log.";
         }
         finally
         {

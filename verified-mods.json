@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "Mod sources the DDS2 Mod Manager maintainers have looked at.",
+    "Fetched by the manager on startup and cached locally, so adding an entry here reaches",
+    "everyone without shipping a new build of the app.",
+    "",
+    "Being on this list means someone trusted looked at the mod and the account publishing it.",
+    "It does NOT mean the mod is guaranteed safe forever - an author's account can be",
+    "compromised. The manager still asks the user before installing anything, verified or not.",
+    "",
+    "  owner       required. GitHub account. Matched case-insensitively.",
+    "  repo        optional. Verifies only that repository. Leave it out to verify everything",
+    "              the owner publishes - only do that for people you'd vouch for unreservedly.",
+    "  note        optional. Shown to users.",
+    "  verifiedBy  optional. Who added the entry, so a stale one can be chased up."
+  ],
+  "schema": 1,
+  "updated": "2026-08-09",
+  "entries": [
+    {
+      "owner": "631Brando",
+      "note": "Maintainer of DDS2 Mod Manager.",
+      "verifiedBy": "631Brando"
+    }
+  ]
+}

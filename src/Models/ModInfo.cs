@@ -42,4 +42,22 @@ public partial class ModInfo : ObservableObject
     /// without this the auto-refresh below would re-scan mods that genuinely have no appends on
     /// every single launch.
     [ObservableProperty] private bool dataTableScanCompleted;
+
+    /// Where this mod says its updates come from, if its author declared anywhere (a ModUpdateUrl
+    /// variable on the ModActor, or a .dds2mod.json). Null means the author didn't opt in, which
+    /// is the normal case and not a problem - that mod simply never gets checked.
+    [ObservableProperty] private ModUpdateSource? updateSource;
+
+    /// Set when an update check found something newer. Cleared once the update is applied.
+    [ObservableProperty] private string? availableUpdateTag;
+
+    /// Release notes for the available update, shown before the user agrees to install it.
+    [ObservableProperty] private string? availableUpdateNotes;
+
+    /// Download URL of the asset an update would install. Held so the confirmation prompt and the
+    /// install use exactly the same one, rather than re-resolving and possibly picking differently.
+    [ObservableProperty] private string? availableUpdateAssetUrl;
+
+    public bool HasUpdateSource => UpdateSource is { IsUsable: true };
+    public bool HasAvailableUpdate => !string.IsNullOrEmpty(AvailableUpdateTag);
 }

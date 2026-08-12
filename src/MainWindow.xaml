@@ -62,6 +62,10 @@
                 <Button Content="Install Mod..." Style="{StaticResource AccentButton}" Command="{Binding InstallModCommand}" Margin="0,0,8,0"/>
                 <Button Content="Re-scan Mod Files" Style="{StaticResource GhostButton}" Command="{Binding RunDeepScanCommand}" Margin="0,0,8,0"
                         ToolTip="Re-reads every installed mod's pak from disk. Conflict checking is automatic, so you only need this if a mod's files changed outside the manager."/>
+                <Button Content="Browse Mods" Style="{StaticResource GhostButton}" Command="{Binding BrowseModsCommand}" Margin="0,0,8,0"
+                        ToolTip="Mods published by the manager's maintainers, installable from here."/>
+                <Button Content="Check Mod Updates" Style="{StaticResource GhostButton}" Command="{Binding CheckModUpdatesCommand}" Margin="0,0,8,0"
+                        ToolTip="Checks mods whose author published an update source. Nothing installs without asking you first."/>
                 <Button Content="Find Existing Mods" Style="{StaticResource GhostButton}" Command="{Binding ScanForExistingModsCommand}" Margin="0,0,8,0"
                         ToolTip="Finds mods already in your game folders that this manager isn't tracking yet, and offers to import them."/>
                 <Button Content="Saves &amp; Config" Style="{StaticResource GhostButton}" Command="{Binding OpenGameDataCommand}"
@@ -170,10 +174,20 @@
                         <DataGridTextColumn Header="Status" Width="90"
                                             Binding="{Binding IsEnabled, Mode=OneWay, Converter={StaticResource BoolToEnabledText}}"/>
 
-                        <DataGridTemplateColumn Header="Actions" Width="300">
+                        <DataGridTemplateColumn Header="Actions" Width="380">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal">
+                                        <!-- Only appears once a check has actually found something,
+                                             so an absent button means "nothing to install" rather
+                                             than "this mod can't be updated". -->
+                                        <Button Style="{StaticResource SmallActionButton}"
+                                                Content="{Binding AvailableUpdateTag, StringFormat=Update to {0}}"
+                                                Foreground="{StaticResource AccentBrush}"
+                                                Visibility="{Binding HasAvailableUpdate, Converter={StaticResource BoolToVisibility}}"
+                                                Command="{Binding DataContext.UpdateModCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip="Shows where the download comes from and asks before installing anything."/>
                                         <Button Content="Files" Style="{StaticResource SmallActionButton}"
                                                 Command="{Binding DataContext.ViewFilesCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                                 CommandParameter="{Binding}"/>

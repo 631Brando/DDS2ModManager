@@ -37,6 +37,26 @@ WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
   where they are and just starts tracking them, so they become enable/disable/uninstallable
   and get included in conflict checks. Base-game paks and UE4SS's own built-in mods are
   excluded, so only real user mods show up.
+- **Mod auto-updating** for mods whose author opted in. A LogicMod declares a `ModUpdateUrl`
+  string variable on its ModActor; lua and patch mods ship a `.dds2mod.json`. Either way the
+  manager reads it from what's already installed, so a mod installed long before this feature
+  existed still gets picked up — nothing has to be re-downloaded to become updatable. See
+  [MODDING.md](MODDING.md) for the author-facing side.
+  - **Only `github.com` is accepted.** The URL comes from inside the mod, and installing an update
+    means putting executable code on the user's machine, so anything that isn't unambiguously a
+    GitHub repository is refused rather than guessed at (`GitHubUrlParser`).
+  - **Nothing installs without being asked**, whatever the trust setting. The prompt shows the
+    version, the release notes, and *which repository the download comes from*.
+  - **Trusted / Verified.** "Trusted" is a local per-user decision, granted per GitHub account
+    since whoever controls the account controls every release under it. "Verified" is a curated
+    list the maintainers publish in [verified-mods.json](verified-mods.json), fetched on startup
+    and cached for offline use. Neither one skips the install prompt — an account can be
+    compromised and a curated list can go stale, and either silently installing code would be far
+    worse than one click.
+- **Browse Mods**: a catalog of maintainer-published mods, listed in
+  [mods-catalog.json](mods-catalog.json), installable from inside the app. The catalog is only a
+  list of pointers — everything it offers goes through the ordinary installer, with the same type
+  detection and conflict checking, so being listed grants a mod no special treatment.
 - **Save Log** button exports the on-screen log to a `.txt` you can attach to bug reports.
 - **Windows integration** (in Settings, no admin needed): add an "Open with DDS2 Mod
   Manager" right-click entry for archives, and/or a Desktop/Start Menu shortcut.
