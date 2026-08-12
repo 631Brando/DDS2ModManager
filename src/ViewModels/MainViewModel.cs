@@ -102,6 +102,7 @@ public partial class MainViewModel : ObservableObject
     public IAsyncRelayCommand CheckModUpdatesCommand { get; }
     public IAsyncRelayCommand<ModInfo> UpdateModCommand { get; }
     public IRelayCommand<ModInfo> OpenModSourceCommand { get; }
+    public IRelayCommand OpenModAuthorGuideCommand { get; }
     public IRelayCommand DismissNexusFeedCommand { get; }
     public IRelayCommand<NexusModPost> OpenNexusModCommand { get; }
     public IRelayCommand OpenNexusGameCommand { get; }
@@ -128,6 +129,8 @@ public partial class MainViewModel : ObservableObject
         CheckModUpdatesCommand = new AsyncRelayCommand(() => CheckModUpdatesAsync(manual: true));
         UpdateModCommand = new AsyncRelayCommand<ModInfo>(UpdateModAsync);
         OpenModSourceCommand = new RelayCommand<ModInfo>(OpenModSource);
+        OpenModAuthorGuideCommand = new RelayCommand(() =>
+            new ModAuthorGuideWindow { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog());
         DismissNexusFeedCommand = new RelayCommand(DismissNexusFeed);
         OpenNexusModCommand = new RelayCommand<NexusModPost>(OpenNexusMod);
         OpenNexusGameCommand = new RelayCommand(() =>

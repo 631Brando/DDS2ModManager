@@ -75,6 +75,8 @@
                         ToolTip="Finds mods already in your game folders that this manager isn't tracking yet, and offers to import them."/>
                 <Button Content="Check Mod Updates" Style="{StaticResource GhostButton}" Command="{Binding CheckModUpdatesCommand}" Margin="0,0,8,0"
                         ToolTip="Checks each mod that publishes an update address for a newer release. Those updates come from the mod author's own repository, not from Nexus, and nothing is downloaded without asking."/>
+                <Button Content="Mod Authors" Style="{StaticResource GhostButton}" Command="{Binding OpenModAuthorGuideCommand}" Margin="0,0,8,0"
+                        ToolTip="Making a mod? How to add an update address so this manager can tell players when you publish a new version."/>
                 <Button Content="Saves &amp; Config" Style="{StaticResource GhostButton}" Command="{Binding OpenGameDataCommand}"
                         ToolTip="View, clone, disable or delete save games, and edit the game's config files."/>
             </StackPanel>
