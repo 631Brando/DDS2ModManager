@@ -1,5 +1,23 @@
 namespace DDS2ModManager.Models;
 
+/// The two update streams the manager can follow.
+///
+/// Both publish real GitHub releases so the in-app updater works identically for either; the only
+/// difference is that experimental builds are tagged with an "-exp" suffix and marked as
+/// prereleases, which is what keeps them out of the stable channel.
+public static class UpdateChannels
+{
+    public const string Stable = "Stable";
+    public const string Experimental = "Experimental";
+
+    public static bool IsExperimental(string? channel) =>
+        string.Equals(channel, Experimental, StringComparison.OrdinalIgnoreCase);
+
+    /// Anything unrecognised falls back to Stable - the safe default for a settings file written
+    /// by a newer build, or edited by hand.
+    public static string Normalize(string? channel) => IsExperimental(channel) ? Experimental : Stable;
+}
+
 public class AppSettings
 {
     /// If set, used instead of the embedded mappings.usmap - handy for testing an
@@ -22,6 +40,12 @@ public class AppSettings
 
     /// Checks GitHub for a newer DDS2ModManager release on startup and prompts to install it.
     public bool CheckForAppUpdatesOnStartup { get; set; } = true;
+
+    /// Which release channel updates come from - see UpdateChannels.
+    ///
+    /// Stored as a string rather than an enum so an unrecognised value from a future build
+    /// degrades to the stable channel instead of throwing while loading settings.
+    public string UpdateChannel { get; set; } = UpdateChannels.Stable;
 
     /// Optional AES-256 key (hex), only needed if CUE4Parse reports it can't decrypt a pak.
     public string? AesKeyHex { get; set; }

@@ -5,6 +5,15 @@
 # app's release asset to be named exactly "DDS2ModManager.exe" - don't rename it without updating
 # AssetName in src/Services/AppUpdateService.cs and setup/MainWindow.xaml.cs to match.
 #
+# Two channels, both publishing normal GitHub releases so the in-app updater treats them alike:
+#
+#   Stable        git tag v1.2.0        -> published normally, becomes GitHub's "Latest"
+#   Experimental  git tag v1.2.0-exp.1  -> published as a prerelease, skipped by /releases/latest
+#
+# The -exp suffix number becomes the build's fourth version component (v1.2.0-exp.1 builds as
+# 1.2.0.1), so an experimental build always sorts above the stable release it came from and below
+# the next stable one. AppUpdateService relies on that ordering - see the comment there.
+#
 # Trigger: push a tag like "v1.2.0" (git tag v1.2.0 && git push origin v1.2.0).
 
 name: Release
@@ -29,11 +38,40 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      # Version comes from the tag rather than the .csproj, so the two can't drift and a forgotten
+      # bump can't ship a build that misreports itself. "v1.2.0" -> 1.2.0.0;
+      # "v1.2.0-exp.3" -> 1.2.0.3 and marked as a prerelease.
+      - name: Work out version and channel from the tag
+        id: ver
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $body = $tag.TrimStart('v','V')
+          $suffix = 0
+          $prerelease = 'false'
+
+          if ($body -match '^(?<base>[0-9]+(\.[0-9]+){0,3})-exp\.(?<n>[0-9]+)$') {
+            $body = $Matches['base']
+            $suffix = [int]$Matches['n']
+            $prerelease = 'true'
+          }
+          elseif ($body -notmatch '^[0-9]+(\.[0-9]+){0,3}$') {
+            throw "Tag '$tag' isn't a supported form. Use v1.2.0 or v1.2.0-exp.1."
+          }
+
+          $parts = $body.Split('.')
+          while ($parts.Count -lt 3) { $parts += '0' }
+          $version = "{0}.{1}.{2}.{3}" -f $parts[0], $parts[1], $parts[2], $suffix
+
+          "version=$version"       | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "prerelease=$prerelease" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Tag $tag -> version $version, prerelease=$prerelease"
+
       - name: Publish DDS2 Mod Manager
-        run: dotnet publish src/DDS2ModManager.csproj -c Release
+        run: dotnet publish src/DDS2ModManager.csproj -c Release -p:Version=${{ steps.ver.outputs.version }}
 
       - name: Publish Setup
-        run: dotnet publish setup/DDS2ModManagerSetup.csproj -c Release
+        run: dotnet publish setup/DDS2ModManagerSetup.csproj -c Release -p:Version=${{ steps.ver.outputs.version }}
 
       # Pulls this tag's section out of CHANGELOG.md to use as the release body. That body is what
       # AppUpdateService shows in the in-app "Update available" prompt, so the notes users read
@@ -76,8 +114,19 @@ jobs:
           foreach ($a in $assets) {
             if (-not (Test-Path $a)) { throw "Expected asset not found: $a" }
           }
-          if ("${{ steps.notes.outputs.found }}" -eq "true") {
-            gh release create "${{ github.ref_name }}" $assets --title "${{ github.ref_name }}" --notes-file RELEASE_NOTES.md
-          } else {
-            gh release create "${{ github.ref_name }}" $assets --title "${{ github.ref_name }}" --generate-notes
+
+          $args = @("${{ github.ref_name }}") + $assets + @("--title", "${{ github.ref_name }}")
+
+          # Marking it a prerelease is what keeps experimental builds out of the stable channel:
+          # GitHub's /releases/latest, which the stable channel asks for, skips prereleases.
+          if ("${{ steps.ver.outputs.prerelease }}" -eq "true") {
+            $args += "--prerelease"
           }
+
+          if ("${{ steps.notes.outputs.found }}" -eq "true") {
+            $args += @("--notes-file", "RELEASE_NOTES.md")
+          } else {
+            $args += "--generate-notes"
+          }
+
+          gh release create @args

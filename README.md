@@ -135,13 +135,40 @@ caches there itself on first run (see Oodle, below) - that's expected, not a pac
 ## Releasing (for maintainers)
 
 `.github/workflows/release.yml` builds both exes and publishes them as assets on a
-GitHub Release whenever a tag matching `v*` is pushed:
+GitHub Release whenever a tag matching `v*` is pushed.
+
+### Two channels
+
+| Channel | Branch | Tag | Published as |
+|---|---|---|---|
+| Stable | `main` | `v1.2.0` | normal release, becomes GitHub's "Latest" |
+| Experimental | `experimental` | `v1.2.0-exp.1` | GitHub **prerelease** |
 
 ```
-# bump <Version> in src/DDS2ModManager.csproj and setup/DDS2ModManagerSetup.csproj first
-git tag v1.2.0
-git push origin v1.2.0
+git tag v1.2.0 && git push origin v1.2.0            # stable
+git tag v1.2.0-exp.1 && git push origin v1.2.0-exp.1  # experimental
 ```
+
+**The version comes from the tag**, not from the `.csproj` — the workflow passes
+`-p:Version=` when publishing, so the two can't drift and a forgotten bump can't ship a build
+that misreports its own version. The `<Version>` in each `.csproj` is only the default for
+local builds.
+
+The `-exp.N` suffix becomes the build's **fourth version component**: `v1.2.0-exp.3` builds as
+`1.2.0.3`. That's what makes channel switching work with plain version comparison — an
+experimental build always sorts above the stable release it came from (`1.2.0.3 > 1.2.0.0`) and
+below the next stable one (`1.2.0.3 < 1.2.1.0`), so an experimental user is moved back onto
+stable automatically once stable catches up. `AppUpdateService` depends on this; don't change
+the tag format without reading the comment there.
+
+Marking experimental builds as prereleases is what keeps the channels apart: GitHub's
+`/releases/latest`, which the stable channel asks for, skips prereleases. The experimental
+channel lists all releases and takes the highest version.
+
+The workflow **rejects** any tag that isn't `v1.2.0` or `v1.2.0-exp.1` shaped, so a typo fails
+the build instead of publishing a mislabelled release.
+
+### Asset naming
 
 `AppUpdateService` (the in-app updater) and `DDS2ModManagerSetup` both compare the
 running assembly version against the release tag name and expect an asset named exactly

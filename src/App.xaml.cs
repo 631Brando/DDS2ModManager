@@ -59,6 +59,9 @@ public partial class App : Application
             args.Handled = true;
         };
 
+        // Before the window exists, so the reason is already in the log if the window never draws.
+        InjectedDllCheck.Run();
+
         // First non-switch argument that points at a real file is treated as a mod to install.
         foreach (var arg in e.Args)
         {

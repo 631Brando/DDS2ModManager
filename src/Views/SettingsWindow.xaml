@@ -67,11 +67,22 @@
 
                 <CheckBox x:Name="AutoCheckBox" Content="Automatically check for UE4SS updates on startup" Margin="0,0,0,8"/>
                 <CheckBox x:Name="AutoCheckAppUpdateBox" Content="Automatically check for DDS2 Mod Manager updates on startup" Margin="0,0,0,6"/>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                     <Button Content="Check for Updates Now" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
                             Click="CheckForAppUpdate_Click" Margin="0,0,8,0"/>
                     <TextBlock x:Name="AppVersionText" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
+
+                <TextBlock Text="Update channel" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6"
+                           Text="Stable is the tested release everyone gets. Experimental gets new features first and will occasionally be broken — pick it only if you don't mind that, and report anything that breaks."/>
+                <ComboBox x:Name="UpdateChannelBox" Margin="0,0,0,6" Width="220" HorizontalAlignment="Left"
+                          SelectionChanged="UpdateChannel_Changed">
+                    <ComboBoxItem Content="Stable"/>
+                    <ComboBoxItem Content="Experimental"/>
+                </ComboBox>
+                <TextBlock x:Name="ChannelHintText" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,16"
+                           Foreground="{StaticResource WarningBrush}" Visibility="Collapsed"/>
 
                 <TextBlock Text="Windows integration" FontWeight="SemiBold" Margin="0,0,0,6"/>
                 <CheckBox x:Name="ContextMenuBox" Content="Add 'Open with DDS2 Mod Manager' to the right-click menu for .zip/.7z/.rar files"

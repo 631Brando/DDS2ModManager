@@ -462,24 +462,32 @@ public partial class MainViewModel : ObservableObject
         var log = LoggingService.Instance;
         try
         {
-            var check = await _appUpdater.CheckForUpdateAsync();
+            var channel = UpdateChannels.Normalize(AppSettingsService.Instance.Current.UpdateChannel);
+            var check = await _appUpdater.CheckForUpdateAsync(channel);
             if (check.NewerRelease == null)
             {
                 // Failure is already logged inside GitHubReleaseService with the specific reason -
                 // only report "you're up to date" when we actually got a real answer from GitHub.
-                if (manual && check.Succeeded) log.Info($"You're on the latest version (v{AppUpdateService.GetCurrentVersion()}).");
+                if (manual && check.Succeeded)
+                    log.Info($"You're on the latest {channel.ToLowerInvariant()} version (v{AppUpdateService.GetCurrentVersion()}).");
                 return;
             }
 
             var release = check.NewerRelease;
             var asset = _appUpdater.FindAsset(release)!;
-            log.Info($"DDS2 Mod Manager {release.TagName} is available (you have v{AppUpdateService.GetCurrentVersion()}).");
+
+            // Switching from experimental back to stable moves the version number down. Saying
+            // "update available" there would be a lie, and the prompt needs to admit it too.
+            log.Info(check.IsDowngrade
+                ? $"Switching to the stable channel means moving from v{AppUpdateService.GetCurrentVersion()} back to {release.TagName}."
+                : $"DDS2 Mod Manager {release.TagName} is available (you have v{AppUpdateService.GetCurrentVersion()}).");
 
             var prompt = new UpdateAvailableWindow(
                 release.TagName,
                 AppUpdateService.GetCurrentVersion(),
                 release.Body,
-                AppUpdateService.GetReleaseUrl(release.TagName))
+                AppUpdateService.GetReleaseUrl(release.TagName),
+                check.IsDowngrade)
             {
                 Owner = System.Windows.Application.Current.MainWindow
             };
