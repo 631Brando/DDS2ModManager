@@ -69,6 +69,11 @@ public partial class MainViewModel : ObservableObject
     private readonly UnmanagedModScannerService _unmanagedScanner = new();
     private readonly ModUpdateService _modUpdater = new();
     private readonly GitHubReleaseService _github = new();
+    private readonly NexusFeedService _nexus = new();
+
+    /// The game's Nexus domain. Not a setting: this manager is for one game, and an unrecognised
+    /// domain silently returns nothing rather than failing in a way anyone could diagnose.
+    private const string NexusGameDomain = "drugdealersimulator2";
 
     private ModRegistryService? _registry;
     private ModAnalyzerService? _analyzer;
@@ -96,6 +101,9 @@ public partial class MainViewModel : ObservableObject
     public IRelayCommand ResetGameToVanillaCommand { get; }
     public IAsyncRelayCommand CheckModUpdatesCommand { get; }
     public IAsyncRelayCommand<ModInfo> UpdateModCommand { get; }
+    public IRelayCommand DismissNexusFeedCommand { get; }
+    public IRelayCommand<NexusModPost> OpenNexusModCommand { get; }
+    public IRelayCommand OpenNexusGameCommand { get; }
 
     public MainViewModel()
     {
@@ -118,6 +126,10 @@ public partial class MainViewModel : ObservableObject
         ResetGameToVanillaCommand = new RelayCommand(ResetGameToVanilla);
         CheckModUpdatesCommand = new AsyncRelayCommand(() => CheckModUpdatesAsync(manual: true));
         UpdateModCommand = new AsyncRelayCommand<ModInfo>(UpdateModAsync);
+        DismissNexusFeedCommand = new RelayCommand(DismissNexusFeed);
+        OpenNexusModCommand = new RelayCommand<NexusModPost>(OpenNexusMod);
+        OpenNexusGameCommand = new RelayCommand(() =>
+            OpenUrl($"https://www.nexusmods.com/{NexusGameDomain}/mods/?sort=lastcreated"));
 
         // The trust tick in the grid writes straight to the ModInfo, which would otherwise be
         // forgotten on restart. Watching the collection rather than subscribing at each of the
@@ -252,6 +264,75 @@ public partial class MainViewModel : ObservableObject
             if (string.IsNullOrWhiteSpace(mod.InstalledVersion) && !string.IsNullOrWhiteSpace(found.Version))
                 mod.InstalledVersion = found.Version!;
         }
+    }
+
+    // ---- Nexus "what's new" banner ---------------------------------------------------------
+    //
+    // Discovery only: it says a mod EXISTS and links to its page. Nothing is downloaded, and it
+    // needs no Nexus account - see NexusFeedService for why that is possible.
+
+    public ObservableCollection<NexusModPost> NexusNewMods { get; } = new();
+
+    [ObservableProperty] private bool hasNexusNewMods;
+    [ObservableProperty] private string nexusBannerText = "";
+
+    /// Fire-and-forget from startup. A slow or down Nexus must never delay the window.
+    private async Task CheckNexusFeedAsync()
+    {
+        var settings = AppSettingsService.Instance.Current;
+        if (!settings.ShowNexusNewModBanner) return;
+
+        // First run starts two weeks back. Without a floor the first launch would list every
+        // mod ever published for the game, which is a catalogue, not news.
+        var since = settings.NexusFeedLastSeenUtc ?? DateTime.UtcNow.AddDays(-14);
+
+        var posts = await _nexus.GetNewModsAsync(NexusGameDomain, since);
+        if (posts.Count == 0) return;
+
+        // Anything the user already has installed is not news to them. Matched on name because
+        // that is all the two sides share - the registry has no Nexus id.
+        var installed = Mods.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var fresh = posts.Where(p => !installed.Contains(p.Name)).ToList();
+        if (fresh.Count == 0) return;
+
+        NexusNewMods.Clear();
+        foreach (var p in fresh.Take(6)) NexusNewMods.Add(p);
+
+        HasNexusNewMods = true;
+        NexusBannerText = fresh.Count == 1
+            ? "1 new DDS2 mod on Nexus"
+            : $"{fresh.Count} new DDS2 mods on Nexus";
+
+        LoggingService.Instance.Info(
+            $"{fresh.Count} new mod(s) published on Nexus since {since.ToLocalTime():d MMM}: " +
+            string.Join(", ", fresh.Take(5).Select(p => p.Name)));
+    }
+
+    /// Marks everything currently shown as seen, so the banner does not return for the same mods.
+    private void DismissNexusFeed()
+    {
+        if (NexusNewMods.Count > 0)
+        {
+            var newest = NexusNewMods.Max(p => p.CreatedAt).ToUniversalTime();
+            AppSettingsService.Instance.Current.NexusFeedLastSeenUtc = newest;
+            AppSettingsService.Instance.Save();
+        }
+
+        NexusNewMods.Clear();
+        HasNexusNewMods = false;
+        NexusBannerText = "";
+    }
+
+    private void OpenNexusMod(NexusModPost? post)
+    {
+        if (post == null) return;
+        OpenUrl(post.Url);
+    }
+
+    private static void OpenUrl(string url)
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
+        catch (Exception ex) { LoggingService.Instance.Warn($"Couldn't open {url}: {ex.Message}"); }
     }
 
     private void RefreshModUpdateBanner()
@@ -507,6 +588,10 @@ public partial class MainViewModel : ObservableObject
         // repeatedly doesn't burn the unauthenticated rate limit.
         if (AppSettingsService.Instance.Current.CheckForModUpdatesOnStartup)
             _ = CheckModUpdatesAsync();
+
+        // Same treatment: fire-and-forget, failures logged as warnings. A banner about what's
+        // new on Nexus is the last thing that should be allowed to hold up the window.
+        _ = CheckNexusFeedAsync();
 
         // Awaited rather than fire-and-forget: this one opens a modal dialog, and racing it
         // against the UE4SS update prompt above would stack two dialogs on the user at once.

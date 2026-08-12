@@ -29,6 +29,17 @@ public class AppSettings
     /// nothing is ever downloaded without asking - see ModUpdateService.
     public bool CheckForModUpdatesOnStartup { get; set; } = true;
 
+    /// Shows a banner when new DDS2 mods have been published on Nexus since you last looked.
+    ///
+    /// Read-only discovery - it lists what exists and links to the page. Nothing is downloaded,
+    /// and no Nexus account or API key is involved.
+    public bool ShowNexusNewModBanner { get; set; } = true;
+
+    /// Newest mod publish time already shown in the banner. Everything after this is "new".
+    /// Null on first run, which starts the window at two weeks back rather than dumping the
+    /// entire history of the game's mod list into a banner.
+    public DateTime? NexusFeedLastSeenUtc { get; set; }
+
     /// Installs updates for mods marked TrustedAuthor without showing the confirmation dialog.
     ///
     /// OFF by default, and it should stay that way unless someone deliberately turns it on.
