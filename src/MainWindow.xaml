@@ -275,9 +275,27 @@
 
                         <!-- Only ever populated for mods that publish a ModUpdateUrl. A blank
                              cell means "this mod doesn't offer updates", which is the normal
-                             case and deliberately reads as nothing rather than as a problem. -->
-                        <DataGridTextColumn Header="Version" Width="90"
-                                            Binding="{Binding InstalledVersion, Mode=OneWay}"/>
+                             case and deliberately reads as nothing rather than as a problem.
+
+                             Anything with a version also has somewhere that version came from,
+                             so the source repo is one click away from it rather than buried in
+                             a tooltip. SortMemberPath because a template column has nothing to
+                             sort on otherwise. -->
+                        <DataGridTemplateColumn Header="Version" Width="130" SortMemberPath="InstalledVersion">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding InstalledVersion}" VerticalAlignment="Center"/>
+                                        <Button Content="source" Style="{StaticResource LinkButton}"
+                                                Margin="8,0,0,0" VerticalAlignment="Center"
+                                                Visibility="{Binding ModUpdateUrl, Converter={StaticResource NullToCollapsed}}"
+                                                Command="{Binding DataContext.OpenModSourceCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip="{Binding ModUpdateUrl}"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
 
                         <!-- Sorted by whether an update exists, not by the version string:
                              "everything with an update waiting" is the useful grouping, and

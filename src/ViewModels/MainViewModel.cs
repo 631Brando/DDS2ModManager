@@ -101,6 +101,7 @@ public partial class MainViewModel : ObservableObject
     public IRelayCommand ResetGameToVanillaCommand { get; }
     public IAsyncRelayCommand CheckModUpdatesCommand { get; }
     public IAsyncRelayCommand<ModInfo> UpdateModCommand { get; }
+    public IRelayCommand<ModInfo> OpenModSourceCommand { get; }
     public IRelayCommand DismissNexusFeedCommand { get; }
     public IRelayCommand<NexusModPost> OpenNexusModCommand { get; }
     public IRelayCommand OpenNexusGameCommand { get; }
@@ -126,6 +127,7 @@ public partial class MainViewModel : ObservableObject
         ResetGameToVanillaCommand = new RelayCommand(ResetGameToVanilla);
         CheckModUpdatesCommand = new AsyncRelayCommand(() => CheckModUpdatesAsync(manual: true));
         UpdateModCommand = new AsyncRelayCommand<ModInfo>(UpdateModAsync);
+        OpenModSourceCommand = new RelayCommand<ModInfo>(OpenModSource);
         DismissNexusFeedCommand = new RelayCommand(DismissNexusFeed);
         OpenNexusModCommand = new RelayCommand<NexusModPost>(OpenNexusMod);
         OpenNexusGameCommand = new RelayCommand(() =>
@@ -327,6 +329,25 @@ public partial class MainViewModel : ObservableObject
     {
         if (post == null) return;
         OpenUrl(post.Url);
+    }
+
+    /// Opens the repository a mod publishes its updates from.
+    ///
+    /// Re-checked against the allowlist rather than trusted because it came from a ModInfo:
+    /// the URL originates in a file inside a mod, and "we validated it on the way in" is a
+    /// weaker guarantee than validating it at the point of use - registries get hand-edited.
+    private void OpenModSource(ModInfo? mod)
+    {
+        if (mod == null) return;
+
+        if (!ModUpdateSourceReader.IsAllowedUpdateUrl(mod.ModUpdateUrl))
+        {
+            LoggingService.Instance.Warn(
+                $"'{mod.Name}' has an update address that isn't a GitHub URL, so it wasn't opened: {mod.ModUpdateUrl}");
+            return;
+        }
+
+        OpenUrl(mod.ModUpdateUrl!);
     }
 
     private static void OpenUrl(string url)
