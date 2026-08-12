@@ -80,6 +80,49 @@ public class TrustGateTests
     public void A_mod_declaring_nothing_is_not_a_move() =>
         Assert.False(new ModInfo { Name = "T", InstalledUpdateUrl = "https://github.com/owner/repo" }.UpdateUrlChanged);
 
+    // ---- adopting a source arms the detector -------------------------------------------------
+
+    /// The gap this closes was found by running the app against a real 19-mod install: the
+    /// manifest-declared mods had a pinned address and the ModActor-declared ones did not,
+    /// because one discovery path assigned UpdateSource without pinning. UpdateUrlChanged
+    /// compares against the pinned value, so those mods could never have been detected moving -
+    /// and nothing would have looked wrong.
+    [Fact]
+    public void Adopting_a_source_pins_the_address_it_was_first_seen_at()
+    {
+        var mod = new ModInfo { Name = "Fresh" };
+
+        mod.AdoptUpdateSource(new ModUpdateSource
+        {
+            Declaration = ModUpdateDeclaration.BlueprintVariable,
+            Owner = "owner",
+            Repo = "repo",
+            DeclaredUrl = "https://github.com/owner/repo"
+        });
+
+        Assert.Equal("https://github.com/owner/repo", mod.InstalledUpdateUrl);
+        Assert.False(mod.UpdateUrlChanged);
+    }
+
+    /// The pin is a baseline, not a running total. Overwriting it on every re-scan would erase
+    /// the evidence of a move at exactly the moment the move happened.
+    [Fact]
+    public void Adopting_a_moved_source_does_not_overwrite_the_pin()
+    {
+        var mod = new ModInfo { Name = "Moved", InstalledUpdateUrl = "https://github.com/owner/repo" };
+
+        mod.AdoptUpdateSource(new ModUpdateSource
+        {
+            Declaration = ModUpdateDeclaration.Manifest,
+            Owner = "someone-else",
+            Repo = "theirs",
+            DeclaredUrl = "https://github.com/someone-else/theirs"
+        });
+
+        Assert.Equal("https://github.com/owner/repo", mod.InstalledUpdateUrl);
+        Assert.True(mod.UpdateUrlChanged);
+    }
+
     // ---- the verified list ------------------------------------------------------------------
 
     [Fact]

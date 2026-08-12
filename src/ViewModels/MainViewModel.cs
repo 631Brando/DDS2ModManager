@@ -249,12 +249,10 @@ public partial class MainViewModel : ObservableObject
             if (found is not { IsUsable: true }) continue;
 
             var previous = mod.ModUpdateUrl;
-            mod.UpdateSource = found;
 
-            // Record where the mod pointed the first time we saw it, so a later move can be
-            // detected at all. ModInfo.UpdateUrlChanged compares against exactly this.
-            if (string.IsNullOrWhiteSpace(mod.InstalledUpdateUrl))
-                mod.InstalledUpdateUrl = found.DeclaredUrl;
+            // Adopt, not assign: this also records where the mod pointed the first time we saw it,
+            // which is the only thing a later move can be detected against.
+            mod.AdoptUpdateSource(found);
 
             // A manifest that now points somewhere else than the one we recorded is worth
             // flagging rather than quietly adopting. A manifest on disk can be rewritten by
@@ -922,11 +920,29 @@ public partial class MainViewModel : ObservableObject
     {
         var found = 0;
 
+        // Backfill first. A mod that already HAS a source is skipped by the discovery loops below,
+        // so anything that acquired one without pinning an address would stay unpinned forever -
+        // and UpdateUrlChanged, which compares against the pin, could never fire for it.
+        //
+        // Two ways to end up here: a registry migrated from a build that stored no pin, and the
+        // brief window where one discovery path assigned a source without pinning. Both are
+        // indistinguishable now, and both are repaired by taking the current address as the
+        // baseline. That is weaker than pinning at install time - if the address ALREADY moved
+        // before this ran, the move is now the baseline - but it is the strongest honest claim
+        // available for a mod that was found on disk, and it beats leaving the check disarmed.
+        foreach (var mod in Mods.Where(m => m.UpdateSource is { IsUsable: true }
+                                         && string.IsNullOrWhiteSpace(m.InstalledUpdateUrl)))
+        {
+            mod.InstalledUpdateUrl = mod.UpdateSource!.DeclaredUrl;
+            LoggingService.Instance.Info(
+                $"Recorded the update address for '{mod.Name}' as {mod.ModUpdateUrl}. A later change to it will be flagged.");
+        }
+
         foreach (var mod in Mods.Where(m => m.UpdateSource == null))
         {
             var source = _updateSources.FromManifest(mod);
             if (source == null) continue;
-            mod.UpdateSource = source;
+            mod.AdoptUpdateSource(source);
             found++;
         }
 
@@ -949,7 +965,7 @@ public partial class MainViewModel : ObservableObject
             {
                 var source = _updateSources.FromModActor(provider, mod);
                 if (source == null) continue;
-                mod.UpdateSource = source;
+                mod.AdoptUpdateSource(source);
                 found++;
             }
         }

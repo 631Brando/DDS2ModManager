@@ -185,4 +185,23 @@ public partial class ModInfo : ObservableObject
         OnPropertyChanged(nameof(TrustedAuthor));
         OnPropertyChanged(nameof(TrustLevel));
     }
+
+    /// Takes on a newly-discovered update source, pinning the address if nothing was pinned yet.
+    ///
+    /// Assigning UpdateSource directly is not enough, and forgetting the second half is silent:
+    /// UpdateUrlChanged compares against InstalledUpdateUrl, so a mod that never pinned one can
+    /// never be detected moving. The moved-address warning would simply never fire for it, and
+    /// nothing would look wrong.
+    ///
+    /// Pinning the address the FIRST time it is seen is the strongest claim that can honestly be
+    /// made for a mod discovered on disk. For a mod installed through this manager the installer
+    /// pins it from the downloaded copy instead, which is a better baseline - so this only fills
+    /// the gap, and never overwrites one already set.
+    public void AdoptUpdateSource(ModUpdateSource source)
+    {
+        UpdateSource = source;
+
+        if (string.IsNullOrWhiteSpace(InstalledUpdateUrl) && source.IsUsable)
+            InstalledUpdateUrl = source.DeclaredUrl;
+    }
 }
