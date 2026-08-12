@@ -29,6 +29,15 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      # Gate the release on the tests. Publishing an exe that nothing checked, straight into
+      # an auto-updater that installs it for every user, is the one place a red build must
+      # actually stop something.
+      #
+      # Live-API tests are excluded for the same reason CI excludes them: GitHub rate-limiting
+      # a runner is not a reason to be unable to cut a release.
+      - name: Unit tests
+        run: dotnet test tests/DDS2ModManager.Tests/DDS2ModManager.Tests.csproj -c Release --filter "Category!=Live" --logger "console;verbosity=normal"
+
       - name: Publish DDS2 Mod Manager
         run: dotnet publish src/DDS2ModManager.csproj -c Release
 
