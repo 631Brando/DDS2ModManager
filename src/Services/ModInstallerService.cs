@@ -96,7 +96,13 @@ public class ModInstallerService
 
     /// Step 2: analyze + copy files into the game. chosenRoot is either prepared.ExtractedRoot
     /// itself (no variants) or the single folder the user picked from prepared.VariantCandidates.
-    public async Task<ModInfo?> InstallFromRootAsync(string originalSourcePath, PreparedInstall prepared, string chosenRoot)
+    /// keepExtraction leaves the temp folder in place for the caller to reuse and delete.
+    /// A destination-layout archive is installed from the SAME extraction more than once, and
+    /// without this the first part's cleanup deletes the second part's source out from under
+    /// it - "Could not find a part of the path ...\UE4SSMods\MyMod", after which only half the
+    /// mod is installed and the run still reports success for the half that made it.
+    public async Task<ModInfo?> InstallFromRootAsync(
+        string originalSourcePath, PreparedInstall prepared, string chosenRoot, bool keepExtraction = false)
     {
         var log = LoggingService.Instance;
 
@@ -185,7 +191,7 @@ public class ModInstallerService
         }
         finally
         {
-            if (prepared.IsTempExtraction)
+            if (prepared.IsTempExtraction && !keepExtraction)
                 try { Directory.Delete(prepared.ExtractedRoot, true); } catch { }
         }
     }
@@ -346,18 +352,37 @@ public class ModInstallerService
         mod.InstallFiles = moved;
     }
 
+    /// The name UE4SS knows a lua mod by: the folder on disk, which is what mods.txt keys on.
+    ///
+    /// NOT mod.Name - that is a display label and can carry a "(LuaMod)" suffix when both
+    /// halves of a two-part mod are installed. Enabling with the display name writes an entry
+    /// naming a folder that does not exist, so the mod silently stops loading.
+    private static string LuaFolderName(ModInfo mod) =>
+        !string.IsNullOrWhiteSpace(mod.InstallPath) && Directory.Exists(mod.InstallPath)
+            ? Path.GetFileName(mod.InstallPath.TrimEnd(Path.DirectorySeparatorChar))
+            : mod.Name;
+
     private void InstallLuaMod(string workingDir, ModInfo mod)
     {
         Directory.CreateDirectory(_game.UE4SSModsPath);
         var scriptsDir = Directory.GetDirectories(workingDir, "Scripts", SearchOption.AllDirectories).FirstOrDefault();
         var modRoot = scriptsDir != null ? Path.GetDirectoryName(scriptsDir)! : workingDir;
 
-        var destDir = Path.Combine(_game.UE4SSModsPath, mod.Name);
+        // The folder on disk is named after the SOURCE folder, never after mod.Name.
+        //
+        // mod.Name is a display label and may carry a disambiguating suffix when both halves of
+        // a two-part mod are installed - "SpecialClientMarker (LuaMod)". UE4SS loads the folder
+        // named in mods.txt, so writing that suffix to disk produces a folder the loader has no
+        // reason to recognise, and an entry in mods.txt that does not name the mod.
+        var folderName = Path.GetFileName(modRoot.TrimEnd(Path.DirectorySeparatorChar));
+        if (string.IsNullOrWhiteSpace(folderName)) folderName = mod.Name;
+
+        var destDir = Path.Combine(_game.UE4SSModsPath, folderName);
         CopyDirectoryRecursive(modRoot, destDir);
 
         mod.InstallPath = destDir;
         mod.InstallFiles = new List<string> { destDir };
-        _lua.SetEnabled(_game, mod.Name, true);
+        _lua.SetEnabled(_game, folderName, true);
     }
 
     private void CopyDirectoryRecursive(string source, string dest)
@@ -386,7 +411,7 @@ public class ModInstallerService
             else if (mod.Type == ModType.LuaMod)
             {
                 if (Directory.Exists(mod.InstallPath)) Directory.Delete(mod.InstallPath, true);
-                _lua.RemoveEntry(_game, mod.Name);
+                _lua.RemoveEntry(_game, LuaFolderName(mod));
             }
 
             var cachePath = Path.Combine(_disabledCacheDir, mod.Id);
@@ -407,7 +432,7 @@ public class ModInstallerService
 
         if (mod.Type == ModType.LuaMod)
         {
-            _lua.SetEnabled(_game, mod.Name, false);
+            _lua.SetEnabled(_game, LuaFolderName(mod), false);
             mod.IsEnabled = false;
             _registry.Upsert(mod);
             log.Info($"Disabled '{mod.Name}' (mods.txt set to 0 - files left in place).");
@@ -445,7 +470,7 @@ public class ModInstallerService
 
         if (mod.Type == ModType.LuaMod)
         {
-            _lua.SetEnabled(_game, mod.Name, true);
+            _lua.SetEnabled(_game, LuaFolderName(mod), true);
             mod.IsEnabled = true;
             _registry.Upsert(mod);
             log.Success($"Enabled '{mod.Name}'.");

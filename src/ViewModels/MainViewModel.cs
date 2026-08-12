@@ -778,13 +778,23 @@ public partial class MainViewModel : ObservableObject
             if (prepared.DestinationParts.Count > 0)
             {
                 var installedParts = 0;
-                foreach (var part in prepared.DestinationParts)
+                try
                 {
-                    var partMod = await _installer.InstallFromRootAsync(path, prepared, part);
-                    if (partMod == null) continue;
+                    foreach (var part in prepared.DestinationParts)
+                    {
+                        // keepExtraction: every part comes out of the same temp folder, so it
+                        // has to survive until the last one is done.
+                        var partMod = await _installer.InstallFromRootAsync(path, prepared, part, keepExtraction: true);
+                        if (partMod == null) continue;
 
-                    Mods.Add(partMod);
-                    installedParts++;
+                        Mods.Add(partMod);
+                        installedParts++;
+                    }
+                }
+                finally
+                {
+                    if (prepared.IsTempExtraction)
+                        try { Directory.Delete(prepared.ExtractedRoot, true); } catch { }
                 }
 
                 if (installedParts > 0)
