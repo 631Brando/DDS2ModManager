@@ -121,6 +121,21 @@ public class ModUpdateService
         var release = await GetLatestReleaseAsync(source);
         if (release == null) return false;   // GitHubReleaseService has already logged why
 
+        ApplyRelease(mod, source, release);
+        return true;
+    }
+
+    /// Works out what a release means for a mod, and records it. Pure apart from logging: no
+    /// network, so every branch below is unit-testable.
+    ///
+    /// Split out of CheckOneAsync because it wasn't. The decision "a newer release with no
+    /// identifiable file should still be reported" was wrong for a while and could only be caught
+    /// by a test that talked to GitHub - so it was, by the daily live job, a day late. It is
+    /// ordinary logic and deserves ordinary tests.
+    public static void ApplyRelease(ModInfo mod, ModUpdateSource source, GitHubReleaseInfo release)
+    {
+        var log = LoggingService.Instance;
+
         var latest = NormalizeVersion(release.TagName);
         mod.LatestVersion = latest;
         mod.LastUpdateCheck = DateTime.Now;
@@ -132,7 +147,7 @@ public class ModUpdateService
             ClearPendingUpdate(mod);
             log.Warn($"'{mod.Name}' now points its updates at {mod.ModUpdateUrl}, but it was installed pointing at " +
                      $"{mod.InstalledUpdateUrl}. Not offering an update until you've confirmed that's expected.");
-            return true;
+            return;
         }
 
         // A mod that never declared its own version gives us nothing to compare against.
@@ -143,34 +158,40 @@ public class ModUpdateService
             ClearPendingUpdate(mod);
             log.Info($"'{mod.Name}' doesn't declare a version, so it can't be compared against {latest}. " +
                      "Its author can add one via a ModVersion variable on the ModActor, or a manifest.");
-            return true;
+            return;
         }
 
         if (!IsNewer(latest, NormalizeVersion(mod.InstalledVersion)))
         {
             ClearPendingUpdate(mod);
-            return true;
+            return;
         }
 
-        // There is something newer - but only offer it if exactly one file in the release can be
-        // identified as the download. Installing the wrong asset is worse than installing nothing.
+        // There is something newer. Report that even when no file in the release can be identified
+        // as the mod - "a new version exists, here are the notes, here is where to get it" is the
+        // useful half, and the user can download it by hand. Withholding it entirely would leave
+        // someone silently stuck on an old version because the author published a bare .pak, or
+        // several archives, or attached nothing at all.
+        //
+        // What an unidentifiable asset costs is the one-click install, not the notification. See
+        // MainViewModel.UpdateModAsync, which degrades the prompt rather than refusing to show it.
         var asset = PickAsset(release, source);
-        if (asset == null)
-        {
-            ClearPendingUpdate(mod);
-            log.Warn($"'{mod.Name}' has a newer release ({release.TagName}) but no single downloadable file could be " +
-                     "identified in it, so it's being left alone. The author can name one with the \"asset\" field " +
-                     "in their .dds2mod.json.");
-            return true;
-        }
 
         mod.UpdateAvailable = true;
         mod.AvailableUpdateTag = release.TagName;
         mod.AvailableUpdateNotes = release.Body;
-        mod.AvailableUpdateAssetUrl = asset.BrowserDownloadUrl;
+        mod.AvailableUpdateAssetUrl = asset?.BrowserDownloadUrl;
 
-        log.Info($"'{mod.Name}' {mod.InstalledVersion} -> {latest} available at {source.RepositoryUrl}");
-        return true;
+        if (asset == null)
+        {
+            log.Info($"'{mod.Name}' {mod.InstalledVersion} -> {latest} available at {source.RepositoryUrl}, but no " +
+                     "single file in that release could be identified as the mod, so it's offered as a manual " +
+                     "download. The author can name one with the \"asset\" field in their .dds2mod.json.");
+        }
+        else
+        {
+            log.Info($"'{mod.Name}' {mod.InstalledVersion} -> {latest} available at {source.RepositoryUrl}");
+        }
     }
 
     /// Clears any previously-found update, so a mod that has since been updated (or whose release

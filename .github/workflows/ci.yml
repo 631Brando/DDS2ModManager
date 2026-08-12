@@ -58,10 +58,16 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      # No continue-on-error here, deliberately.
+      #
+      # There used to be one, paired with an `if: failure()` note step - which together made this
+      # job incapable of reporting anything. continue-on-error sets the step's CONCLUSION to
+      # success, so the job stayed green, `failure()` never evaluated true, the note never printed,
+      # and a genuine API change would have gone unnoticed. The canary was decorative.
+      #
+      # Letting it go red is safe precisely because the job is gated to the schedule and manual
+      # runs above: it cannot block a push or a PR whatever it does. A red scheduled run IS the
+      # notification - it means GitHub or Nexus changed shape, or the runner was rate limited, and
+      # both are worth a look.
       - name: Live API tests
         run: dotnet test tests/DDS2ModManager.Tests/DDS2ModManager.Tests.csproj -c Release --filter "Category=Live" --logger "console;verbosity=normal"
-        continue-on-error: true
-
-      - name: Note
-        if: failure()
-        run: echo "Live API tests failed - GitHub or Nexus may have changed shape, or the runner was rate limited."
