@@ -11,6 +11,13 @@ public class PreparedInstall
     /// (see ModVariantDetectionService) and the caller must ask the user to pick one before
     /// calling InstallFromRootAsync.
     public List<string> VariantCandidates { get; set; } = new();
+
+    /// Non-empty when the archive is laid out by DESTINATION rather than as one mod - a pak
+    /// half and a lua half that belong in two different game folders (see
+    /// ModArchiveLayoutService). Every entry is installed, in contrast to VariantCandidates
+    /// where exactly one is. The two are mutually exclusive: a destination layout is not a
+    /// choice the user should be asked to make.
+    public List<string> DestinationParts { get; set; } = new();
 }
 
 /// Core install/uninstall/enable/disable logic. Disable is implemented as "move the
@@ -43,15 +50,7 @@ public class ModInstallerService
     {
         var log = LoggingService.Instance;
 
-        if (Directory.Exists(sourcePath))
-        {
-            return new PreparedInstall
-            {
-                ExtractedRoot = sourcePath,
-                IsTempExtraction = false,
-                VariantCandidates = ModVariantDetectionService.DetectCandidates(sourcePath)
-            };
-        }
+        if (Directory.Exists(sourcePath)) return Describe(sourcePath, isTemp: false);
 
         if (File.Exists(sourcePath) && ArchiveExtractionService.IsSupportedArchive(sourcePath))
         {
@@ -59,16 +58,40 @@ public class ModInstallerService
             log.Info($"Extracting '{Path.GetFileName(sourcePath)}'...");
             ArchiveExtractionService.ExtractToDirectory(sourcePath, tempExtract);
 
-            return new PreparedInstall
-            {
-                ExtractedRoot = tempExtract,
-                IsTempExtraction = true,
-                VariantCandidates = ModVariantDetectionService.DetectCandidates(tempExtract)
-            };
+            return Describe(tempExtract, isTemp: true);
         }
 
         throw new InvalidOperationException(
             $"Unsupported mod source (expected a folder, or a {string.Join("/", ArchiveExtractionService.SupportedExtensions)} archive): {sourcePath}");
+    }
+
+    /// A destination layout is checked FIRST and suppresses variant detection entirely.
+    /// Otherwise the two halves of one mod look like two variants of it, and the user is asked
+    /// to choose between "UE4SSMods" and "LogicMods" as though they were x2/x5 multipliers -
+    /// then gets half a mod whichever they pick.
+    private static PreparedInstall Describe(string root, bool isTemp)
+    {
+        var parts = ModArchiveLayoutService.DetectParts(root);
+
+        if (parts.Count > 0)
+        {
+            LoggingService.Instance.Info(
+                $"This archive installs to {parts.Count} locations - all of them will be installed.");
+            return new PreparedInstall
+            {
+                ExtractedRoot = root,
+                IsTempExtraction = isTemp,
+                DestinationParts = parts,
+                VariantCandidates = new List<string> { root }
+            };
+        }
+
+        return new PreparedInstall
+        {
+            ExtractedRoot = root,
+            IsTempExtraction = isTemp,
+            VariantCandidates = ModVariantDetectionService.DetectCandidates(root)
+        };
     }
 
     /// Step 2: analyze + copy files into the game. chosenRoot is either prepared.ExtractedRoot
@@ -93,10 +116,20 @@ public class ModInstallerService
 
             var name = InferModName(chosenRoot, analysis.Type);
 
-            if (_registry.Mods.Any(m => m.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            // Same reasoning as ImportUnmanaged: a name clash across DIFFERENT types is the two
+            // halves of one mod, not a duplicate. Refusing on name alone made the second half of
+            // every two-part archive un-installable.
+            var clash = _registry.Mods.FirstOrDefault(m => m.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (clash != null)
             {
-                log.Warn($"A mod named '{name}' is already installed. Uninstall it first if you mean to replace it.");
-                return null;
+                if (clash.Type == analysis.Type)
+                {
+                    log.Warn($"A mod named '{name}' is already installed. Uninstall it first if you mean to replace it.");
+                    return null;
+                }
+
+                name = $"{name} ({analysis.Type})";
+                log.Info($"'{clash.Name}' is already installed as {clash.Type}, so this half is listed as '{name}'.");
             }
 
             var mod = new ModInfo
@@ -280,6 +313,19 @@ public class ModInstallerService
 
     private void InstallPakTriple(string workingDir, string destFolder, ModInfo mod)
     {
+        // Logic mods go in their OWN subfolder, named after the pak. That is the layout UE4SS's
+        // BPModLoaderMod expects, what every deploy script produces, and what Enable() restores
+        // to - installing flat into LogicMods put a fresh install in a different shape from the
+        // same mod after one disable/enable cycle.
+        if (mod.Type == ModType.LogicMod)
+        {
+            var pakName = Directory.GetFiles(workingDir, "*.pak", SearchOption.AllDirectories)
+                .Select(Path.GetFileNameWithoutExtension)
+                .FirstOrDefault(n => !string.IsNullOrWhiteSpace(n));
+
+            if (!string.IsNullOrWhiteSpace(pakName)) destFolder = Path.Combine(destFolder, pakName);
+        }
+
         Directory.CreateDirectory(destFolder);
         var moved = new List<string>();
 

@@ -772,6 +772,37 @@ public partial class MainViewModel : ObservableObject
                     : prepared.ExtractedRoot;
             }
 
+            // Step 1c: an archive laid out by destination installs EVERY part, not one. Each
+            // part goes through exactly the same analyze-and-install path as a normal mod, so
+            // both halves get their own row, their own type and their own ModUpdateUrl.
+            if (prepared.DestinationParts.Count > 0)
+            {
+                var installedParts = 0;
+                foreach (var part in prepared.DestinationParts)
+                {
+                    var partMod = await _installer.InstallFromRootAsync(path, prepared, part);
+                    if (partMod == null) continue;
+
+                    Mods.Add(partMod);
+                    installedParts++;
+                }
+
+                if (installedParts > 0)
+                {
+                    RunCompatibilityCheck();
+                    RefreshModUpdateBanner();
+                    LoggingService.Instance.Success(
+                        $"Installed {installedParts} part(s) from '{Path.GetFileName(path)}'.");
+                }
+                else
+                {
+                    LoggingService.Instance.Warn($"Nothing from '{Path.GetFileName(path)}' could be installed.");
+                }
+
+                StatusMessage = installedParts > 0 ? "Ready" : "Install failed.";
+                return;
+            }
+
             // Step 2: analyze + install.
             var mod = await _installer.InstallFromRootAsync(path, prepared, chosenRoot);
             if (mod != null)
