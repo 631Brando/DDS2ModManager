@@ -31,6 +31,17 @@ public class UnmanagedModScannerService
     };
 
     private readonly LuaModConfigService _lua = new();
+    private readonly ModUpdateSourceResolver _updateSources = new();
+
+    /// A manifest sitting in a SHARED folder can only be claimed by the mod it is named after.
+    /// Every pak mod lives in Content\Paks\LogicMods together, so a bare .dds2mod.json there is
+    /// ambiguous - and attributing it to the wrong mod would point that mod's updates at a
+    /// repository belonging to someone else entirely.
+    private ModUpdateSource? ManifestNamedAfter(UnmanagedMod mod)
+    {
+        var named = Path.Combine(mod.CurrentFolder, mod.Name + ModManifest.FileName);
+        return File.Exists(named) ? _updateSources.FromManifestFile(named, mod.Name) : null;
+    }
 
     public List<UnmanagedMod> Scan(
         GameInstallation game, IEnumerable<ModInfo> knownMods, string mappingsPath, EGame egame, string? aesKeyHex)
@@ -63,14 +74,17 @@ public class UnmanagedModScannerService
                     if (mod.HasModActor)
                     {
                         mod.DataTableAppends = appendScanner.Scan(provider, mod.Name, mod.ContainedAssetPaths);
-                        mod.UpdateDeclaration = ModUpdateSourceReader.ReadFromModActor(
+                        mod.UpdateSource = _updateSources.FromModActor(
                             provider, mod.ContainedAssetPaths, mod.Name);
                     }
 
                     // Patch mods have no ModActor, and a LogicMod author may have used the
                     // manifest instead, so fall back to it either way.
-                    if (mod.UpdateDeclaration.Source == ModUpdateSource.None)
-                        mod.UpdateDeclaration = ModUpdateSourceReader.ReadFromManifest(mod.CurrentFolder);
+                    //
+                    // Matched by NAME, not by searching the folder: CurrentFolder for a pak mod is
+                    // the shared LogicMods root, so a recursive search there would find a
+                    // neighbour's manifest and offer updates from someone else's repository.
+                    mod.UpdateSource ??= ManifestNamedAfter(mod);
 
                     results.Add(mod);
                 }
@@ -287,8 +301,8 @@ public class UnmanagedModScannerService
 
                 // dir, not CurrentFolder: CurrentFolder is the shared UE4SS Mods root, and
                 // scanning that would pick up a neighbouring mod's manifest and attribute it
-                // to this one.
-                UpdateDeclaration = ModUpdateSourceReader.ReadFromManifest(dir)
+                // to this one. A lua mod owns `dir` outright, so searching it is safe.
+                UpdateSource = _updateSources.FromManifestFolder(dir, name)
             };
 
             if (!enabledEntries.ContainsKey(name))

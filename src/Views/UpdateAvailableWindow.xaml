@@ -31,7 +31,7 @@
             <Button Content="View on GitHub" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
                     Margin="0,0,16,0" Click="ViewOnGitHub_Click"/>
             <Button Content="Later" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Later_Click"/>
-            <Button Content="Update Now" Style="{StaticResource AccentButton}" Click="Update_Click"/>
+            <Button x:Name="UpdateButton" Content="Update Now" Style="{StaticResource AccentButton}" Click="Update_Click"/>
         </StackPanel>
     </Grid>
 </Window>

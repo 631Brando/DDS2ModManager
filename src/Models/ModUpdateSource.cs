@@ -1,20 +1,60 @@
 namespace DDS2ModManager.Models;
 
-/// Where a mod's ModUpdateUrl came from.
-///
-/// Worth recording rather than inferring from the mod type, because it is the difference
-/// between "this mod does not offer updates" and "we could not read where its updates come
-/// from" - which look identical if you only store the URL.
-public enum ModUpdateSource
+/// How a mod told us where its updates come from.
+public enum ModUpdateDeclaration
 {
-    /// No update URL - the mod never declared one.
+    /// Nothing found - the mod doesn't opt in to updates.
     None,
 
-    /// Read from the ModUpdateUrl variable on the mod's ModActor. LogicMods only; it is the
-    /// ModActor that makes a mod a LogicMod in the first place.
-    ModActor,
+    /// A "ModUpdateUrl" string variable on the LogicMod's ModActor Blueprint.
+    BlueprintVariable,
 
-    /// Read from a .dds2mod.json manifest shipped alongside the mod. The fallback for patch
-    /// mods and lua mods, which have no ModActor to carry the variable.
+    /// A .dds2mod.json manifest shipped alongside the mod's files.
     Manifest
+}
+
+/// A mod's declared update source, as found on disk.
+///
+/// Authors opt in; nothing is assumed. A LogicMod declares a "ModUpdateUrl" string variable on its
+/// ModActor, and lua/patch mods ship a .dds2mod.json next to their files. Either way it resolves
+/// to a GitHub repository whose releases the manager can check.
+///
+/// Only GitHub is accepted. The URL comes from inside the mod itself, so an arbitrary address
+/// would let a mod point the updater at any server it liked - and since a lua mod runs code in
+/// the game's process, that's a route worth closing. Restricting to a repository host also means
+/// the source of an update is always something a user can go and read.
+public class ModUpdateSource
+{
+    public ModUpdateDeclaration Declaration { get; set; } = ModUpdateDeclaration.None;
+
+    /// GitHub owner and repository parsed out of the declared URL.
+    public string Owner { get; set; } = "";
+    public string Repo { get; set; } = "";
+
+    /// Exactly what the mod declared, kept verbatim so the UI can show the user where an update
+    /// would come from before they agree to anything.
+    public string DeclaredUrl { get; set; } = "";
+
+    /// Author name, when the mod states one. Used for the trust prompt, since trust is granted per
+    /// author rather than per mod.
+    public string Author { get; set; } = "";
+
+    /// The mod's own version string, when it states one. Optional: without it the manager compares
+    /// release tags instead and can only tell "there is a newer release", not "you are N behind".
+    public string Version { get; set; } = "";
+
+    /// Release asset the author named, for repositories whose releases carry several files. When
+    /// absent the manager only proceeds if there's exactly one installable archive, rather than
+    /// picking one and possibly installing the wrong thing.
+    public string DeclaredAssetName { get; set; } = "";
+
+    public bool IsUsable => Declaration != ModUpdateDeclaration.None
+                            && Owner.Length > 0 && Repo.Length > 0;
+
+    public string RepositoryUrl => $"https://github.com/{Owner}/{Repo}";
+
+    /// The identity trust is granted against. Falls back to the repository owner when the mod
+    /// doesn't name an author, which is the same person in practice and is verifiable, unlike a
+    /// free-text name the mod supplies about itself.
+    public string TrustKey => Author.Length > 0 ? $"{Owner}/{Author}" : Owner;
 }

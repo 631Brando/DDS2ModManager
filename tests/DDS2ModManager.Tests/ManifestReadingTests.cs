@@ -7,6 +7,7 @@ namespace DDS2ModManager.Tests;
 public class ManifestReadingTests : IDisposable
 {
     private readonly List<string> _temp = new();
+    private readonly ModUpdateSourceResolver _resolver = new();
 
     private string Dir(params string[] parts)
     {
@@ -32,8 +33,7 @@ public class ManifestReadingTests : IDisposable
     [Fact]
     public void No_manifest_is_not_an_error()
     {
-        var d = Dir();
-        Assert.Equal(ModUpdateSource.None, ModUpdateSourceReader.ReadFromManifest(d).Source);
+        Assert.Null(_resolver.FromManifestFolder(Dir(), "Whatever"));
     }
 
     [Fact]
@@ -42,39 +42,74 @@ public class ManifestReadingTests : IDisposable
         var root = Dir();
         var nested = Path.Combine(root, "Scripts");
         Directory.CreateDirectory(nested);
-        File.WriteAllText(Path.Combine(nested, "MyMod" + ModUpdateSourceReader.ManifestSuffix),
-            """{ "modUpdateUrl": "https://github.com/mifsopo1/MifBridge", "version": "1.4.0" }""");
+        File.WriteAllText(Path.Combine(nested, "MyMod" + ModManifest.FileName),
+            """{ "updateUrl": "https://github.com/mifsopo1/MifBridge", "version": "1.4.0" }""");
 
-        var d = ModUpdateSourceReader.ReadFromManifest(root);
-        Assert.Equal(ModUpdateSource.Manifest, d.Source);
-        Assert.Equal("https://github.com/mifsopo1/MifBridge", d.UpdateUrl);
-        Assert.Equal("1.4.0", d.Version);
+        var source = _resolver.FromManifestFolder(root, "MyMod");
+
+        Assert.NotNull(source);
+        Assert.Equal(ModUpdateDeclaration.Manifest, source!.Declaration);
+        Assert.Equal("mifsopo1", source.Owner);
+        Assert.Equal("MifBridge", source.Repo);
+        Assert.Equal("1.4.0", source.Version);
     }
 
     [Fact]
     public void Property_names_are_case_insensitive()
     {
         var root = Dir();
-        File.WriteAllText(Path.Combine(root, "a" + ModUpdateSourceReader.ManifestSuffix),
-            """{ "ModUpdateUrl": "https://github.com/a/b", "Version": "2.0" }""");
-        Assert.Equal("https://github.com/a/b", ModUpdateSourceReader.ReadFromManifest(root).UpdateUrl);
+        File.WriteAllText(Path.Combine(root, "a" + ModManifest.FileName),
+            """{ "UpdateUrl": "https://github.com/a/b", "Version": "2.0" }""");
+
+        Assert.Equal("a", _resolver.FromManifestFolder(root, "a")?.Owner);
+    }
+
+    /// Two spellings of the URL key went out in two different guides, so both have to keep
+    /// working. An author who followed the older in-app guide must not silently stop publishing
+    /// updates the day they update the manager.
+    [Fact]
+    public void The_legacy_modUpdateUrl_key_is_still_read()
+    {
+        var root = Dir();
+        File.WriteAllText(Path.Combine(root, "old" + ModManifest.FileName),
+            """{ "modUpdateUrl": "https://github.com/owner/legacy", "version": "1.0" }""");
+
+        var source = _resolver.FromManifestFolder(root, "old");
+
+        Assert.NotNull(source);
+        Assert.Equal("owner", source!.Owner);
+        Assert.Equal("legacy", source.Repo);
     }
 
     [Fact]
     public void A_non_github_url_is_refused()
     {
         var root = Dir();
-        File.WriteAllText(Path.Combine(root, "evil" + ModUpdateSourceReader.ManifestSuffix),
-            """{ "modUpdateUrl": "https://evil.example.com/payload.zip", "version": "9.9" }""");
-        Assert.Equal(ModUpdateSource.None, ModUpdateSourceReader.ReadFromManifest(root).Source);
+        File.WriteAllText(Path.Combine(root, "evil" + ModManifest.FileName),
+            """{ "updateUrl": "https://evil.example.com/payload.zip", "version": "9.9" }""");
+
+        Assert.Null(_resolver.FromManifestFolder(root, "evil"));
     }
 
     [Fact]
     public void Malformed_json_is_survivable()
     {
         var root = Dir();
-        File.WriteAllText(Path.Combine(root, "x" + ModUpdateSourceReader.ManifestSuffix), "{ this is not json");
-        Assert.Equal(ModUpdateSource.None, ModUpdateSourceReader.ReadFromManifest(root).Source);
+        File.WriteAllText(Path.Combine(root, "x" + ModManifest.FileName), "{ this is not json");
+
+        Assert.Null(_resolver.FromManifestFolder(root, "x"));
+    }
+
+    /// A manifest written for a later version of the manager is refused rather than guessed at -
+    /// a field that changes meaning between schema versions would otherwise be misread.
+    [Fact]
+    public void A_manifest_from_a_newer_schema_is_refused()
+    {
+        var root = Dir();
+        File.WriteAllText(Path.Combine(root, "future" + ModManifest.FileName),
+            $$"""{ "schema": {{ModManifest.SupportedSchema + 1}}, "updateUrl": "https://github.com/a/b" }""");
+
+        Assert.Null(_resolver.FromManifestFolder(root, "future"));
     }
 
     // ---- installed mods: the shared-folder hazard -----------------------------------------
@@ -84,11 +119,12 @@ public class ManifestReadingTests : IDisposable
     {
         var root = Dir();
         Directory.CreateDirectory(Path.Combine(root, "Scripts"));
-        File.WriteAllText(Path.Combine(root, "anything" + ModUpdateSourceReader.ManifestSuffix),
-            """{ "modUpdateUrl": "https://github.com/owner/luamod", "version": "1.0" }""");
+        File.WriteAllText(Path.Combine(root, ModManifest.FileName),
+            """{ "updateUrl": "https://github.com/owner/luamod", "version": "1.0" }""");
 
         var mod = new ModInfo { Name = "LuaMod", InstallPath = root, InstallFiles = new List<string> { root } };
-        Assert.Equal("https://github.com/owner/luamod", ModUpdateSourceReader.ReadForInstalledMod(mod).UpdateUrl);
+
+        Assert.Equal("luamod", _resolver.FromManifest(mod)?.Repo);
     }
 
     /// Pak mods all share Content\Paks\LogicMods. Claiming a neighbour's manifest would mean
@@ -97,8 +133,8 @@ public class ManifestReadingTests : IDisposable
     public void A_pak_mod_does_not_adopt_a_neighbours_manifest()
     {
         var shared = Dir();
-        File.WriteAllText(Path.Combine(shared, "NeighbourMod" + ModUpdateSourceReader.ManifestSuffix),
-            """{ "modUpdateUrl": "https://github.com/someone-else/theirmod", "version": "9.9" }""");
+        File.WriteAllText(Path.Combine(shared, "NeighbourMod" + ModManifest.FileName),
+            """{ "updateUrl": "https://github.com/someone-else/theirmod", "version": "9.9" }""");
 
         var mod = new ModInfo
         {
@@ -107,15 +143,15 @@ public class ManifestReadingTests : IDisposable
             InstallFiles = new List<string> { Path.Combine(shared, "MyPakMod.pak") }
         };
 
-        Assert.Equal(ModUpdateSource.None, ModUpdateSourceReader.ReadForInstalledMod(mod).Source);
+        Assert.Null(_resolver.FromManifest(mod));
     }
 
     [Fact]
     public void A_pak_mod_does_use_its_own_name_matched_manifest()
     {
         var shared = Dir();
-        File.WriteAllText(Path.Combine(shared, "MyPakMod" + ModUpdateSourceReader.ManifestSuffix),
-            """{ "modUpdateUrl": "https://github.com/owner/mypakmod", "version": "2.0" }""");
+        File.WriteAllText(Path.Combine(shared, "MyPakMod" + ModManifest.FileName),
+            """{ "updateUrl": "https://github.com/owner/mypakmod", "version": "2.0" }""");
 
         var mod = new ModInfo
         {
@@ -124,13 +160,14 @@ public class ManifestReadingTests : IDisposable
             InstallFiles = new List<string> { Path.Combine(shared, "MyPakMod.pak") }
         };
 
-        Assert.Equal("https://github.com/owner/mypakmod", ModUpdateSourceReader.ReadForInstalledMod(mod).UpdateUrl);
+        Assert.Equal("mypakmod", _resolver.FromManifest(mod)?.Repo);
     }
 
     [Fact]
     public void A_missing_install_folder_is_survivable()
     {
         var mod = new ModInfo { Name = "Gone", InstallPath = Path.Combine(Path.GetTempPath(), "nope-" + Guid.NewGuid()) };
-        Assert.Equal(ModUpdateSource.None, ModUpdateSourceReader.ReadForInstalledMod(mod).Source);
+
+        Assert.Null(_resolver.FromManifest(mod));
     }
 }

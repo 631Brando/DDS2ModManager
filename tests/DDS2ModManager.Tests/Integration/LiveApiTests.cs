@@ -13,16 +13,26 @@ namespace DDS2ModManager.Tests.Integration;
 [Trait("Category", "Live")]
 public class LiveApiTests
 {
+    /// A mod set up the way the resolver would have left it, so these exercise the same shape
+    /// the real code produces rather than a hand-built one that could drift from it.
+    private static ModInfo Declaring(string name, string owner, string repo, string version) => new()
+    {
+        Name = name,
+        UpdateSource = new ModUpdateSource
+        {
+            Declaration = ModUpdateDeclaration.Manifest,
+            Owner = owner,
+            Repo = repo,
+            DeclaredUrl = $"https://github.com/{owner}/{repo}",
+            Version = version
+        }
+    };
+
     [Fact]
     public async Task GitHub_latest_release_is_readable_without_a_token()
     {
         var svc = new ModUpdateService();
-        var mod = new ModInfo
-        {
-            Name = "MifBridge",
-            ModUpdateUrl = "https://github.com/mifsopo1/MifBridge",
-            InstalledVersion = "0.0.1"   // deliberately ancient
-        };
+        var mod = Declaring("MifBridge", "mifsopo1", "MifBridge", version: "0.0.1");   // deliberately ancient
 
         var ok = await svc.CheckOneAsync(mod);
 
@@ -37,7 +47,7 @@ public class LiveApiTests
     [Fact]
     public async Task A_mod_with_no_declared_version_is_not_reported_as_updateable()
     {
-        var mod = new ModInfo { Name = "NoVersion", ModUpdateUrl = "https://github.com/mifsopo1/MifBridge" };
+        var mod = Declaring("NoVersion", "mifsopo1", "MifBridge", version: "");
 
         if (!await new ModUpdateService().CheckOneAsync(mod)) return;   // offline: nothing to assert
 
@@ -79,7 +89,7 @@ public class LiveApiTests
         var result = await new ModUpdateService().CheckAllAsync(new[]
         {
             new ModInfo { Name = "Plain" },
-            new ModInfo { Name = "WrongHost", ModUpdateUrl = "https://gitlab.com/a/b" }
+            new ModInfo { Name = "NotUsable", UpdateSource = new ModUpdateSource() }
         });
 
         Assert.True(result.Succeeded);

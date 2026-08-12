@@ -15,7 +15,9 @@ public class ModRegistryService
     {
         WriteIndented = true,
         PropertyNameCaseInsensitive = true,
-        Converters = { new JsonStringEnumConverter() }
+        // ModUpdateSourceJsonConverter is a migration: UpdateSource used to be an enum and is now
+        // an object, and without it every registry written by an older build fails to load.
+        Converters = { new JsonStringEnumConverter(), new ModUpdateSourceJsonConverter() }
     };
 
     private readonly string _registryPath;
@@ -37,9 +39,28 @@ public class ModRegistryService
         {
             Mods = JsonSerializer.Deserialize<List<ModInfo>>(File.ReadAllText(_registryPath), JsonOptions) ?? new();
         }
-        catch
+        catch (Exception ex)
         {
+            // Starting empty is the only safe option - but doing it silently is not. An empty list
+            // is indistinguishable from "you have no mods", and the next Save() overwrites the file
+            // that still held them, so the failure has to be both reported and preserved.
             Mods = new();
+
+            var salvage = _registryPath + ".unreadable";
+            try
+            {
+                File.Copy(_registryPath, salvage, overwrite: true);
+                LoggingService.Instance.Error(
+                    $"Couldn't read the mod registry ({ex.Message}). Your installed mods are untouched on disk, but " +
+                    $"the manager has lost track of them - use \"Find Existing Mods\" to pick them back up. The " +
+                    $"unreadable file was kept at {salvage}.");
+            }
+            catch
+            {
+                LoggingService.Instance.Error(
+                    $"Couldn't read the mod registry ({ex.Message}), and couldn't back it up either. Your installed " +
+                    "mods are untouched on disk - use \"Find Existing Mods\" to pick them back up.");
+            }
         }
     }
 

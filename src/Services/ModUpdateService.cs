@@ -1,15 +1,21 @@
 namespace DDS2ModManager.Services;
 
-/// Checks installed mods for new releases at the GitHub repo each mod declares.
+/// Checks installed mods for new releases at the GitHub repository each mod declares, and
+/// downloads the one the user agrees to.
 ///
-/// Deliberately not the Nexus API. Mods are distributed through Nexus, but they carry their
-/// own update URL (see ModUpdateSourceReader), which means no API key to enter, no
-/// 2,500-request daily cap, and no premium account - Nexus only hands download links to
-/// premium members through its API, which would have made updating a paid feature.
+/// Deliberately not the Nexus API. Mods are distributed through Nexus, but they carry their own
+/// update source (see ModUpdateSourceResolver), which means no API key to enter, no
+/// 2,500-request daily cap, and no premium account - Nexus only hands download links to premium
+/// members through its API, which would have made updating a paid feature.
 ///
-/// What this class will NOT do is install anything. It reports; the user decides, having seen
-/// the URL and the release notes. That separation is the whole mitigation for updates not
-/// having passed through Nexus's virus scanning.
+/// Conservative on purpose, because this ends with executable content on someone's machine:
+///
+///   - Only mods whose author opted in are ever checked.
+///   - Only github.com is accepted as a source (GitHubUrlParser).
+///   - A release with an ambiguous set of assets is skipped rather than guessed at.
+///   - Nothing is installed here at all. This class reports and downloads; the user decides,
+///     having seen the URL and the release notes. That separation is the whole mitigation for
+///     updates not having passed through Nexus's virus scanning.
 public class ModUpdateService
 {
     private readonly GitHubReleaseService _github = new();
@@ -32,7 +38,14 @@ public class ModUpdateService
     /// failures, twenty more log lines, and no new information.
     private const int ConsecutiveFailureLimit = 3;
 
-    /// Checks every mod that declares an update URL.
+    /// Archive types the installer can actually handle - see ModInstallerService.
+    private static readonly string[] InstallableExtensions = { ".zip", ".7z", ".rar", ".pak" };
+
+    /// Releases already fetched this session, keyed owner/repo, so several mods sharing one
+    /// repository - or a second check in the same session - don't each cost an API request.
+    private readonly Dictionary<string, GitHubReleaseInfo?> _releaseCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// Checks every mod that declares an update source.
     ///
     /// Never throws. A mod whose check fails keeps its previous LatestVersion, so the grid
     /// still shows what was true at the last successful check rather than going blank.
@@ -43,7 +56,7 @@ public class ModUpdateService
         CancellationToken cancel = default)
     {
         var log = LoggingService.Instance;
-        var candidates = mods.Where(m => ModUpdateSourceReader.IsAllowedUpdateUrl(m.ModUpdateUrl)).ToList();
+        var candidates = mods.Where(m => m.HasUpdateSource).ToList();
 
         if (candidates.Count == 0)
             return new ModUpdateCheckResult(true, 0, 0, 0, null);
@@ -90,32 +103,120 @@ public class ModUpdateService
     {
         var log = LoggingService.Instance;
 
-        if (!ModUpdateSourceReader.TryParseGitHubRepo(mod.ModUpdateUrl, out var owner, out var repo))
-            return false;
+        if (mod.UpdateSource is not { IsUsable: true } source) return false;
 
-        var release = await _github.GetLatestReleaseAsync(owner, repo);
+        var release = await GetLatestReleaseAsync(source);
         if (release == null) return false;   // GitHubReleaseService has already logged why
 
         var latest = NormalizeVersion(release.TagName);
         mod.LatestVersion = latest;
         mod.LastUpdateCheck = DateTime.Now;
 
+        // An update address that has moved since install is the exact shape of a hijacked update
+        // channel. Surface it and offer nothing until the user has re-confirmed the new address.
+        if (mod.UpdateUrlChanged)
+        {
+            ClearPendingUpdate(mod);
+            log.Warn($"'{mod.Name}' now points its updates at {mod.ModUpdateUrl}, but it was installed pointing at " +
+                     $"{mod.InstalledUpdateUrl}. Not offering an update until you've confirmed that's expected.");
+            return true;
+        }
+
         // A mod that never declared its own version gives us nothing to compare against.
         // Reporting "up to date" would be a guess, and reporting "update available" would
         // flag every such mod forever, so report neither and say so once.
         if (string.IsNullOrWhiteSpace(mod.InstalledVersion))
         {
-            mod.UpdateAvailable = false;
+            ClearPendingUpdate(mod);
             log.Info($"'{mod.Name}' doesn't declare a version, so it can't be compared against {latest}. " +
-                     $"Its author can add one via {ModUpdateSourceReader.ModActorVersionProperty} or a manifest.");
+                     "Its author can add one via a ModVersion variable on the ModActor, or a manifest.");
             return true;
         }
 
-        mod.UpdateAvailable = IsNewer(latest, NormalizeVersion(mod.InstalledVersion));
-        if (mod.UpdateAvailable)
-            log.Info($"'{mod.Name}' {mod.InstalledVersion} -> {latest} available at {mod.ModUpdateUrl}");
+        if (!IsNewer(latest, NormalizeVersion(mod.InstalledVersion)))
+        {
+            ClearPendingUpdate(mod);
+            return true;
+        }
 
+        // There is something newer - but only offer it if exactly one file in the release can be
+        // identified as the download. Installing the wrong asset is worse than installing nothing.
+        var asset = PickAsset(release, source);
+        if (asset == null)
+        {
+            ClearPendingUpdate(mod);
+            log.Warn($"'{mod.Name}' has a newer release ({release.TagName}) but no single downloadable file could be " +
+                     "identified in it, so it's being left alone. The author can name one with the \"asset\" field " +
+                     "in their .dds2mod.json.");
+            return true;
+        }
+
+        mod.UpdateAvailable = true;
+        mod.AvailableUpdateTag = release.TagName;
+        mod.AvailableUpdateNotes = release.Body;
+        mod.AvailableUpdateAssetUrl = asset.BrowserDownloadUrl;
+
+        log.Info($"'{mod.Name}' {mod.InstalledVersion} -> {latest} available at {source.RepositoryUrl}");
         return true;
+    }
+
+    /// Clears any previously-found update, so a mod that has since been updated (or whose release
+    /// was pulled) doesn't keep offering something that is no longer there.
+    private static void ClearPendingUpdate(ModInfo mod)
+    {
+        mod.UpdateAvailable = false;
+        mod.AvailableUpdateTag = null;
+        mod.AvailableUpdateNotes = null;
+        mod.AvailableUpdateAssetUrl = null;
+    }
+
+    private async Task<GitHubReleaseInfo?> GetLatestReleaseAsync(ModUpdateSource source)
+    {
+        var key = $"{source.Owner}/{source.Repo}";
+        if (_releaseCache.TryGetValue(key, out var cached)) return cached;
+
+        var release = await _github.GetLatestReleaseAsync(source.Owner, source.Repo);
+        _releaseCache[key] = release;
+        return release;
+    }
+
+    /// Picks the file to download. A named asset wins; otherwise there has to be exactly one
+    /// installable archive, because picking the wrong one would install the wrong mod.
+    private static GitHubAsset? PickAsset(GitHubReleaseInfo release, ModUpdateSource source)
+    {
+        if (!string.IsNullOrWhiteSpace(source.DeclaredAssetName))
+        {
+            return release.Assets.FirstOrDefault(a =>
+                a.Name.Equals(source.DeclaredAssetName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var installable = release.Assets
+            .Where(a => InstallableExtensions.Contains(Path.GetExtension(a.Name), StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        return installable.Count == 1 ? installable[0] : null;
+    }
+
+    /// Downloads an update to a temporary file and hands back the path. Installing it is the
+    /// caller's job, through the same installer path a manual install uses - so an update goes
+    /// through exactly the same type detection, placement and conflict checking as anything else.
+    public async Task<string?> DownloadAsync(string assetUrl, string assetName, IProgress<double>? progress = null)
+    {
+        var temp = Path.Combine(Path.GetTempPath(), "DDS2MM_modupdate_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temp);
+
+        var destination = Path.Combine(temp, assetName);
+
+        try
+        {
+            await _github.DownloadAssetAsync(assetUrl, destination, progress);
+            return destination;
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Instance.Error($"Couldn't download {assetName}: {ex.Message}");
+            return null;
+        }
     }
 
     /// Strips the leading 'v' people put on tags. Everything else is left alone: these strings

@@ -3,6 +3,64 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
+## Unreleased
+
+### Mod updates: two implementations merged into one
+
+Mod auto-updating was built twice, independently and at the same time, and this merges them. The
+discovery mechanism was the same on both sides — a `ModUpdateUrl` variable on a LogicMod's
+ModActor, or a `.dds2mod.json` for everything else — so what differed was everything around it.
+The result keeps the stronger half of each:
+
+- **URL parsing** now refuses anything that isn't unambiguously a GitHub repository, including
+  lookalike hosts and `https://github.com@evil.example.com/x/y`, and validates the owner and repo
+  characters rather than pasting whatever it found into an API path.
+- **Rate-limit discipline**: results cached for six hours, and a run stops after three consecutive
+  failures instead of turning one outage into thirty log lines. Unauthenticated GitHub allows 60
+  requests an hour, and "the check succeeded" stays distinct from "there is an update".
+- **Asset selection**: a release with no single obvious file is skipped rather than guessed at.
+  Authors can name one with the `asset` field.
+- **A curated Verified list**, published by the maintainers and cached for offline use, alongside
+  the per-user trust tick.
+
+### Trust is per account, and never skips the prompt
+
+The **Trusted** tick now grants trust to the GitHub *account* rather than to one mod — whoever
+holds the account holds every release under it, so ticking one of an author's mods lights up
+their others too. The tooltip says so rather than letting it look like a bug.
+
+The setting that let trusted mods update without asking has been **removed**, not defaulted off.
+A mod update is executable content from the author's own repository that Nexus never scanned, and
+a lua mod runs code in the game's process. An account can be compromised and a curated list can
+go stale, and either of those installing silently would be far worse than one click. Trust now
+changes how much the prompt has to explain, never whether there is one.
+
+A mod whose update address has changed since it was installed still overrides all of it: nothing
+is offered until you confirm the move was expected.
+
+### Fixed: upgrading could silently empty your mod list
+
+Loading a registry written by an earlier build threw, and that failure was caught by a handler
+that started with an empty list — so every tracked mod disappeared with no message, and the next
+save overwrote the file that still held them. The mod files themselves were never touched, but
+the manager forgot all of them.
+
+Old registries now load. One that genuinely can't be read is reported rather than silently
+discarded, and is kept alongside the new one instead of being overwritten.
+
+### Also in this release
+
+- **Mod loader DLL warning.** A UE4SS `dwmapi.dll` sitting beside the exe gets loaded into the
+  manager instead of into the game, and its hooks stop WPF drawing — which presents as a blank
+  white window above a perfectly healthy log. Nothing can prevent the load once it has happened,
+  but the app now names the cause and explains the fix.
+- **Stable and experimental update channels.** `v1.2.0-exp.1` builds as `1.2.0.1`, so an
+  experimental build sorts above the stable release it came from and below the next one.
+- **Browse Mods**, a catalog of maintainer-published mods that installs through the normal path.
+- Manifest field names are read case-insensitively, and the earlier `modUpdateUrl` spelling is
+  still accepted, so manifests already published keep working.
+- Releases are now gated on the test suite.
+
 ## v1.0.6
 
 ### Cloned saves didn't show up in game

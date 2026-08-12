@@ -1,4 +1,6 @@
+using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using DDS2ModManager.Services;
 
 namespace DDS2ModManager.Models;
 
@@ -51,21 +53,36 @@ public partial class ModInfo : ObservableObject
     // premium gate on downloads.
     //
     // The trade is real and deliberate: an update fetched from the author's repo has NOT been
-    // through Nexus's virus scanning. Hence the host allowlist in ModUpdateManifest, the fact
-    // that nothing is ever installed without the user seeing the URL and the changelog, and
-    // UpdateUrlChanged below.
+    // through Nexus's virus scanning. Hence GitHubUrlParser rejecting anything that isn't a
+    // github.com repository, the fact that nothing is ever installed without the user seeing
+    // the URL and the changelog, and UpdateUrlChanged below.
+    //
+    // UpdateSource is the ONE source of truth for what a mod declares. Everything derivable
+    // from it below is a computed passthrough rather than a stored copy, so a re-scan that
+    // replaces the source can't leave a stale URL or author behind on the row.
 
-    /// Where this mod publishes its updates. Always a github.com URL - see
-    /// ModUpdateManifest.IsAllowedUpdateUrl for why anything else is rejected.
-    [ObservableProperty] private string? modUpdateUrl;
+    /// Where this mod says its updates come from, if its author declared anywhere (a ModUpdateUrl
+    /// variable on the ModActor, or a .dds2mod.json). Null means the author didn't opt in, which
+    /// is the normal case and not a problem - that mod simply never gets checked.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ModUpdateUrl))]
+    [NotifyPropertyChangedFor(nameof(UpdateAuthor))]
+    [NotifyPropertyChangedFor(nameof(InstalledVersion))]
+    [NotifyPropertyChangedFor(nameof(HasUpdateSource))]
+    [NotifyPropertyChangedFor(nameof(UpdateUrlChanged))]
+    [NotifyPropertyChangedFor(nameof(TrustedAuthor))]
+    [NotifyPropertyChangedFor(nameof(TrustLevel))]
+    private ModUpdateSource? updateSource;
 
-    /// How ModUpdateUrl was obtained, so "declares no updates" stays distinguishable from
-    /// "we could not read it".
-    [ObservableProperty] private ModUpdateSource updateSource;
-
-    /// The version currently installed, as reported by the mod itself. Free text, because it
-    /// is whatever the author wrote - compared leniently, never parsed as a strict Version.
-    [ObservableProperty] private string installedVersion = "";
+    /// The declared update URL as it was when this mod was installed.
+    ///
+    /// Captured from the copy the user downloaded through Nexus, which was scanned. If a later
+    /// version points somewhere else, that is the exact shape of a hijacked update channel - see
+    /// UpdateUrlChanged.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(UpdateUrlChanged))]
+    [NotifyPropertyChangedFor(nameof(TrustedAuthor))]
+    private string? installedUpdateUrl;
 
     /// Latest version seen upstream at the last successful check. Cached so the grid can show
     /// "update available" while offline, instead of going blank whenever GitHub is unreachable.
@@ -76,31 +93,96 @@ public partial class ModInfo : ObservableObject
     /// burning half their quota on every launch.
     [ObservableProperty] private DateTime? lastUpdateCheck;
 
-    /// Set when a mod's declared update URL differs from the one recorded at install time.
-    ///
-    /// The URL is captured from the copy the user downloaded through Nexus, which was scanned.
-    /// If a later version points somewhere else, that is the exact shape of a hijacked update
-    /// channel, so it is surfaced and the update is not offered until the user re-confirms.
-    [ObservableProperty] private bool updateUrlChanged;
-
     /// True when LatestVersion is newer than InstalledVersion. Computed at check time rather
     /// than derived on read - version strings are author-authored free text, and doing the
     /// comparison once where it can be logged beats re-guessing it on every grid refresh.
     [ObservableProperty] private bool updateAvailable;
 
-    /// The user has decided they trust whoever publishes this mod's updates.
-    ///
-    /// Per mod, and deliberately opt-in per mod rather than a blanket setting: trusting the
-    /// author of a mod you have read the source of says nothing about the next mod you install.
-    ///
-    /// Trust on its own changes nothing. It only has an effect when the user has ALSO turned on
-    /// AppSettings.AutoInstallTrustedModUpdates - two separate decisions, because "I know this
-    /// author" and "install their code on my machine without telling me" are not the same
-    /// statement. And trust is ignored entirely when UpdateUrlChanged is set: a moved update
-    /// address is precisely the situation trust would be exploited in.
-    [ObservableProperty] private bool trustedAuthor;
+    /// Set when an update check found something newer. Cleared once the update is applied.
+    [ObservableProperty] private string? availableUpdateTag;
 
-    /// GitHub owner extracted from ModUpdateUrl, cached so the UI can name who is being
-    /// trusted without re-parsing the URL on every row render.
-    [ObservableProperty] private string updateAuthor = "";
+    /// Release notes for the available update, shown before the user agrees to install it.
+    [ObservableProperty] private string? availableUpdateNotes;
+
+    /// Download URL of the asset an update would install. Held so the confirmation prompt and the
+    /// install use exactly the same one, rather than re-resolving and possibly picking differently.
+    [ObservableProperty] private string? availableUpdateAssetUrl;
+
+    // ---- derived from UpdateSource; never stored ---------------------------------------------
+
+    /// Where this mod publishes its updates, verbatim as the author wrote it. Always a github.com
+    /// address - GitHubUrlParser rejects anything else before a source is ever built.
+    [JsonIgnore] public string? ModUpdateUrl => UpdateSource?.DeclaredUrl;
+
+    /// The GitHub account that publishes this mod's updates. This is the identity trust is
+    /// granted against, because whoever holds the account holds every release under it.
+    [JsonIgnore] public string UpdateAuthor => UpdateSource?.Owner ?? "";
+
+    /// The version currently installed, as reported by the mod itself. Free text, because it
+    /// is whatever the author wrote - compared leniently, never parsed as a strict Version.
+    [JsonIgnore] public string InstalledVersion => UpdateSource?.Version ?? "";
+
+    [JsonIgnore] public bool HasUpdateSource => UpdateSource is { IsUsable: true };
+    [JsonIgnore] public bool HasAvailableUpdate => !string.IsNullOrEmpty(AvailableUpdateTag);
+
+    /// True when the mod's declared update URL differs from the one recorded at install time.
+    ///
+    /// Derived rather than stored, so it can't be left set after a re-scan corrects the source,
+    /// and can't be persisted as true by an older build that recorded it wrongly.
+    [JsonIgnore]
+    public bool UpdateUrlChanged =>
+        !string.IsNullOrWhiteSpace(InstalledUpdateUrl)
+        && !string.IsNullOrWhiteSpace(ModUpdateUrl)
+        && !string.Equals(InstalledUpdateUrl, ModUpdateUrl, StringComparison.OrdinalIgnoreCase);
+
+    /// How far this mod's update source is trusted - by the user, by the maintainers' curated
+    /// list, or not at all. Display only; it never decides whether the user is asked.
+    [JsonIgnore]
+    public ModTrustLevel TrustLevel =>
+        UpdateSource == null ? ModTrustLevel.Unknown : ModTrustService.Instance.LevelFor(UpdateSource);
+
+    /// The per-mod "Trusted" tick in the grid.
+    ///
+    /// Reads and writes ModTrustService, which keys trust by GitHub ACCOUNT rather than by mod.
+    /// That is deliberate and it is why this isn't a stored bool: whoever controls the account
+    /// controls every release under it, so trusting one of an author's mods but not another would
+    /// be a distinction without a difference. Ticking one row therefore lights up that author's
+    /// other mods too, which is the honest depiction of what was just granted.
+    ///
+    /// Trust never skips the confirmation prompt. It only changes how much that prompt has to
+    /// explain. An account can be compromised and a curated list can go stale, and either of
+    /// those silently installing code would be far worse than one extra click.
+    ///
+    /// [JsonIgnore] matters: without it, loading the registry would call the setter and silently
+    /// re-grant trust that the user may since have revoked.
+    [JsonIgnore]
+    public bool TrustedAuthor
+    {
+        get => UpdateSource is { IsUsable: true } src && ModTrustService.Instance.IsTrusted(src.Owner);
+        set
+        {
+            if (UpdateSource is not { IsUsable: true } src) return;
+
+            // Trust cannot be granted while the update address is in dispute. The tick is disabled
+            // in that state, but a binding is not a security boundary - enforce it here too.
+            if (value && UpdateUrlChanged)
+            {
+                LoggingService.Instance.Warn(
+                    $"'{Name}' can't be trusted while its update address differs from the one it was installed with.");
+                OnPropertyChanged();
+                return;
+            }
+
+            if (value) ModTrustService.Instance.Trust(src.Owner);
+            else ModTrustService.Instance.Untrust(src.Owner);
+        }
+    }
+
+    /// Re-reads the trust-derived properties. Called when ModTrustService changes, since trusting
+    /// one mod's author also changes every other row by that author.
+    public void RefreshTrust()
+    {
+        OnPropertyChanged(nameof(TrustedAuthor));
+        OnPropertyChanged(nameof(TrustLevel));
+    }
 }

@@ -39,6 +39,26 @@ WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
   where they are and just starts tracking them, so they become enable/disable/uninstallable
   and get included in conflict checks. Base-game paks and UE4SS's own built-in mods are
   excluded, so only real user mods show up.
+- **Mod auto-updating** for mods whose author opted in. A LogicMod declares a `ModUpdateUrl`
+  string variable on its ModActor; lua and patch mods ship a `.dds2mod.json`. Either way the
+  manager reads it from what's already installed, so a mod installed long before this feature
+  existed still gets picked up — nothing has to be re-downloaded to become updatable. See
+  [MODDING.md](MODDING.md) for the author-facing side.
+  - **Only `github.com` is accepted.** The URL comes from inside the mod, and installing an update
+    means putting executable code on the user's machine, so anything that isn't unambiguously a
+    GitHub repository is refused rather than guessed at (`GitHubUrlParser`).
+  - **Nothing installs without being asked**, whatever the trust setting. The prompt shows the
+    version, the release notes, and *which repository the download comes from*.
+  - **Trusted / Verified.** "Trusted" is a local per-user decision, granted per GitHub account
+    since whoever controls the account controls every release under it. "Verified" is a curated
+    list the maintainers publish in [verified-mods.json](verified-mods.json), fetched on startup
+    and cached for offline use. Neither one skips the install prompt — an account can be
+    compromised and a curated list can go stale, and either silently installing code would be far
+    worse than one click.
+- **Browse Mods**: a catalog of maintainer-published mods, listed in
+  [mods-catalog.json](mods-catalog.json), installable from inside the app. The catalog is only a
+  list of pointers — everything it offers goes through the ordinary installer, with the same type
+  detection and conflict checking, so being listed grants a mod no special treatment.
 - **Save Log** button exports the on-screen log to a `.txt` you can attach to bug reports.
 - **Windows integration** (in Settings, no admin needed): add an "Open with DDS2 Mod
   Manager" right-click entry for archives, and/or a Desktop/Start Menu shortcut.
@@ -137,13 +157,40 @@ caches there itself on first run (see Oodle, below) - that's expected, not a pac
 ## Releasing (for maintainers)
 
 `.github/workflows/release.yml` builds both exes and publishes them as assets on a
-GitHub Release whenever a tag matching `v*` is pushed:
+GitHub Release whenever a tag matching `v*` is pushed.
+
+### Two channels
+
+| Channel | Branch | Tag | Published as |
+|---|---|---|---|
+| Stable | `main` | `v1.2.0` | normal release, becomes GitHub's "Latest" |
+| Experimental | `experimental` | `v1.2.0-exp.1` | GitHub **prerelease** |
 
 ```
-# bump <Version> in src/DDS2ModManager.csproj and setup/DDS2ModManagerSetup.csproj first
-git tag v1.2.0
-git push origin v1.2.0
+git tag v1.2.0 && git push origin v1.2.0            # stable
+git tag v1.2.0-exp.1 && git push origin v1.2.0-exp.1  # experimental
 ```
+
+**The version comes from the tag**, not from the `.csproj` — the workflow passes
+`-p:Version=` when publishing, so the two can't drift and a forgotten bump can't ship a build
+that misreports its own version. The `<Version>` in each `.csproj` is only the default for
+local builds.
+
+The `-exp.N` suffix becomes the build's **fourth version component**: `v1.2.0-exp.3` builds as
+`1.2.0.3`. That's what makes channel switching work with plain version comparison — an
+experimental build always sorts above the stable release it came from (`1.2.0.3 > 1.2.0.0`) and
+below the next stable one (`1.2.0.3 < 1.2.1.0`), so an experimental user is moved back onto
+stable automatically once stable catches up. `AppUpdateService` depends on this; don't change
+the tag format without reading the comment there.
+
+Marking experimental builds as prereleases is what keeps the channels apart: GitHub's
+`/releases/latest`, which the stable channel asks for, skips prereleases. The experimental
+channel lists all releases and takes the highest version.
+
+The workflow **rejects** any tag that isn't `v1.2.0` or `v1.2.0-exp.1` shaped, so a typo fails
+the build instead of publishing a mislabelled release.
+
+### Asset naming
 
 `AppUpdateService` (the in-app updater) and `DDS2ModManagerSetup` both compare the
 running assembly version against the release tag name and expect an asset named exactly
@@ -176,10 +223,17 @@ the mod instead:
 
 ```json
 {
-  "modUpdateUrl": "https://github.com/yourname/yourmod",
-  "version": "1.2.0"
+  "schema": 1,
+  "name": "Your Mod",
+  "author": "yourname",
+  "version": "1.2.0",
+  "updateUrl": "https://github.com/yourname/yourmod"
 }
 ```
+
+An earlier version of this guide spelled the key `modUpdateUrl`. That is still read, so
+manifests already published keep working, but new ones should use `updateUrl`. Field names
+are matched case-insensitively. See [MODDING.md](MODDING.md) for every field.
 
 For lua mods, put it anywhere in your mod's folder. For pak mods, the file **must** be named
 after the mod (`MyMod.dds2mod.json`) — pak mods all share `Content\Paks\LogicMods`, and
@@ -191,21 +245,22 @@ Publish releases with the version as the tag (`v1.2.0` or `1.2.0`), and attach t
 
 ### Trusting an author
 
-Each mod has its own **Trusted** tick in the mod list (and in the update prompt). It's per
-mod on purpose — trusting the author of a mod whose source you've read says nothing about
-the next mod you install.
+Each mod has its own **Trusted** tick in the mod list, and the update prompt offers the same
+thing. What it grants is trust in the **GitHub account**, not in that one mod — whoever holds
+the account holds every release published under it, so trusting one of an author's mods but
+not another would be a distinction without a difference. Ticking one row therefore lights up
+that author's other mods too, and the tooltip says so rather than letting it look like a bug.
 
-Ticking it alone changes nothing. Skipping the confirmation prompt needs **three** separate
-things to be true:
+**Trust never skips the prompt.** There is no setting that makes it, and that is deliberate:
+an account can be compromised and the curated Verified list can go stale, and either of those
+installing code silently would be far worse than one extra click. What trust changes is how
+much the prompt has to explain about where the download is coming from.
 
-1. the mod is ticked as trusted,
-2. **Install updates from trusted authors automatically** is on in Settings (off by default), and
-3. the mod's update address hasn't changed since you installed it.
-
-That third one is the point. A moved update address is exactly the situation where trust
-would be worth exploiting, so it always interrupts — the tick is disabled, existing trust is
-revoked, and the prompt says so in stronger words. Trust also doesn't survive an update that
-moves the address.
+A mod whose update address has **changed** since you installed it overrides all of this. The
+tick is disabled, the prompt leads with the warning, and no update is offered until you have
+confirmed the move was expected — that is what a hijacked update channel looks like, and it
+is the one situation where trust would be worth stealing. Trust cannot follow a moved address
+in any case: it is keyed to the account, and a new address is not the account you trusted.
 
 ### Limits and safety
 

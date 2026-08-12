@@ -1,5 +1,23 @@
 namespace DDS2ModManager.Models;
 
+/// The two update streams the manager can follow.
+///
+/// Both publish real GitHub releases so the in-app updater works identically for either; the only
+/// difference is that experimental builds are tagged with an "-exp" suffix and marked as
+/// prereleases, which is what keeps them out of the stable channel.
+public static class UpdateChannels
+{
+    public const string Stable = "Stable";
+    public const string Experimental = "Experimental";
+
+    public static bool IsExperimental(string? channel) =>
+        string.Equals(channel, Experimental, StringComparison.OrdinalIgnoreCase);
+
+    /// Anything unrecognised falls back to Stable - the safe default for a settings file written
+    /// by a newer build, or edited by hand.
+    public static string Normalize(string? channel) => IsExperimental(channel) ? Experimental : Stable;
+}
+
 public class AppSettings
 {
     /// If set, used instead of the embedded mappings.usmap - handy for testing an
@@ -23,10 +41,10 @@ public class AppSettings
     /// Checks GitHub for a newer DDS2ModManager release on startup and prompts to install it.
     public bool CheckForAppUpdatesOnStartup { get; set; } = true;
 
-    /// Checks each installed mod's declared ModUpdateUrl for a newer release on startup.
+    /// Checks each installed mod's declared update source for a newer release on startup.
     ///
-    /// Only mods that publish an update URL are checked, results are cached for six hours, and
-    /// nothing is ever downloaded without asking - see ModUpdateService.
+    /// Only mods that publish an update address are checked, results are cached for six hours,
+    /// and nothing is ever downloaded without asking - see ModUpdateService.
     public bool CheckForModUpdatesOnStartup { get; set; } = true;
 
     /// Shows a banner when new DDS2 mods have been published on Nexus since you last looked.
@@ -40,15 +58,23 @@ public class AppSettings
     /// entire history of the game's mod list into a banner.
     public DateTime? NexusFeedLastSeenUtc { get; set; }
 
-    /// Installs updates for mods marked TrustedAuthor without showing the confirmation dialog.
+    // There is deliberately NO "install trusted updates automatically" setting.
+    //
+    // An earlier revision had one, off by default. It was dropped rather than kept behind that
+    // default, because the thing it would skip is the only place a user ever sees where an
+    // update came from. A mod update is executable content from the author's own repository
+    // rather than from Nexus, so it has not been virus scanned, and a lua mod runs code in the
+    // game's process. An author's account can be compromised and the curated verified list can
+    // go stale; either of those silently installing code would be far worse than one click.
+    //
+    // Trust (see ModTrustService) therefore changes how much the prompt has to EXPLAIN, never
+    // whether there is one.
+
+    /// Which release channel updates come from - see UpdateChannels.
     ///
-    /// OFF by default, and it should stay that way unless someone deliberately turns it on.
-    /// These updates come from the author's own repository rather than Nexus, so they have not
-    /// been virus scanned - silently running unscanned code is a decision a user has to make
-    /// explicitly, not one they inherit by ticking "trust" on a single mod.
-    ///
-    /// Even with this on, a mod whose update address has CHANGED since install still prompts.
-    public bool AutoInstallTrustedModUpdates { get; set; } = false;
+    /// Stored as a string rather than an enum so an unrecognised value from a future build
+    /// degrades to the stable channel instead of throwing while loading settings.
+    public string UpdateChannel { get; set; } = UpdateChannels.Stable;
 
     /// Optional AES-256 key (hex), only needed if CUE4Parse reports it can't decrypt a pak.
     public string? AesKeyHex { get; set; }

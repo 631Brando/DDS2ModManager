@@ -150,13 +150,13 @@ public class ModInstallerService
                 // has definitively been checked - even if the result was "merges nothing".
                 DataTableScanCompleted = analysis.HasModActor,
 
+                UpdateSource = analysis.UpdateSource,
+
                 // Pinned here, at install time, from the copy the user actually downloaded -
-                // which for a Nexus download is a copy Nexus scanned. ModUpdateService compares
-                // against this later, so an update that starts pointing somewhere new is
+                // which for a Nexus download is a copy Nexus scanned. ModInfo.UpdateUrlChanged
+                // compares against this later, so a mod that starts pointing somewhere new is
                 // visible rather than silently followed.
-                ModUpdateUrl = analysis.UpdateDeclaration.UpdateUrl,
-                UpdateSource = analysis.UpdateDeclaration.Source,
-                InstalledVersion = analysis.UpdateDeclaration.Version ?? ""
+                InstalledUpdateUrl = analysis.UpdateSource?.DeclaredUrl
             };
 
             switch (analysis.Type)
@@ -259,9 +259,12 @@ public class ModInstallerService
                 InstallFiles = found.Files,
                 IsInstalled = true,
                 IsEnabled = found.IsEnabled,
-                ModUpdateUrl = found.UpdateDeclaration.UpdateUrl,
-                UpdateSource = found.UpdateDeclaration.Source,
-                InstalledVersion = found.UpdateDeclaration.Version ?? ""
+                UpdateSource = found.UpdateSource,
+
+                // An adopted mod was installed by hand, so the address it declares now is the
+                // earliest one this manager can honestly claim to have seen. Pinning it here is
+                // what gives UpdateUrlChanged something to compare against from now on.
+                InstalledUpdateUrl = found.UpdateSource?.DeclaredUrl
             };
 
             if (found.DetectedType == ModType.LuaMod)

@@ -71,10 +71,12 @@
                 <Button Content="Install Mod..." Style="{StaticResource AccentButton}" Command="{Binding InstallModCommand}" Margin="0,0,8,0"/>
                 <Button Content="Re-scan Mod Files" Style="{StaticResource GhostButton}" Command="{Binding RunDeepScanCommand}" Margin="0,0,8,0"
                         ToolTip="Re-reads every installed mod's pak from disk. Conflict checking is automatic, so you only need this if a mod's files changed outside the manager."/>
+                <Button Content="Browse Mods" Style="{StaticResource GhostButton}" Command="{Binding BrowseModsCommand}" Margin="0,0,8,0"
+                        ToolTip="Mods published by the manager's maintainers, installable from here."/>
                 <Button Content="Find Existing Mods" Style="{StaticResource GhostButton}" Command="{Binding ScanForExistingModsCommand}" Margin="0,0,8,0"
                         ToolTip="Finds mods already in your game folders that this manager isn't tracking yet, and offers to import them."/>
                 <Button Content="Check Mod Updates" Style="{StaticResource GhostButton}" Command="{Binding CheckModUpdatesCommand}" Margin="0,0,8,0"
-                        ToolTip="Checks each mod that publishes an update address for a newer release. Those updates come from the mod author's own repository, not from Nexus, and nothing is downloaded without asking."/>
+                        ToolTip="Checks each mod that publishes an update address for a newer release. Those updates come from the mod author's own repository, not from Nexus, and nothing is downloaded or installed without asking."/>
                 <Button Content="Mod Authors" Style="{StaticResource GhostButton}" Command="{Binding OpenModAuthorGuideCommand}" Margin="0,0,8,0"
                         ToolTip="Making a mod? How to add an update address so this manager can tell players when you publish a new version."/>
                 <Button Content="Saves &amp; Config" Style="{StaticResource GhostButton}" Command="{Binding OpenGameDataCommand}"
@@ -317,7 +319,11 @@
 
                         <!-- Only shown for mods that actually publish updates - a trust tick on a
                              mod with no update channel would mean nothing. TwoWay so ticking it
-                             writes straight back to the mod; the ViewModel persists on change. -->
+                             writes straight through ModInfo.TrustedAuthor into ModTrustService.
+
+                             Trust is granted per GitHub ACCOUNT rather than per mod, so ticking
+                             this also lights up that author's other rows. The tooltip says so,
+                             rather than letting it look like a bug. -->
                         <DataGridTemplateColumn Header="Trusted" Width="80" SortMemberPath="TrustedAuthor">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
@@ -325,16 +331,26 @@
                                               HorizontalAlignment="Center" VerticalAlignment="Center"
                                               Visibility="{Binding ModUpdateUrl, Converter={StaticResource NullToCollapsed}}"
                                               IsEnabled="{Binding UpdateUrlChanged, Converter={StaticResource InverseBool}}"
-                                              ToolTip="{Binding UpdateAuthor, StringFormat='Trust {0} to publish updates for this mod'}"/>
+                                              ToolTip="{Binding UpdateAuthor, StringFormat='Trust {0} to publish updates. This covers all of their mods, and you are still asked before anything installs.'}"/>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
 
                         <!-- Nothing to order buttons by. -->
-                        <DataGridTemplateColumn Header="Actions" Width="300" CanUserSort="False">
+                        <DataGridTemplateColumn Header="Actions" Width="380" CanUserSort="False">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal">
+                                        <!-- Only appears once a check has actually found something,
+                                             so an absent button means "nothing to install" rather
+                                             than "this mod can't be updated". -->
+                                        <Button Style="{StaticResource SmallActionButton}"
+                                                Content="{Binding AvailableUpdateTag, StringFormat=Update to {0}}"
+                                                Foreground="{StaticResource AccentBrush}"
+                                                Visibility="{Binding HasAvailableUpdate, Converter={StaticResource BoolToVisibility}}"
+                                                Command="{Binding DataContext.UpdateModCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip="Shows where the download comes from and asks before installing anything."/>
                                         <Button Content="Files" Style="{StaticResource SmallActionButton}"
                                                 Command="{Binding DataContext.ViewFilesCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                                 CommandParameter="{Binding}"/>

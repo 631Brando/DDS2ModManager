@@ -7,13 +7,33 @@ public partial class UpdateAvailableWindow : Window
 {
     private readonly string _releaseUrl;
 
-    public UpdateAvailableWindow(string newVersion, Version currentVersion, string changelog, string releaseUrl)
+    /// <param name="isDowngrade">
+    /// True when this moves the version number backwards - switching from an experimental build
+    /// to the stable channel. Calling that an "update" would be misleading, so the wording says
+    /// what's actually happening.
+    /// </param>
+    public UpdateAvailableWindow(string newVersion, Version currentVersion, string changelog, string releaseUrl,
+        bool isDowngrade = false)
     {
         InitializeComponent();
         _releaseUrl = releaseUrl;
 
-        HeaderText.Text = $"DDS2 Mod Manager {newVersion} is available";
-        VersionText.Text = $"You're currently on v{currentVersion}. Updating downloads the new version and restarts the app.";
+        if (isDowngrade)
+        {
+            Title = "Switch to the stable channel";
+            HeaderText.Text = $"Switch to the stable release {newVersion}";
+            VersionText.Text =
+                $"You're on v{currentVersion}, an experimental build. The current stable release is {newVersion}, " +
+                "so this moves you back a version. Any features only in experimental builds will go away until " +
+                "stable catches up.";
+            UpdateButton.Content = "Switch";
+        }
+        else
+        {
+            HeaderText.Text = $"DDS2 Mod Manager {newVersion} is available";
+            VersionText.Text = $"You're currently on v{currentVersion}. Updating downloads the new version and restarts the app.";
+        }
+
         ChangelogText.Text = FormatChangelog(changelog);
     }
 

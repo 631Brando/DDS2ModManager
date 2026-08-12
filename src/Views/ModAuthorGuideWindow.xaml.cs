@@ -7,16 +7,22 @@ namespace DDS2ModManager.Views;
 /// How a mod author makes their mod updateable.
 ///
 /// The steps are BUILT FROM THE CONSTANTS the reader actually uses
-/// (ModUpdateSourceReader.ModActorUrlProperty and friends) rather than typed out as prose.
+/// (ModUpdateSourceResolver.UrlProperty and friends) rather than typed out as prose.
 /// A guide that says "call it ModUpdateUrl" while the code looks for something else is worse
 /// than no guide: every author who follows it produces a mod that silently never updates, and
 /// nothing anywhere reports a problem.
 public partial class ModAuthorGuideWindow : Window
 {
+    /// Kept in step with MODDING.md. An earlier build of this guide spelled the key
+    /// "modUpdateUrl"; that is still read (see ModManifest) so nobody's existing manifest breaks,
+    /// but new ones should use "updateUrl" so there is one spelling in the documentation.
     private const string ManifestSample = """
 {
-  "modUpdateUrl": "https://github.com/yourname/yourmod",
-  "version": "1.0.0"
+  "schema": 1,
+  "name": "Your Mod",
+  "author": "yourname",
+  "version": "1.0.0",
+  "updateUrl": "https://github.com/yourname/yourmod"
 }
 """;
 
@@ -29,17 +35,17 @@ public partial class ModAuthorGuideWindow : Window
             $"Either way it is one string: the GitHub repository you publish releases from.");
 
         AddStep(2, "Logic mods: a variable on your ModActor",
-            $"Add a String variable called {ModUpdateSourceReader.ModActorUrlProperty} to your mod's ModActor, and set its DEFAULT VALUE to your repository:\n\n" +
-            $"    {ModUpdateSourceReader.ModActorUrlProperty} = https://github.com/yourname/yourmod\n" +
-            $"    {ModUpdateSourceReader.ModActorVersionProperty} = 1.0.0\n\n" +
-            $"{ModUpdateSourceReader.ModActorVersionProperty} is optional but worth adding - without it the manager can see that a newer release exists but cannot tell which version the player already has, so it says nothing rather than guessing.\n\n" +
+            $"Add a String variable called {ModUpdateSourceResolver.UrlProperty} to your mod's ModActor, and set its DEFAULT VALUE to your repository:\n\n" +
+            $"    {ModUpdateSourceResolver.UrlProperty} = https://github.com/yourname/yourmod\n" +
+            $"    {ModUpdateSourceResolver.VersionProperty} = 1.0.0\n\n" +
+            $"{ModUpdateSourceResolver.VersionProperty} is optional but worth adding - without it the manager can see that a newer release exists but cannot tell which version the player already has, so it says nothing rather than guessing.\n\n" +
             "Costs no extra files: you ship the same .pak/.ucas/.utoc as before. Remember the value has to be set as the variable's default, and the mod has to be re-cooked before players see it.",
             emphasis: "It must be the variable's DEFAULT value. A value assigned at runtime lives in Blueprint code, not in the cooked asset, and there is nothing to read.");
 
         AddStep(3, "Everything else: a .dds2mod.json",
             $"Patch mods and lua mods ship a small file alongside the mod:\n\n{ManifestSample}\n\n" +
-            $"For a LUA mod, put it anywhere in your mod's folder - any name ending in {ModUpdateSourceReader.ManifestSuffix} works.\n\n" +
-            $"For a PAK mod it must be named after the mod - MyMod{ModUpdateSourceReader.ManifestSuffix} - because pak mods all share one folder, and without the name match the manager could pick up a neighbouring mod's file and offer updates from someone else's repository.",
+            $"For a LUA mod, put it anywhere in your mod's folder - any name ending in {ModManifest.FileName} works.\n\n" +
+            $"For a PAK mod it must be named after the mod - MyMod{ModManifest.FileName} - because pak mods all share one folder, and without the name match the manager could pick up a neighbouring mod's file and offer updates from someone else's repository.",
             emphasis: null);
 
         AddStep(4, "Publish releases with the version as the tag",
@@ -148,7 +154,7 @@ public partial class ModAuthorGuideWindow : Window
         try
         {
             Clipboard.SetText(ManifestSample);
-            LoggingService.Instance.Info($"Copied a {ModUpdateSourceReader.ManifestSuffix} template to the clipboard.");
+            LoggingService.Instance.Info($"Copied a {ModManifest.FileName} template to the clipboard.");
         }
         catch (Exception ex)
         {

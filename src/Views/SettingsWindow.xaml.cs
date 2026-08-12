@@ -21,8 +21,10 @@ public partial class SettingsWindow : Window
         AutoCheckBox.IsChecked = current.AutoCheckUE4SSUpdatesOnStartup;
         AutoCheckAppUpdateBox.IsChecked = current.CheckForAppUpdatesOnStartup;
         AutoCheckModUpdateBox.IsChecked = current.CheckForModUpdatesOnStartup;
-        AutoInstallTrustedBox.IsChecked = current.AutoInstallTrustedModUpdates;
-        AppVersionText.Text = $"Current version: v{AppUpdateService.GetCurrentVersion()}";
+        AppVersionText.Text = AppUpdateService.IsRunningExperimentalBuild()
+            ? $"Current version: v{AppUpdateService.GetCurrentVersion()} (experimental build)"
+            : $"Current version: v{AppUpdateService.GetCurrentVersion()}";
+        SelectChannel(UpdateChannels.Normalize(current.UpdateChannel));
         LogsPathText.Text = "Logs: " + AppSettingsService.Instance.GetLogsFolder();
 
         // Reflect the actual on-disk state (registry entry / .lnk existence), not a stored flag,
@@ -53,6 +55,43 @@ public partial class SettingsWindow : Window
     private async void CheckForAppUpdate_Click(object sender, RoutedEventArgs e) =>
         await _mainViewModel.CheckForAppUpdateCommand.ExecuteAsync(null);
 
+    private string SelectedChannel() =>
+        UpdateChannels.Normalize((UpdateChannelBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString());
+
+    private void SelectChannel(string channel)
+    {
+        UpdateChannelBox.SelectedIndex = UpdateChannels.IsExperimental(channel) ? 1 : 0;
+        UpdateChannelHint();
+    }
+
+    private void UpdateChannel_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e) =>
+        UpdateChannelHint();
+
+    /// Spells out what changing the channel will actually do, since the consequence isn't
+    /// symmetrical: going to experimental moves you forward at the next check, while going back
+    /// to stable means downgrading to an older build.
+    private void UpdateChannelHint()
+    {
+        if (ChannelHintText == null) return;
+
+        var wanted = SelectedChannel();
+        var saved = UpdateChannels.Normalize(AppSettingsService.Instance.Current.UpdateChannel);
+
+        if (wanted == saved)
+        {
+            ChannelHintText.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        ChannelHintText.Text = UpdateChannels.IsExperimental(wanted)
+            ? "After saving, the next update check will offer the newest experimental build."
+            : AppUpdateService.IsRunningExperimentalBuild()
+                ? "You're running an experimental build. After saving, you'll be offered the current stable release, "
+                  + "which is an older version than what you have now."
+                : "After saving, updates will come from stable releases only.";
+        ChannelHintText.Visibility = Visibility.Visible;
+    }
+
     private void OpenLogsFolder_Click(object sender, RoutedEventArgs e)
     {
         var path = AppSettingsService.Instance.GetLogsFolder();
@@ -82,7 +121,7 @@ public partial class SettingsWindow : Window
         AutoCheckBox.IsChecked = defaults.AutoCheckUE4SSUpdatesOnStartup;
         AutoCheckAppUpdateBox.IsChecked = defaults.CheckForAppUpdatesOnStartup;
         AutoCheckModUpdateBox.IsChecked = defaults.CheckForModUpdatesOnStartup;
-        AutoInstallTrustedBox.IsChecked = defaults.AutoInstallTrustedModUpdates;
+        SelectChannel(defaults.UpdateChannel);
     }
 
     private void ResetAppData_Click(object sender, RoutedEventArgs e)
@@ -148,11 +187,22 @@ public partial class SettingsWindow : Window
         settings.AutoCheckUE4SSUpdatesOnStartup = AutoCheckBox.IsChecked ?? true;
         settings.CheckForAppUpdatesOnStartup = AutoCheckAppUpdateBox.IsChecked ?? true;
         settings.CheckForModUpdatesOnStartup = AutoCheckModUpdateBox.IsChecked ?? true;
-        settings.AutoInstallTrustedModUpdates = AutoInstallTrustedBox.IsChecked ?? false;
+
+        var channelChanged = !string.Equals(UpdateChannels.Normalize(settings.UpdateChannel), SelectedChannel(),
+            StringComparison.Ordinal);
+        settings.UpdateChannel = SelectedChannel();
 
         AppSettingsService.Instance.Save();
         _mainViewModel.ReapplySettings();
         Close();
+
+        // Check straight away rather than waiting for the next launch - the user just asked to be
+        // on a different channel, and doing nothing visible looks like the setting didn't take.
+        if (channelChanged)
+        {
+            LoggingService.Instance.Info($"Update channel set to {settings.UpdateChannel}. Checking for a matching build...");
+            _ = _mainViewModel.CheckForAppUpdateCommand.ExecuteAsync(null);
+        }
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => Close();
