@@ -174,15 +174,40 @@ public class ModInstallerService
         var log = LoggingService.Instance;
         try
         {
+            // Match on FILES, not on the name.
+            //
+            // Plenty of mods ship in two halves that share a name: a lua script under
+            // ue4ss\Mods\<Name> and a pak under Paks\LogicMods\<Name>. Refusing anything whose
+            // name was already tracked meant adopting the lua half made the pak half
+            // permanently un-adoptable - it was reported as "a different mod with that name is
+            // already tracked" and silently skipped, so the pak stayed invisible to conflict
+            // checking and to update checks forever.
+            //
+            // Files are unambiguous where names are not, and the scanner already uses exactly
+            // this test to decide what counts as unmanaged in the first place.
+            var alreadyTracked = _registry.Mods
+                .SelectMany(m => m.InstallFiles)
+                .Select(p => p.TrimEnd(Path.DirectorySeparatorChar))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (found.Files.Any(f => alreadyTracked.Contains(f.TrimEnd(Path.DirectorySeparatorChar))))
+            {
+                log.Warn($"Skipped importing '{found.Name}' - its files are already tracked by another mod.");
+                return null;
+            }
+
+            // A same-name, different-type pair is legitimate, but two rows reading
+            // "DriveableScooter" is confusing, so say which half this one is.
+            var name = found.Name;
             if (_registry.Mods.Any(m => m.Name.Equals(found.Name, StringComparison.OrdinalIgnoreCase)))
             {
-                log.Warn($"Skipped importing '{found.Name}' - a different mod with that name is already tracked.");
-                return null;
+                name = $"{found.Name} ({found.DetectedType})";
+                log.Info($"'{found.Name}' is already tracked as a different type, so this one is listed as '{name}'.");
             }
 
             var mod = new ModInfo
             {
-                Name = found.Name,
+                Name = name,
                 Type = found.DetectedType,
                 // No archive to point at: these were installed by hand, so the files in the game
                 // folder are the only source that ever existed for them.
@@ -383,7 +408,20 @@ public class ModInstallerService
 
         try
         {
-            var destFolder = mod.Type == ModType.LogicMod ? _game.LogicModsPath : _game.PaksPath;
+            // Logic mods go back into their OWN subfolder of LogicMods, which is the layout
+            // UE4SS's BPModLoaderMod expects and what every deploy script produces. Restoring
+            // them flat into LogicMods worked by accident at best, and made a tidy install
+            // messier every time somebody toggled a mod off and on.
+            // Named after the PAK, not after mod.Name - the display name can carry a
+            // disambiguating suffix like "DriveableScooter (LogicMod)", and the folder should
+            // match what the container is actually called.
+            var pakBaseName = mod.InstallFiles
+                .Select(Path.GetFileNameWithoutExtension)
+                .FirstOrDefault(n => !string.IsNullOrWhiteSpace(n)) ?? mod.Name;
+
+            var destFolder = mod.Type == ModType.LogicMod
+                ? Path.Combine(_game.LogicModsPath, pakBaseName)
+                : _game.PaksPath;
             Directory.CreateDirectory(destFolder);
 
             var newFiles = new List<string>();

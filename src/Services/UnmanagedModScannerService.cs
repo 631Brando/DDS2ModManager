@@ -98,10 +98,39 @@ public class UnmanagedModScannerService
     {
         var groups = new List<PakGroup>();
 
-        // Content\Paks itself (PatchMods live here) and Content\Paks\LogicMods (LogicMods live
-        // here). Scanned top-level-only each: LogicMods is a subfolder of Paks, so a recursive
-        // scan of Paks would find every LogicMod twice and report it in the wrong folder.
-        foreach (var folder in new[] { game.PaksPath, game.LogicModsPath })
+        // Where pak mods actually live:
+        //
+        //   Content\Paks                 patch mods, loose
+        //   Content\Paks\Mods            flat override paks
+        //   Content\Paks\LogicMods       logic mods - almost always in a SUBFOLDER PER MOD
+        //
+        // Each folder is still scanned top-level-only, because LogicMods and Mods sit inside
+        // Paks and a recursive scan of Paks would find every mod twice and report it in the
+        // wrong folder. The subfolders are enumerated explicitly instead.
+        //
+        // That per-mod subfolder is the whole point of this change. UE4SS's BPModLoaderMod
+        // loads LogicMods\<Name>\<Name>.pak, which is what every deploy script and this
+        // project's own README produce - and scanning only the top level of LogicMods found
+        // exactly none of them. On a real install with three logic mods present, the scan
+        // reported "no untracked mods found", which reads as "you're all set" rather than
+        // "I didn't look in the right place".
+        // Content\Paks\DisabledMods is included too. It is not a folder this manager creates -
+        // disabling through the UI parks files in %AppData% - but it is a common convention for
+        // switching a pak mod off by hand, and a mod sitting there is still installed, still the
+        // user's, and still worth tracking. Ignoring it meant those mods were invisible to
+        // conflict checking and update checks with no way to adopt them short of moving files.
+        var disabledRoot = Path.Combine(game.PaksPath, "DisabledMods");
+        var modsRoot = Path.Combine(game.PaksPath, "Mods");
+
+        var roots = new List<string> { game.PaksPath, game.LogicModsPath, modsRoot, disabledRoot };
+
+        foreach (var parent in new[] { game.LogicModsPath, modsRoot, disabledRoot })
+        {
+            if (!Directory.Exists(parent)) continue;
+            roots.AddRange(Directory.GetDirectories(parent));
+        }
+
+        foreach (var folder in roots.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (!Directory.Exists(folder)) continue;
 
@@ -153,11 +182,34 @@ public class UnmanagedModScannerService
             // UnmanagedMod.TypeAssumedFromLocation for why that's an acceptable guess here
             // specifically (unlike at install time, where a wrong guess picks the wrong folder).
             mod.TypeAssumedFromLocation = true;
-            mod.DetectedType = IsLogicModsFolder(game, group.Folder) ? ModType.LogicMod : ModType.PatchMod;
+            mod.DetectedType = IsUnderLogicMods(game, group.Folder) ? ModType.LogicMod : ModType.PatchMod;
             mod.Issues.Add("Couldn't read this mod's pak, so its type was assumed from the folder it's in.");
         }
 
-        mod.CorrectFolder = mod.DetectedType == ModType.LogicMod ? game.LogicModsPath : game.PaksPath;
+        // A logic mod in its OWN SUBFOLDER of LogicMods is correctly placed - that is the layout
+        // UE4SS's BPModLoaderMod expects and what every deploy script produces. Comparing against
+        // LogicMods itself would mark every one of them "misplaced" and offer to move it up a
+        // level, i.e. offer to break a working install. So a mod already somewhere under
+        // LogicMods is considered to be where it belongs, and only one that is genuinely outside
+        // gets moved.
+        var underLogicMods = IsUnderLogicMods(game, group.Folder);
+
+        // A mod parked under DisabledMods is switched off, not misplaced. Reporting it as being
+        // in the wrong folder and offering to "fix" it would turn it back on, which is the exact
+        // opposite of what putting it there meant.
+        var underDisabled = IsUnder(Path.Combine(game.PaksPath, "DisabledMods"), group.Folder);
+        if (underDisabled)
+        {
+            mod.IsEnabled = false;
+            mod.CorrectFolder = group.Folder;
+            mod.Issues.Add("This mod is switched off - its files are parked in DisabledMods. Importing tracks it as disabled.");
+        }
+        else
+        {
+            mod.CorrectFolder = mod.DetectedType == ModType.LogicMod
+                ? (underLogicMods ? group.Folder : game.LogicModsPath)
+                : (underLogicMods ? game.PaksPath : group.Folder);
+        }
 
         if (mod.IsMisplaced)
         {
@@ -182,9 +234,24 @@ public class UnmanagedModScannerService
             mod.Issues.Add("Missing its .utoc file - the mod's data is incomplete and it won't load.");
     }
 
-    private static bool IsLogicModsFolder(GameInstallation game, string folder) =>
-        folder.TrimEnd(Path.DirectorySeparatorChar)
-            .Equals(game.LogicModsPath.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
+    /// True for Content\Paks\LogicMods itself AND anything beneath it.
+    ///
+    /// Mods normally sit in their own subfolder there (LogicMods\MyMod\MyMod.pak), so an exact
+    /// equality test answers "no" for the overwhelmingly common case.
+    private static bool IsUnderLogicMods(GameInstallation game, string folder) =>
+        IsUnder(game.LogicModsPath, folder);
+
+    /// True when candidate is root itself or anything beneath it.
+    private static bool IsUnder(string root, string candidate)
+    {
+        var r = root.TrimEnd(Path.DirectorySeparatorChar);
+        var c = candidate.TrimEnd(Path.DirectorySeparatorChar);
+
+        if (c.Equals(r, StringComparison.OrdinalIgnoreCase)) return true;
+
+        // Compare with the separator appended so a sibling like "LogicModsOld" cannot match.
+        return c.StartsWith(r + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
 
     private List<UnmanagedMod> ScanLuaMods(GameInstallation game, HashSet<string> knownPaths)
     {
