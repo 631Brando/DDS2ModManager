@@ -91,6 +91,18 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    /// Hands the grid's selection to the ViewModel.
+    ///
+    /// DataGrid.SelectedItems is a plain property rather than a dependency property, so it cannot
+    /// be bound. Pushing it across on change is the standard way round that, and it keeps the bulk
+    /// commands free of any dependency on the window.
+    private void ModGrid_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.DataGrid grid) return;
+
+        ViewModel.SetSelection(grid.SelectedItems.OfType<ModInfo>());
+    }
+
     private async void Window_Drop(object sender, DragEventArgs e)
     {
         if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;

@@ -33,11 +33,14 @@ public class NexusFeedService
         return c;
     }
 
+    /// pictureUrl was added for the hover card, and is requested here too so the banner and the
+    /// card share one query shape. It comes back as a staticdelivery.nexusmods.com URL that ends
+    /// in .png but is actually served as image/webp - see NexusImageCache, which has to cope.
     private const string Query = @"
 query LatestMods($filter: ModsFilter, $sort: [ModsSort!]) {
   mods(filter: $filter, sort: $sort) {
     nodes {
-      uid name summary modId adult createdAt
+      uid name summary modId adult createdAt pictureUrl
       game { domainName }
       uploader { name }
     }
@@ -101,7 +104,8 @@ query LatestMods($filter: ModsFilter, $sort: [ModsSort!]) {
                         ? dt
                         : DateTime.MinValue,
                     GameDomain = n.TryGetProperty("game", out var g) ? Str(g, "domainName") : gameDomain,
-                    Uploader = n.TryGetProperty("uploader", out var u) ? Str(u, "name") : ""
+                    Uploader = n.TryGetProperty("uploader", out var u) ? Str(u, "name") : "",
+                    PictureUrl = Str(n, "pictureUrl") is { Length: > 0 } pic ? pic : null
                 };
 
                 if (!includeAdult && post.Adult) continue;

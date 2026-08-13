@@ -113,6 +113,96 @@ public partial class ModInfo : ObservableObject
     /// declared asset name.
     [ObservableProperty] private string? availableUpdateAssetUrl;
 
+    // ---- the user's own annotations ----------------------------------------------------------
+    //
+    // Both persist in the registry and belong to the USER, not to the mod. Nothing here is read
+    // from a mod's files, so a reinstall or an update never overwrites them.
+
+    /// Starred, so it sorts to the top and is easy to find in a long list.
+    [ObservableProperty] private bool isFavourite;
+
+    /// The user's own note about this mod - "breaks saves after chapter 3", "needs the lua half".
+    ///
+    /// Free text and never parsed. This is the thing people currently keep in a text file beside
+    /// the game, and the reason they keep it is that it survives being forgotten for a year.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNotes))]
+    private string notes = "";
+
+    [JsonIgnore] public bool HasNotes => !string.IsNullOrWhiteSpace(Notes);
+
+    /// Your own labels for this mod, comma separated - "qol, tested, keep".
+    ///
+    /// Stored as the raw string you typed rather than a parsed list, because that is what round
+    /// trips through an editable cell without surprising anyone. Filtering happens through the
+    /// ordinary search box: typing a tag finds every mod carrying it, so there is no second
+    /// filtering mechanism to learn or to keep in step with the first.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasTags))]
+    private string tags = "";
+
+    [JsonIgnore] public bool HasTags => !string.IsNullOrWhiteSpace(Tags);
+
+    /// The tags as individual labels, trimmed and empties dropped.
+    [JsonIgnore]
+    public IEnumerable<string> TagList =>
+        (Tags ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    // ---- what this mod's files looked like -----------------------------------------------------
+
+    /// Size and timestamp of every file, recorded at install. See ModFileStateService for why
+    /// this is not a content hash.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SizeBytes))]
+    [NotifyPropertyChangedFor(nameof(SizeDisplay))]
+    private ModFileFingerprint? fingerprint;
+
+    /// Total bytes this mod occupies, from the last fingerprint. Shown in the grid so a
+    /// 900 MB mod is visible as one.
+    [JsonIgnore] public long SizeBytes => Fingerprint?.TotalBytes ?? 0;
+
+    [JsonIgnore] public string SizeDisplay => ModFileStateService.FormatSize(SizeBytes);
+
+    /// Set when the files on disk no longer match what was recorded at install. Runtime only -
+    /// it is re-derived by comparing against disk, and a stored value would go stale the moment
+    /// anything changed.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDrifted))]
+    [property: JsonIgnore]
+    private string? driftSummary;
+
+    [JsonIgnore] public bool HasDrifted => !string.IsNullOrEmpty(DriftSummary);
+
+    // ---- two-part mods -----------------------------------------------------------------------
+    //
+    // Plenty of mods ship in two halves that install to different places: a lua script under
+    // Binaries\Win64\ue4ss\Mods and a pak under Content\Paks\LogicMods. They are one mod to the
+    // user and two rows here, and enabling only one half gives them something half-working with
+    // no indication why.
+    //
+    // Computed by the ViewModel after every list change rather than stored, so it cannot go stale
+    // and needs no migration - the grouping is derived from names that are already on disk.
+
+    /// How many rows, including this one, belong to the same mod. 1 means it stands alone.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsPartOfSet))]
+    [property: JsonIgnore]
+    private int linkedPartCount = 1;
+
+    [JsonIgnore] public bool IsPartOfSet => LinkedPartCount > 1;
+
+    /// This mod's entry on Nexus, when one could be identified. Drives the hover card.
+    ///
+    /// Runtime only, never persisted: the Nexus catalogue is already cached by NexusIndexService,
+    /// so storing a copy per mod would be a second source of truth that goes stale on its own.
+    /// Null is the normal case for anything unpublished, and reads as "no card", not as an error.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNexusInfo))]
+    [property: JsonIgnore]
+    private NexusModPost? nexusInfo;
+
+    [JsonIgnore] public bool HasNexusInfo => NexusInfo != null;
+
     // ---- derived from UpdateSource; never stored ---------------------------------------------
 
     /// Where this mod publishes its updates, verbatim as the author wrote it. Always a github.com

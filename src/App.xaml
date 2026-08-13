@@ -55,6 +55,33 @@
                 </Setter>
             </Style>
 
+            <!-- Green, for the one button that starts the game. Same shape as AccentButton so it
+                 sits level with the rest of the toolbar - only the colour differs. Dark text
+                 rather than white: #4ADE80 is a light green, and white on it is unreadable. -->
+            <SolidColorBrush x:Key="PlayHoverBrush" Color="#6EE7A0"/>
+
+            <Style x:Key="PlayButton" TargetType="Button" BasedOn="{StaticResource AccentButton}">
+                <Setter Property="Background" Value="{StaticResource SuccessBrush}"/>
+                <Setter Property="Foreground" Value="#0F2A1A"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="{StaticResource PlayHoverBrush}"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.5"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <Style x:Key="GhostButton" TargetType="Button" BasedOn="{StaticResource AccentButton}">
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>

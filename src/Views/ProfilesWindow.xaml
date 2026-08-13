@@ -1,0 +1,78 @@
+<Window x:Class="DDS2ModManager.Views.ProfilesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Mod profiles" Height="560" Width="720"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BgBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}"
+        TextElement.Foreground="{StaticResource TextPrimaryBrush}"
+        FontFamily="Segoe UI">
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="Mod profiles" FontSize="20" FontWeight="Bold"/>
+            <TextBlock TextWrapping="Wrap" FontSize="11" Margin="0,4,0,0"
+                       Foreground="{StaticResource TextMutedBrush}"
+                       Text="A profile records which mods were on and which were off. Applying one only enables and disables mods you already have — it never downloads, installs or deletes anything, and mods it doesn't recognise are reported and left alone."/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Style="{StaticResource CardBorder}" Padding="0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="ProfileList" Margin="12">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,0,0,1" Padding="0,10,0,12">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13"/>
+                                        <TextBlock FontSize="11" Margin="0,2,0,0" Foreground="{StaticResource TextMutedBrush}">
+                                            <Run Text="{Binding Summary, Mode=OneWay}"/>
+                                            <Run Text="  ·  "/>
+                                            <Run Text="{Binding SavedDisplay, Mode=OneWay}"/>
+                                        </TextBlock>
+                                        <TextBlock FontSize="10" Margin="0,2,0,0" Foreground="{StaticResource TextMutedBrush}">
+                                            <Run Text="manager "/><Run Text="{Binding ManagerVersion, Mode=OneWay}"/>
+                                            <Run Text="   game "/><Run Text="{Binding GameVersion, Mode=OneWay}"/>
+                                        </TextBlock>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Content="Apply" Style="{StaticResource AccentButton}" Padding="12,4" FontSize="11"
+                                                Margin="0,0,6,0" Click="Apply_Click" Tag="{Binding}"/>
+                                        <Button Content="Copy" Style="{StaticResource GhostButton}" Padding="10,4" FontSize="11"
+                                                Margin="0,0,6,0" Click="Copy_Click" Tag="{Binding}"
+                                                ToolTip="Copies this profile as plain text, for pasting into a bug report."/>
+                                        <Button Content="Delete" Style="{StaticResource GhostButton}" Padding="10,4" FontSize="11"
+                                                Foreground="{StaticResource ErrorBrush}" Click="Delete_Click" Tag="{Binding}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <TextBlock x:Name="EmptyText" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center"
+                   TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center" Visibility="Collapsed"
+                   Foreground="{StaticResource TextMutedBrush}"
+                   Text="No profiles saved yet. Use &quot;Save profile&quot; on the main window to record which mods you currently have enabled."/>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Content="Open folder" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="OpenFolder_Click"
+                    ToolTip="Profiles are plain JSON files - you can back them up or share them."/>
+            <Button Content="Close" Style="{StaticResource AccentButton}" Click="Close_Click" IsDefault="True"/>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -58,6 +58,31 @@ public class AppSettings
     /// entire history of the game's mod list into a banner.
     public DateTime? NexusFeedLastSeenUtc { get; set; }
 
+    /// Shows a mod's Nexus picture and description when you hover its row.
+    ///
+    /// The details come from a list of the game's mods fetched from Nexus and cached locally, so
+    /// hovering does no network work of its own and the cards keep working offline. Turning this
+    /// off stops the manager contacting Nexus for mod details at all.
+    public bool ShowNexusModDetails { get; set; } = true;
+
+    /// When the cached Nexus mod list was last refreshed. The list is small and changes slowly,
+    /// so it is re-fetched on a slow cadence rather than on every launch.
+    public DateTime? NexusIndexRefreshedUtc { get; set; }
+
+    /// How the mod list was last sorted, so it comes back the way it was left.
+    ///
+    /// Stored as the property name the grid sorts on rather than a column index, so reordering or
+    /// adding a column can't silently start sorting by something else. An unrecognised name is
+    /// ignored and the default (starred first, then name) applies.
+    public string? ModListSortColumn { get; set; }
+    public bool ModListSortDescending { get; set; }
+
+    /// What the game's executable looked like last run, so a patch can be noticed. See
+    /// GameVersionWatchService for why size and timestamp are kept alongside the version.
+    public string? LastSeenGameVersion { get; set; }
+    public long LastSeenGameSize { get; set; }
+    public DateTime? LastSeenGameWrittenUtc { get; set; }
+
     // There is deliberately NO "install trusted updates automatically" setting.
     //
     // An earlier revision had one, off by default. It was dropped rather than kept behind that

@@ -1,4 +1,7 @@
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Reflection;
+using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CUE4Parse.UE4.Versions;
@@ -71,6 +74,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ModUpdateService _modUpdater = new();
     private readonly GitHubReleaseService _github = new();
     private readonly NexusFeedService _nexus = new();
+    private readonly NexusIndexService _nexusIndex = new();
 
     /// The game's Nexus domain. Not a setting: this manager is for one game, and an unrecognised
     /// domain silently returns nothing rather than failing in a way anyone could diagnose.
@@ -145,6 +149,58 @@ public partial class MainViewModel : ObservableObject
         // working. The tick itself needs no persistence hook here - ModInfo.TrustedAuthor writes
         // straight through to the service, which saves as it goes.
         ModTrustService.Instance.TrustChanged += RefreshTrustOnAllMods;
+        WireUndo();
+
+        // The grid binds to this view, not to Mods directly, so the search box can filter without
+        // disturbing the underlying list or the DataGrid's own column sorting.
+        ModsView = CollectionViewSource.GetDefaultView(Mods);
+        ModsView.Filter = MatchesSearch;
+
+        ApplySavedSort();
+
+        // Persist whatever the user sorts by, so the list comes back the way they left it.
+        // SortDescriptions raises this whenever the grid replaces the sort from a header click.
+        if (ModsView.SortDescriptions is INotifyCollectionChanged sortChanged)
+            sortChanged.CollectionChanged += (_, _) => SaveSort();
+
+        // Keep the "3 of 19" line honest when mods are added, imported or removed while a search
+        // is active - the count is about the current list, not the list as it was when typed.
+        // Two-part grouping is derived from the list too, so it is recomputed here rather than
+        // stored, which is what keeps it from going stale after an install or an uninstall.
+        Mods.CollectionChanged += (_, _) =>
+        {
+            UpdateSearchSummary();
+            RefreshModGroups();
+        };
+
+        // The star and the notes field are edited directly on the row, so nothing else would ever
+        // save them. Watching the collection rather than subscribing at each of the several places
+        // a mod gets added means a new one can't be missed later.
+        Mods.CollectionChanged += (_, e) =>
+        {
+            foreach (var added in e.NewItems?.OfType<ModInfo>() ?? Enumerable.Empty<ModInfo>())
+                added.PropertyChanged += OnModAnnotationChanged;
+            foreach (var removed in e.OldItems?.OfType<ModInfo>() ?? Enumerable.Empty<ModInfo>())
+                removed.PropertyChanged -= OnModAnnotationChanged;
+        };
+    }
+
+    /// Persists the user's own annotations the moment they change.
+    ///
+    /// Only these two properties. Everything else on a ModInfo is written by the code that owns
+    /// it and saved deliberately; saving the registry on every property change would rewrite the
+    /// file dozens of times during a scan.
+    private void OnModAnnotationChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is not (nameof(ModInfo.IsFavourite) or nameof(ModInfo.Notes) or nameof(ModInfo.Tags)))
+            return;
+        if (sender is not ModInfo mod) return;
+
+        _registry?.Upsert(mod);
+
+        // Favourites sort to the top, so starring one has to re-order the list immediately rather
+        // than at the next refresh.
+        if (e.PropertyName == nameof(ModInfo.IsFavourite)) ModsView.Refresh();
     }
 
     private void RefreshTrustOnAllMods()
@@ -267,108 +323,6 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    // ---- Nexus "what's new" banner ---------------------------------------------------------
-    //
-    // Discovery only: it says a mod EXISTS and links to its page. Nothing is downloaded, and it
-    // needs no Nexus account - see NexusFeedService for why that is possible.
-
-    public ObservableCollection<NexusModPost> NexusNewMods { get; } = new();
-
-    [ObservableProperty] private bool hasNexusNewMods;
-    [ObservableProperty] private string nexusBannerText = "";
-
-    /// Fire-and-forget from startup. A slow or down Nexus must never delay the window.
-    private async Task CheckNexusFeedAsync()
-    {
-        var settings = AppSettingsService.Instance.Current;
-        if (!settings.ShowNexusNewModBanner) return;
-
-        // First run starts two weeks back. Without a floor the first launch would list every
-        // mod ever published for the game, which is a catalogue, not news.
-        var since = settings.NexusFeedLastSeenUtc ?? DateTime.UtcNow.AddDays(-14);
-
-        var posts = await _nexus.GetNewModsAsync(NexusGameDomain, since);
-        if (posts.Count == 0) return;
-
-        // Anything the user already has installed is not news to them. Matched on name because
-        // that is all the two sides share - the registry has no Nexus id.
-        var installed = Mods.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var fresh = posts.Where(p => !installed.Contains(p.Name)).ToList();
-        if (fresh.Count == 0) return;
-
-        NexusNewMods.Clear();
-        foreach (var p in fresh.Take(6)) NexusNewMods.Add(p);
-
-        HasNexusNewMods = true;
-        NexusBannerText = fresh.Count == 1
-            ? "1 new DDS2 mod on Nexus"
-            : $"{fresh.Count} new DDS2 mods on Nexus";
-
-        LoggingService.Instance.Info(
-            $"{fresh.Count} new mod(s) published on Nexus since {since.ToLocalTime():d MMM}: " +
-            string.Join(", ", fresh.Take(5).Select(p => p.Name)));
-    }
-
-    /// Marks everything currently shown as seen, so the banner does not return for the same mods.
-    private void DismissNexusFeed()
-    {
-        if (NexusNewMods.Count > 0)
-        {
-            var newest = NexusNewMods.Max(p => p.CreatedAt).ToUniversalTime();
-            AppSettingsService.Instance.Current.NexusFeedLastSeenUtc = newest;
-            AppSettingsService.Instance.Save();
-        }
-
-        NexusNewMods.Clear();
-        HasNexusNewMods = false;
-        NexusBannerText = "";
-    }
-
-    private void OpenNexusMod(NexusModPost? post)
-    {
-        if (post == null) return;
-        OpenUrl(post.Url);
-    }
-
-    /// Opens the repository a mod publishes its updates from.
-    ///
-    /// Re-checked against the allowlist rather than trusted because it came from a ModInfo:
-    /// the URL originates in a file inside a mod, and "we validated it on the way in" is a
-    /// weaker guarantee than validating it at the point of use - registries get hand-edited.
-    private void OpenModSource(ModInfo? mod)
-    {
-        if (mod == null) return;
-
-        if (!GitHubUrlParser.TryParse(mod.ModUpdateUrl, out var owner, out var repo))
-        {
-            LoggingService.Instance.Warn(
-                $"'{mod.Name}' has an update address that isn't a GitHub repository, so it wasn't opened: {mod.ModUpdateUrl}");
-            return;
-        }
-
-        // Opens the parsed owner/repo rather than the raw string. Re-parsing at the point of use
-        // is the point: the URL originates inside a mod file, and registries get hand-edited.
-        OpenUrl($"https://github.com/{owner}/{repo}");
-    }
-
-    private static void OpenUrl(string url)
-    {
-        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
-        catch (Exception ex) { LoggingService.Instance.Warn($"Couldn't open {url}: {ex.Message}"); }
-    }
-
-    private void RefreshModUpdateBanner()
-    {
-        ModUpdatesAvailable = Mods.Count(m => m.UpdateAvailable);
-        HasModUpdates = ModUpdatesAvailable > 0;
-        ModUpdateBannerText = ModUpdatesAvailable switch
-        {
-            0 => "",
-            1 => $"1 mod has an update available: {Mods.First(m => m.UpdateAvailable).Name}",
-            _ => $"{ModUpdatesAvailable} mods have updates available"
-        };
-    }
-
     /// Downloads and installs one mod's update, after the user has seen where it comes from.
     ///
     /// Order matters and is deliberate: the new version is downloaded and verified to exist
@@ -453,7 +407,14 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
-            // 2. Only now remove the old version.
+            // 2. Keep a copy of what is about to be replaced.
+            //
+            // The download-before-uninstall order above protects against a failed download. This
+            // protects against the commoner case it cannot: the update installed fine and the new
+            // version is worse. Authors delete old releases, so without this there is no way back.
+            ModBackupService.Instance.Capture(mod, $"before updating to {release.TagName}");
+
+            // 3. Only now remove the old version.
             StatusMessage = $"Replacing {mod.Name}...";
             var previousUrl = mod.InstalledUpdateUrl ?? mod.ModUpdateUrl;
             _installer.Uninstall(mod);
@@ -480,6 +441,16 @@ public partial class MainViewModel : ObservableObject
                 log.Warn($"'{installed.Name}' now publishes updates at a different address " +
                          $"({previousUrl} -> {installed.ModUpdateUrl ?? "none"}). Worth a look.");
             }
+
+            // Recorded before the notes are cleared below - this is the only place they are ever
+            // kept, and "what did that update actually change?" is unanswerable a month later
+            // without it.
+            ModHistoryService.Instance.Record(
+                installed.Name, "Updated",
+                from: mod.InstalledVersion,
+                to: ModUpdateService.NormalizeVersion(release.TagName),
+                notes: release.Body,
+                source: source.RepositoryUrl);
 
             installed.LatestVersion = ModUpdateService.NormalizeVersion(release.TagName);
             installed.UpdateAvailable = false;
@@ -605,6 +576,17 @@ public partial class MainViewModel : ObservableObject
         // Same treatment: fire-and-forget, failures logged as warnings. A banner about what's
         // new on Nexus is the last thing that should be allowed to hold up the window.
         _ = CheckNexusFeedAsync();
+
+        // Hover-card details, from the locally cached catalogue. Refreshed on a slow cadence, so
+        // this is usually a file read and a dictionary build rather than any network work.
+        _ = RefreshNexusDetailsAsync();
+
+        // Cheap, local, and worth knowing before anything else is diagnosed today.
+        CheckGameVersionChanged();
+
+        // Measures every mod and reports anything whose files changed behind the manager's back.
+        // Size and timestamp only, so this is a stat call per file rather than a read.
+        RefreshFileState();
 
         // Awaited rather than fire-and-forget: this one opens a modal dialog, and racing it
         // against the UE4SS update prompt above would stack two dialogs on the user at once.
@@ -827,28 +809,6 @@ public partial class MainViewModel : ObservableObject
         {
             IsBusy = false;
         }
-    }
-
-    private void EnableMod(ModInfo? mod)
-    {
-        if (mod == null || _installer == null) return;
-        _installer.Enable(mod);
-        RunCompatibilityCheck();
-    }
-
-    private void DisableMod(ModInfo? mod)
-    {
-        if (mod == null || _installer == null) return;
-        _installer.Disable(mod);
-        RunCompatibilityCheck();
-    }
-
-    private void UninstallMod(ModInfo? mod)
-    {
-        if (mod == null || _installer == null) return;
-        _installer.Uninstall(mod);
-        Mods.Remove(mod);
-        RunCompatibilityCheck();
     }
 
     private void ViewFiles(ModInfo? mod)
