@@ -3,7 +3,67 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
-## Unreleased
+## v1.1.0-exp.1
+
+**This is an experimental build.** It carries a lot of new work that hasn't had wide testing yet,
+including a restructure of how the mod list is built. If something misbehaves, switch back to
+Stable in Settings — you'll be offered v1.0.6 and everything will carry on as before. Reports are
+very welcome; that's what this channel is for.
+
+### Hover a mod to see what it is
+
+Hovering a mod in the list now shows its Nexus picture, description, author, version and download
+count. Nothing is fetched while you hover — the list of the game's mods is downloaded once, cached
+locally, and refreshed every few days, so the cards work offline and cost nothing to open.
+
+Only mods published on Nexus get a card, matched by name. Roughly half a typical setup is mods
+that were never published — your own work, test mods, one half of a two-part mod — and those
+simply show nothing, which is normal rather than a failure. The matching is deliberately strict:
+it would rather show you nothing than show you a stranger's mod on your own row.
+
+### The mod list
+
+- **Search** across names, type, author, version, your tags and notes, and Nexus descriptions.
+- **Two-part mods are linked.** A mod that installs both a pak and a lua script is now marked as
+  one thing. Enabling or disabling it applies to both halves — half a mod enabled is the worst
+  possible state and gives you no error to work from. Uninstalling asks first.
+- **Select several mods** and enable, disable or uninstall them together.
+- **Star** mods to keep them at the top.
+- **Notes and tags** of your own on any mod. They're yours, not the mod's: updating or
+  reinstalling a mod never wipes them, which is the point if the note says "breaks saves".
+- The list remembers how you sorted it.
+
+### Updates
+
+- **Update All**, which still asks about each mod. They come from different authors' repositories,
+  so being taken through them is the point.
+- **History** of what changed, keeping the release notes from each update you applied. Those were
+  previously shown once and thrown away.
+- **Re-check a single mod** immediately, ignoring the six-hour cache — useful if you've just
+  published something.
+- **A warning when the game itself has been patched** since you last opened the manager. Nothing is
+  disabled; a game update can recook the content a pak mod replaces, and if something breaks today
+  that's the first thing worth knowing.
+
+### Safety and diagnostics
+
+- **A copy of a mod is kept before an update replaces it.** Downloads already happened before
+  anything was removed, but that never helped when the update installed fine and the new version
+  was simply worse — and authors delete old releases.
+- **Files changed outside the manager are flagged**, so a mod you edited by hand (or a half-finished
+  copy) is visible rather than mysterious.
+- **Undo** for enabling and disabling.
+- **Diagnostics** — one zip with your logs, mod list, conflicts and versions, for bug reports. It
+  contains no save games and no config files.
+- **Profiles** — save which mods you had on, and come back to it later. Applying a profile only
+  switches mods you already have on and off; it never downloads, installs or deletes anything.
+- **Find which mods contain a file**, for when one specific thing is broken.
+- Mod sizes, a **Play** button, and a Nexus link on each row.
+
+---
+
+The rest of this release is the work described below, which merged two independent implementations
+of mod auto-updating and fixed several problems found along the way.
 
 ### Mod updates: two implementations merged into one
 
