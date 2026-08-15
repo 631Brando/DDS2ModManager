@@ -103,6 +103,12 @@ public partial class MainWindow : Window
         ViewModel.SetSelection(grid.SelectedItems.OfType<ModInfo>());
     }
 
+    private void MoreMenu_Click(object sender, RoutedEventArgs e) => MoreMenu.IsOpen = !MoreMenu.IsOpen;
+
+    /// The popup's StaysOpen=False closes it when you click away, but not when you click something
+    /// inside it - so without this, choosing an item leaves the menu hanging open over the window.
+    private void MoreMenuItem_Click(object sender, RoutedEventArgs e) => MoreMenu.IsOpen = false;
+
     private async void Window_Drop(object sender, DragEventArgs e)
     {
         if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
