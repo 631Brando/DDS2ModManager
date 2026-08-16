@@ -3,6 +3,44 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
+## v1.1.1
+
+### The experimental channel could hand you older code and call it an update
+
+An experimental build is numbered above the release it previews — `v1.1.0-exp.1` ships as
+`1.1.0.1`, while stable `v1.1.0` ships as `1.1.0`. The updater compared those numbers directly,
+so it believed the preview was newer than the finished release.
+
+Two things went wrong as a result. Switching to Experimental after v1.1.0 shipped would have
+offered you `v1.1.0-exp.1` as an update, which is *older* code — everything added between the
+preview and the release would have been removed. And anyone already on a preview was stranded
+there: the stable release that superseded them scored lower, so it was never offered, and they'd
+have waited for v1.2.0 to get moved along.
+
+A preview is now correctly treated as coming *before* the release it previews, so the order runs
+`v1.1.0-exp.1` → `v1.1.0` → `v1.2.0-exp.1`, and stable catching up moves experimental users
+forward automatically the way it was always meant to.
+
+### It now tells you when experimental is behind stable
+
+Between a stable release and the next preview, the experimental channel has nothing newer than
+stable — it's behind, not ahead. You can't work that out from the two version numbers, since the
+preview carries the bigger one.
+
+Settings now shows where both channels actually stand, and says plainly when experimental is
+behind and that switching would gain you nothing. If you're already on experimental, it explains
+why no update ever arrives, rather than leaving it looking broken.
+
+Moving from a preview onto the release that superseded it also no longer calls itself a
+downgrade. The version number gets shorter (`1.1.0.1` → `1.1.0`) while the code moves forward, so
+it says that instead of warning you that features are about to disappear.
+
+Version numbers are also written the way the release is named — `v1.1.0` rather than `v1.1.0.0`.
+
+### Also
+
+- Mifsopo's Nexus profile is linked on the credits page.
+
 ## v1.1.0
 
 The largest release so far, and the stable version of the work that went out as `v1.1.0-exp.1`

@@ -8,6 +8,10 @@ public partial class SettingsWindow : Window
 {
     private readonly MainViewModel _mainViewModel;
 
+    /// Where the channels stand, once GitHub has answered. Null until then, and on failure - the
+    /// hints fall back to their offline wording rather than guessing.
+    private AppUpdateService.ChannelStatus? _channels;
+
     public SettingsWindow(MainViewModel mainViewModel)
     {
         InitializeComponent();
@@ -21,9 +25,10 @@ public partial class SettingsWindow : Window
         AutoCheckBox.IsChecked = current.AutoCheckUE4SSUpdatesOnStartup;
         AutoCheckAppUpdateBox.IsChecked = current.CheckForAppUpdatesOnStartup;
         AutoCheckModUpdateBox.IsChecked = current.CheckForModUpdatesOnStartup;
+        var running = AppUpdateService.Describe(AppUpdateService.GetCurrentVersion());
         AppVersionText.Text = AppUpdateService.IsRunningExperimentalBuild()
-            ? $"Current version: v{AppUpdateService.GetCurrentVersion()} (experimental build)"
-            : $"Current version: v{AppUpdateService.GetCurrentVersion()}";
+            ? $"Current version: v{running} (experimental build)"
+            : $"Current version: v{running}";
         SelectChannel(UpdateChannels.Normalize(current.UpdateChannel));
         LogsPathText.Text = "Logs: " + AppSettingsService.Instance.GetLogsFolder();
 
@@ -32,6 +37,10 @@ public partial class SettingsWindow : Window
         ContextMenuBox.IsChecked = ShellIntegrationService.IsRegistered();
         StartMenuBox.IsChecked = ShortcutService.IsInstalled();
         DesktopShortcutBox.IsChecked = ShortcutService.IsDesktopInstalled();
+
+        // Not awaited: the window opens immediately and the channel line fills itself in when
+        // GitHub answers, rather than holding Settings shut for the length of an HTTP request.
+        Loaded += async (_, _) => await LoadChannelStatusAsync();
     }
 
     private void BrowseGamePath_Click(object sender, RoutedEventArgs e)
@@ -70,26 +79,83 @@ public partial class SettingsWindow : Window
     /// Spells out what changing the channel will actually do, since the consequence isn't
     /// symmetrical: going to experimental moves you forward at the next check, while going back
     /// to stable means downgrading to an older build.
+    ///
+    /// "Moves you forward" is only true while experimental is actually ahead, which is not always -
+    /// after a stable release ships, the newest preview is one the stable build has already
+    /// absorbed. Promising new features there would send people to older code, so the promise is
+    /// withdrawn once _channels says otherwise.
     private void UpdateChannelHint()
     {
         if (ChannelHintText == null) return;
 
         var wanted = SelectedChannel();
         var saved = UpdateChannels.Normalize(AppSettingsService.Instance.Current.UpdateChannel);
+        var behind = _channels?.ExperimentalIsBehindStable == true;
 
         if (wanted == saved)
         {
+            // Already on experimental and it's behind: there's nothing to warn about switching,
+            // but the user still needs to know why no update ever arrives.
+            if (UpdateChannels.IsExperimental(wanted) && behind)
+            {
+                ChannelHintText.Text = "You're on the experimental channel, and it's currently behind stable. "
+                                       + "Nothing new will be offered here until the next experimental build is published. "
+                                       + "Switch to Stable to move onto the newest release.";
+                ChannelHintText.Visibility = Visibility.Visible;
+                return;
+            }
+
             ChannelHintText.Visibility = Visibility.Collapsed;
             return;
         }
 
         ChannelHintText.Text = UpdateChannels.IsExperimental(wanted)
-            ? "After saving, the next update check will offer the newest experimental build."
+            ? behind
+                ? "Experimental is currently behind stable, so switching would not get you anything newer — "
+                  + "its newest build is older code than the stable release. You'd stay where you are until the "
+                  + "next experimental build is published."
+                : "After saving, the next update check will offer the newest experimental build."
             : AppUpdateService.IsRunningExperimentalBuild()
-                ? "You're running an experimental build. After saving, you'll be offered the current stable release, "
-                  + "which is an older version than what you have now."
+                ? "You're running an experimental build. After saving, you'll be offered the current stable release. "
+                  + "Its version number is lower than yours, because the build you're on is a preview of a release "
+                  + "that has since shipped — it's newer code despite the smaller number."
                 : "After saving, updates will come from stable releases only.";
         ChannelHintText.Visibility = Visibility.Visible;
+    }
+
+    /// Asks GitHub where the two channels stand, once per window, and fills in the status line.
+    ///
+    /// Deliberately silent on failure: this is extra context on a settings page, and someone
+    /// offline should see the page behave normally rather than get an error about a line they
+    /// never asked for. GitHubReleaseService has already logged the reason.
+    private async Task LoadChannelStatusAsync()
+    {
+        try
+        {
+            _channels = await new AppUpdateService().GetChannelStatusAsync();
+        }
+        catch
+        {
+            return;
+        }
+
+        if (_channels == null || !IsLoaded) return;
+
+        var stable = _channels.LatestStable?.TagName;
+        var experimental = _channels.LatestExperimental?.TagName;
+        if (stable == null && experimental == null) return;
+
+        ChannelStatusText.Text = _channels.ExperimentalIsBehindStable
+            ? $"Right now: stable is {stable}, experimental is {experimental} — experimental is BEHIND, "
+              + "because stable has caught up with it and no newer preview has been published since."
+            : $"Right now: stable is {stable ?? "none"}, experimental is {experimental ?? "none"}.";
+
+        ChannelStatusText.Foreground = _channels.ExperimentalIsBehindStable
+            ? (System.Windows.Media.Brush)FindResource("WarningBrush")
+            : (System.Windows.Media.Brush)FindResource("TextMutedBrush");
+
+        ChannelStatusText.Visibility = Visibility.Visible;
+        UpdateChannelHint();
     }
 
     private void OpenLogsFolder_Click(object sender, RoutedEventArgs e)

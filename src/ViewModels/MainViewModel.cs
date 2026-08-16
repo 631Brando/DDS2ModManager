@@ -1,4 +1,4 @@
-using System.Collections.Specialized;
+﻿using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Reflection;
 using System.Windows.Data;
@@ -30,10 +30,7 @@ public partial class MainViewModel : ObservableObject
     {
         get
         {
-            // Trim the trailing .0 that Version always carries - the csproj says 1.0.6, so
-            // showing "1.0.6.0" invites people to wonder which of the two is real.
-            var v = AppUpdateService.GetCurrentVersion();
-            var version = "v" + (v.Revision <= 0 ? v.ToString(3) : v.ToString());
+            var version = "v" + AppUpdateService.Describe(AppUpdateService.GetCurrentVersion());
 
             // AssemblyInformationalVersion is "1.0.6+<sha>" when the build recorded a commit,
             // and just "1.0.6" when it did not. Only the suffix is useful here.
@@ -985,25 +982,43 @@ public partial class MainViewModel : ObservableObject
                 // Failure is already logged inside GitHubReleaseService with the specific reason -
                 // only report "you're up to date" when we actually got a real answer from GitHub.
                 if (manual && check.Succeeded)
-                    log.Info($"You're on the latest {channel.ToLowerInvariant()} version (v{AppUpdateService.GetCurrentVersion()}).");
+                {
+                    log.Info($"You're on the latest {channel.ToLowerInvariant()} version (v{AppUpdateService.Describe(AppUpdateService.GetCurrentVersion())}).");
+
+                    // On experimental, "nothing newer" has two very different causes, and the user
+                    // can only act on one of them. Say which it is.
+                    if (check.Channels is { ExperimentalIsBehindStable: true } channels)
+                        log.Info($"The experimental channel is currently behind stable: its newest build is "
+                                 + $"{channels.LatestExperimental!.TagName}, which stable release {channels.LatestStable!.TagName} "
+                                 + "has already superseded. There's nothing experimental to move to until the next preview "
+                                 + "is published.");
+                }
                 return;
             }
 
             var release = check.NewerRelease;
             var asset = _appUpdater.FindAsset(release)!;
 
-            // Switching from experimental back to stable moves the version number down. Saying
-            // "update available" there would be a lie, and the prompt needs to admit it too.
-            log.Info(check.IsDowngrade
-                ? $"Switching to the stable channel means moving from v{AppUpdateService.GetCurrentVersion()} back to {release.TagName}."
-                : $"DDS2 Mod Manager {release.TagName} is available (you have v{AppUpdateService.GetCurrentVersion()}).");
+            // The version number and the code don't always move the same way, so all three cases
+            // get said out loud rather than being flattened into "update available".
+            log.Info(check.Change switch
+            {
+                AppUpdateService.VersionChange.Rollback =>
+                    $"Switching to the stable channel means moving from v{AppUpdateService.Describe(AppUpdateService.GetCurrentVersion())} back to {release.TagName}.",
+                AppUpdateService.VersionChange.SupersedingPreview =>
+                    $"{release.TagName} is the finished release your experimental build "
+                    + $"(v{AppUpdateService.Describe(AppUpdateService.GetCurrentVersion())}) was previewing. Moving to it goes forwards, even "
+                    + "though the version number gets shorter.",
+                _ =>
+                    $"DDS2 Mod Manager {release.TagName} is available (you have v{AppUpdateService.Describe(AppUpdateService.GetCurrentVersion())})."
+            });
 
             var prompt = new UpdateAvailableWindow(
                 release.TagName,
                 AppUpdateService.GetCurrentVersion(),
                 release.Body,
                 AppUpdateService.GetReleaseUrl(release.TagName),
-                check.IsDowngrade)
+                check.Change)
             {
                 Owner = System.Windows.Application.Current.MainWindow
             };

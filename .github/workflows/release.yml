@@ -11,8 +11,9 @@
 #   Experimental  git tag v1.2.0-exp.1  -> published as a prerelease, skipped by /releases/latest
 #
 # The -exp suffix number becomes the build's fourth version component (v1.2.0-exp.1 builds as
-# 1.2.0.1), so an experimental build always sorts above the stable release it came from and below
-# the next stable one. AppUpdateService relies on that ordering - see the comment there.
+# 1.2.0.1). It is a preview counter, not a patch number: v1.2.0-exp.1 previews v1.2.0 and is
+# superseded by it, even though 1.2.0.1 is the larger number. AppUpdateService.CompareBuilds is
+# what encodes that - see the comment there before changing the tag format.
 #
 # Trigger: push a tag like "v1.2.0" (git tag v1.2.0 && git push origin v1.2.0).
 

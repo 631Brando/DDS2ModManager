@@ -182,15 +182,25 @@ that misreports its own version. The `<Version>` in each `.csproj` is only the d
 local builds.
 
 The `-exp.N` suffix becomes the build's **fourth version component**: `v1.2.0-exp.3` builds as
-`1.2.0.3`. That's what makes channel switching work with plain version comparison — an
-experimental build always sorts above the stable release it came from (`1.2.0.3 > 1.2.0.0`) and
-below the next stable one (`1.2.0.3 < 1.2.1.0`), so an experimental user is moved back onto
-stable automatically once stable catches up. `AppUpdateService` depends on this; don't change
-the tag format without reading the comment there.
+`1.2.0.3`.
+
+That number is a **preview counter, not a patch number**, and the difference matters:
+`v1.2.0-exp.3` is a preview *of* `v1.2.0`, published before it, so the finished `v1.2.0`
+supersedes it. Plain version comparison says the opposite — `1.2.0.3 > 1.2.0.0` — which is why
+`AppUpdateService.CompareBuilds` exists and why every "is this newer" decision has to go through
+it. Comparing the raw `Version` objects will offer people a preview of the release they are
+already running. Don't change the tag format without reading the comment there.
+
+So within one version the order is `1.2.0-exp.1` → `1.2.0-exp.3` → `1.2.0` → `1.2.1-exp.1`, and
+an experimental user is moved onto stable automatically once stable catches up.
+
+Between a stable release and the next preview, the experimental channel is **behind** stable
+rather than ahead of it. The app says so on the Settings page and in the update check, since two
+version numbers alone can't tell a user that.
 
 Marking experimental builds as prereleases is what keeps the channels apart: GitHub's
 `/releases/latest`, which the stable channel asks for, skips prereleases. The experimental
-channel lists all releases and takes the highest version.
+channel lists all releases and takes the newest by the ordering above.
 
 The workflow **rejects** any tag that isn't `v1.2.0` or `v1.2.0-exp.1` shaped, so a typo fails
 the build instead of publishing a mislabelled release.

@@ -84,6 +84,12 @@
                     <ComboBoxItem Content="Stable"/>
                     <ComboBoxItem Content="Experimental"/>
                 </ComboBox>
+                <!-- Where the channels actually stand right now, filled in from GitHub after the
+                     window opens. A preview carries a higher version number than the release that
+                     supersedes it, so "experimental is behind stable" is not something a user can
+                     work out from the two version numbers on their own. -->
+                <TextBlock x:Name="ChannelStatusText" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,6"
+                           Foreground="{StaticResource TextMutedBrush}" Visibility="Collapsed"/>
                 <TextBlock x:Name="ChannelHintText" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,16"
                            Foreground="{StaticResource WarningBrush}" Visibility="Collapsed"/>
 

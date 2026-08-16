@@ -75,6 +75,8 @@
                         <TextBlock Text="Mifsopo" Style="{StaticResource PersonName}"/>
                         <TextBlock Style="{StaticResource Role}"
                                    Text="Major contributor. Mod updating, the trust and verification system, conflict detection, and the test suite that keeps all of it honest."/>
+                        <Button Style="{StaticResource Link}" Content="nexusmods.com/profile/mifsopo" Click="Link_Click"
+                                Tag="https://www.nexusmods.com/profile/mifsopo"/>
                         <Button Style="{StaticResource Link}" Content="github.com/mifsopo1" Click="Link_Click"
                                 Tag="https://github.com/mifsopo1"/>
                     </StackPanel>

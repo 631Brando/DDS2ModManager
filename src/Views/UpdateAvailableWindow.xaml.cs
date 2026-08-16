@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Windows;
 
 namespace DDS2ModManager.Views;
@@ -7,31 +7,45 @@ public partial class UpdateAvailableWindow : Window
 {
     private readonly string _releaseUrl;
 
-    /// <param name="isDowngrade">
-    /// True when this moves the version number backwards - switching from an experimental build
-    /// to the stable channel. Calling that an "update" would be misleading, so the wording says
-    /// what's actually happening.
+    /// <param name="change">
+    /// What this actually does to the user's build. The version number alone can't tell them:
+    /// leaving a preview for the release that superseded it makes the number smaller while the
+    /// code moves forward, and that reads identically to being rolled back onto an older build
+    /// unless the wording separates them.
     /// </param>
     public UpdateAvailableWindow(string newVersion, Version currentVersion, string changelog, string releaseUrl,
-        bool isDowngrade = false)
+        AppUpdateService.VersionChange change = AppUpdateService.VersionChange.Update)
     {
         InitializeComponent();
         _releaseUrl = releaseUrl;
 
-        if (isDowngrade)
+        var currentVersionText = AppUpdateService.Describe(currentVersion);
+
+        switch (change)
         {
-            Title = "Switch to the stable channel";
-            HeaderText.Text = $"Switch to the stable release {newVersion}";
-            VersionText.Text =
-                $"You're on v{currentVersion}, an experimental build. The current stable release is {newVersion}, " +
-                "so this moves you back a version. Any features only in experimental builds will go away until " +
-                "stable catches up.";
-            UpdateButton.Content = "Switch";
-        }
-        else
-        {
-            HeaderText.Text = $"DDS2 Mod Manager {newVersion} is available";
-            VersionText.Text = $"You're currently on v{currentVersion}. Updating downloads the new version and restarts the app.";
+            case AppUpdateService.VersionChange.Rollback:
+                Title = "Switch to the stable channel";
+                HeaderText.Text = $"Switch to the stable release {newVersion}";
+                VersionText.Text =
+                    $"You're on v{currentVersionText}, an experimental build. The current stable release is {newVersion}, " +
+                    "so this moves you back a version. Any features only in experimental builds will go away until " +
+                    "stable catches up.";
+                UpdateButton.Content = "Switch";
+                break;
+
+            case AppUpdateService.VersionChange.SupersedingPreview:
+                Title = "Update available";
+                HeaderText.Text = $"DDS2 Mod Manager {newVersion} is available";
+                VersionText.Text =
+                    $"You're on v{currentVersionText}, an experimental preview of {newVersion}. {newVersion} is the "
+                    + "finished release it was previewing, so this moves you forward — it has everything your "
+                    + "build has and everything added since. The version number gets shorter, not smaller.";
+                break;
+
+            default:
+                HeaderText.Text = $"DDS2 Mod Manager {newVersion} is available";
+                VersionText.Text = $"You're currently on v{currentVersionText}. Updating downloads the new version and restarts the app.";
+                break;
         }
 
         ChangelogText.Text = FormatChangelog(changelog);
