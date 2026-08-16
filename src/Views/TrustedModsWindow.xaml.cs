@@ -63,6 +63,30 @@ public partial class TrustedModsWindow : Window
 
     private const string AllAuthors = "All authors";
 
+    /// How the list can be ordered. Downloads leads because this page exists to help someone find
+    /// a mod they don't know about yet, and on that question "what is everyone already using" is a
+    /// better opening answer than "what did someone touch most recently" - a one-line tweak
+    /// republished this morning would otherwise sit above a mod with thousands of users.
+    private enum SortMode
+    {
+        Downloads,
+        Endorsements,
+        RecentlyUpdated,
+        Newest,
+        Name,
+        Author
+    }
+
+    private static readonly (SortMode Mode, string Label)[] SortOptions =
+    {
+        (SortMode.Downloads, "Most downloaded"),
+        (SortMode.Endorsements, "Most endorsed"),
+        (SortMode.RecentlyUpdated, "Recently updated"),
+        (SortMode.Newest, "Newest"),
+        (SortMode.Name, "Name (A–Z)"),
+        (SortMode.Author, "Author (A–Z)")
+    };
+
     private readonly NexusIndexService _index = new();
     private readonly MainViewModel _mainViewModel;
 
@@ -73,8 +97,36 @@ public partial class TrustedModsWindow : Window
     {
         InitializeComponent();
         _mainViewModel = mainViewModel;
+
+        // Populated here rather than in XAML so the labels and the enum can't drift apart, and so
+        // the default is set once before anything can raise SelectionChanged against a half-built
+        // window.
+        SortBox.ItemsSource = SortOptions.Select(o => o.Label).ToList();
+        SortBox.SelectedIndex = 0;
+
         Loaded += async (_, _) => await LoadAsync();
     }
+
+    private SortMode SelectedSort =>
+        SortBox.SelectedIndex >= 0 && SortBox.SelectedIndex < SortOptions.Length
+            ? SortOptions[SortBox.SelectedIndex].Mode
+            : SortMode.Downloads;
+
+    /// Every ordering ends with the name as a tie-breaker. Without one, mods with equal downloads
+    /// (or equal endorsements, of which there are plenty at zero) would shuffle between renders
+    /// for no reason the user could see.
+    private static IEnumerable<CatalogRow> Sort(IEnumerable<CatalogRow> rows, SortMode mode) => mode switch
+    {
+        SortMode.Endorsements => rows.OrderByDescending(r => r.Post.Endorsements).ThenBy(r => r.Post.Name),
+        SortMode.RecentlyUpdated => rows.OrderByDescending(r => r.Post.UpdatedAt).ThenBy(r => r.Post.Name),
+        SortMode.Newest => rows.OrderByDescending(r => r.Post.CreatedAt).ThenBy(r => r.Post.Name),
+        SortMode.Name => rows.OrderBy(r => r.Post.Name, StringComparer.CurrentCultureIgnoreCase),
+        SortMode.Author => rows
+            .OrderBy(r => r.Post.Uploader, StringComparer.CurrentCultureIgnoreCase)
+            .ThenByDescending(r => r.Post.Downloads)
+            .ThenBy(r => r.Post.Name),
+        _ => rows.OrderByDescending(r => r.Post.Downloads).ThenBy(r => r.Post.Name)
+    };
 
     private async Task LoadAsync(bool forceRefresh = false)
     {
@@ -95,9 +147,10 @@ public partial class TrustedModsWindow : Window
             all = new List<NexusModPost>();
         }
 
+        // Unordered here on purpose - ApplyFilter is the single place that decides the order, so
+        // the dropdown and the list can never disagree about what is being shown.
         _rows = all
             .Where(m => _authors.Contains(m.Uploader))
-            .OrderByDescending(m => m.UpdatedAt)
             .Select(m => new CatalogRow
             {
                 Post = m,
@@ -143,7 +196,9 @@ public partial class TrustedModsWindow : Window
     /// Nexus to save a second of loading is not a trade worth making.
     private async Task LoadThumbnailsAsync()
     {
-        foreach (var row in _rows.ToList())
+        // In display order, so the rows someone is actually looking at fill in first rather than
+        // whatever order Nexus happened to return.
+        foreach (var row in Sort(_rows, SelectedSort).ToList())
         {
             if (row.Thumbnail != null) continue;
 
@@ -210,6 +265,8 @@ public partial class TrustedModsWindow : Window
 
     private void Author_Changed(object sender, SelectionChangedEventArgs e) => ApplyFilter();
 
+    private void Sort_Changed(object sender, SelectionChangedEventArgs e) => ApplyFilter();
+
     private void ApplyFilter()
     {
         if (ModList == null) return;
@@ -222,13 +279,17 @@ public partial class TrustedModsWindow : Window
             ? _rows
             : _rows.Where(r => string.Equals(r.Post.Uploader, author, StringComparison.OrdinalIgnoreCase)).ToList();
 
-        var matches = byAuthor.Where(r =>
+        var matches = Sort(byAuthor.Where(r =>
             filter.Length == 0
             || r.Post.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
             || r.Post.Summary.Contains(filter, StringComparison.OrdinalIgnoreCase)
-            || r.Post.Uploader.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+            || r.Post.Uploader.Contains(filter, StringComparison.OrdinalIgnoreCase)), SelectedSort).ToList();
 
         ModList.ItemsSource = matches;
+
+        // Re-ordering keeps the scroll offset, which lands you somewhere arbitrary in a list you
+        // just asked to be arranged differently. Go back to the top.
+        if (matches.Count > 0) ModList.ScrollIntoView(matches[0]);
 
         EmptyText.Visibility = matches.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (matches.Count == 0)

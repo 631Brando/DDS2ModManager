@@ -41,7 +41,9 @@
             <Grid Grid.Row="0" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*" MinWidth="140"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
@@ -56,8 +58,13 @@
                 </Grid>
 
                 <TextBlock Grid.Column="2" Text="Author" VerticalAlignment="Center" FontSize="12" Margin="14,0,8,0"/>
-                <ComboBox Grid.Column="3" x:Name="AuthorBox" Width="190" FontSize="12"
+                <ComboBox Grid.Column="3" x:Name="AuthorBox" Width="150" FontSize="12"
                           SelectionChanged="Author_Changed"/>
+
+                <TextBlock Grid.Column="4" Text="Sort" VerticalAlignment="Center" FontSize="12" Margin="14,0,8,0"/>
+                <ComboBox Grid.Column="5" x:Name="SortBox" Width="168" FontSize="12"
+                          SelectionChanged="Sort_Changed"
+                          ToolTip="Downloads first by default — on a page meant for finding mods, what everyone else already uses is the most useful thing to lead with."/>
             </Grid>
 
             <Border Grid.Row="1" Style="{StaticResource CardBorder}" Padding="0">

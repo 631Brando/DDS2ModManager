@@ -59,7 +59,8 @@ WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
     Neither level skips the install prompt: accounts get compromised and curated lists go stale,
     and either silently installing code would be far worse than one click.
 - **Trusted Mods** (under **More**): every DDS2 mod published by an author on a curated list, with
-  pictures, versions and download counts, filterable by author. The list of authors lives in
+  pictures, versions and download counts. Filterable by author and sortable by downloads (the
+  default), endorsements, recently updated, newest, name or author. The list of authors lives in
   [trusted-nexus-authors.json](trusted-nexus-authors.json) and is fetched at runtime, so adding
   someone reaches everybody without a new build.
 
