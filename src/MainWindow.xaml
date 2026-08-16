@@ -236,6 +236,8 @@
 
                             <Button Content="Mod Authors" Command="{Binding OpenModAuthorGuideCommand}" Click="MoreMenuItem_Click"
                                     ToolTip="Making a mod? How to add an update address so this manager can tell players when you publish a new version."/>
+                            <Button Content="Credits" Command="{Binding OpenCreditsCommand}" Click="MoreMenuItem_Click"
+                                    ToolTip="Who made this, and the projects it's built on."/>
                         </StackPanel>
                     </Border>
                 </Popup>

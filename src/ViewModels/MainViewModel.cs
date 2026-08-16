@@ -112,6 +112,7 @@ public partial class MainViewModel : ObservableObject
     public IRelayCommand<NexusModPost> OpenNexusModCommand { get; }
     public IRelayCommand OpenNexusGameCommand { get; }
     public IRelayCommand BrowseModsCommand { get; }
+    public IRelayCommand OpenCreditsCommand { get; }
 
     public MainViewModel()
     {
@@ -142,6 +143,7 @@ public partial class MainViewModel : ObservableObject
         OpenNexusGameCommand = new RelayCommand(() =>
             OpenUrl($"https://www.nexusmods.com/{NexusGameDomain}/mods/?sort=lastcreated"));
         BrowseModsCommand = new RelayCommand(BrowseMods);
+        OpenCreditsCommand = new RelayCommand(OpenCredits);
 
         // Trust is stored per GitHub ACCOUNT in ModTrustService, not per mod, so ticking one row
         // changes the answer for every other row by that author. Without this those rows would go
@@ -207,6 +209,9 @@ public partial class MainViewModel : ObservableObject
     {
         foreach (var mod in Mods) mod.RefreshTrust();
     }
+
+    private void OpenCredits() =>
+        new CreditsWindow { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
 
     private void BrowseMods()
     {

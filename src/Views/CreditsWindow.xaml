@@ -1,0 +1,176 @@
+<Window x:Class="DDS2ModManager.Views.CreditsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Credits" Height="700" Width="640" MinHeight="420" MinWidth="520"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BgBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}"
+        TextElement.Foreground="{StaticResource TextPrimaryBrush}"
+        FontFamily="Segoe UI">
+    <Window.Resources>
+        <Style x:Key="SectionHeading" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Margin" Value="0,18,0,8"/>
+        </Style>
+        <Style x:Key="PersonName" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="Role" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+            <Setter Property="Margin" Value="0,2,0,0"/>
+        </Style>
+        <Style x:Key="Entry" TargetType="Border">
+            <Setter Property="Background" Value="#1B1D27"/>
+            <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="14,11"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+        <Style x:Key="Link" TargetType="Button" BasedOn="{StaticResource LinkButton}">
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+            <Setter Property="Padding" Value="0,4,0,0"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,4">
+            <TextBlock Text="DDS2 Mod Manager" FontSize="22" FontWeight="Bold"/>
+            <TextBlock x:Name="VersionText" FontSize="12" Foreground="{StaticResource TextMutedBrush}" Margin="0,3,0,0"/>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+            <StackPanel Margin="0,0,10,0">
+
+                <TextBlock Text="Created by" Style="{StaticResource SectionHeading}" Margin="0,0,0,8"/>
+
+                <Border Style="{StaticResource Entry}">
+                    <StackPanel>
+                        <TextBlock Text="Brando" Style="{StaticResource PersonName}"/>
+                        <TextBlock Style="{StaticResource Role}"
+                                   Text="Creator and maintainer. Designed and built the mod manager, and publishes the mods it was written for."/>
+                        <Button Style="{StaticResource Link}" Content="nexusmods.com/profile/brando136" Click="Link_Click"
+                                Tag="https://www.nexusmods.com/profile/brando136/mods"/>
+                        <Button Style="{StaticResource Link}" Content="github.com/631Brando" Click="Link_Click"
+                                Tag="https://github.com/631Brando"/>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="Contributors" Style="{StaticResource SectionHeading}"/>
+
+                <Border Style="{StaticResource Entry}">
+                    <StackPanel>
+                        <TextBlock Text="Mifsopo" Style="{StaticResource PersonName}"/>
+                        <TextBlock Style="{StaticResource Role}"
+                                   Text="Major contributor. Mod updating, the trust and verification system, conflict detection, and the test suite that keeps all of it honest."/>
+                        <Button Style="{StaticResource Link}" Content="github.com/mifsopo1" Click="Link_Click"
+                                Tag="https://github.com/mifsopo1"/>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="Built with" Style="{StaticResource SectionHeading}"/>
+
+                <Border Style="{StaticResource Entry}">
+                    <StackPanel>
+                        <TextBlock Text="CUE4Parse" Style="{StaticResource PersonName}"/>
+                        <TextBlock Style="{StaticResource Role}"
+                                   Text="by FabianFG and contributors (Apache-2.0). Reads Unreal .pak/.utoc archives — how this app knows what a mod actually contains instead of guessing from its filename."/>
+                        <Button Style="{StaticResource Link}" Content="github.com/FabianFG/CUE4Parse" Click="Link_Click"
+                                Tag="https://github.com/FabianFG/CUE4Parse"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Entry}">
+                    <StackPanel>
+                        <TextBlock Text="CommunityToolkit.Mvvm" Style="{StaticResource PersonName}"/>
+                        <TextBlock Style="{StaticResource Role}" Text="by Microsoft and the .NET Community Toolkit contributors (MIT)."/>
+                        <Button Style="{StaticResource Link}" Content="github.com/CommunityToolkit/dotnet" Click="Link_Click"
+                                Tag="https://github.com/CommunityToolkit/dotnet"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Entry}">
+                    <StackPanel>
+                        <TextBlock Text="SharpCompress" Style="{StaticResource PersonName}"/>
+                        <TextBlock Style="{StaticResource Role}"
+                                   Text="by Adam Hathcock and contributors (MIT). Unpacks the .zip, .7z and .rar archives mods are published as."/>
+                        <Button Style="{StaticResource Link}" Content="github.com/adamhathcock/sharpcompress" Click="Link_Click"
+                                Tag="https://github.com/adamhathcock/sharpcompress"/>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="Works alongside" Style="{StaticResource SectionHeading}"/>
+
+                <Border Style="{StaticResource Entry}">
+                    <StackPanel>
+                        <TextBlock Text="UE4SS" Style="{StaticResource PersonName}"/>
+                        <TextBlock Style="{StaticResource Role}"
+                                   Text="by Narknon, UE4SS-RE and contributors (MIT). The loader that makes logic and Lua mods possible at all — this app installs and updates it, but everything it enables is their work."/>
+                        <Button Style="{StaticResource Link}" Content="github.com/UE4SS-RE/RE-UE4SS" Click="Link_Click"
+                                Tag="https://github.com/UE4SS-RE/RE-UE4SS"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Entry}">
+                    <StackPanel>
+                        <TextBlock Text="Nexus Mods" Style="{StaticResource PersonName}"/>
+                        <TextBlock Style="{StaticResource Role}"
+                                   Text="Hosts the DDS2 modding scene, and provides the public API behind this app's mod listings, pictures and new-mod notices."/>
+                        <Button Style="{StaticResource Link}" Content="nexusmods.com/drugdealersimulator2" Click="Link_Click"
+                                Tag="https://www.nexusmods.com/drugdealersimulator2"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Entry}">
+                    <StackPanel>
+                        <TextBlock Text="Oodle" Style="{StaticResource PersonName}"/>
+                        <TextBlock Style="{StaticResource Role}"
+                                   Text="by RAD Game Tools / Epic Games. Decompresses the game's own content. The library is fetched from Epic at runtime, never redistributed with this app."/>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="Thanks to" Style="{StaticResource SectionHeading}"/>
+
+                <Border Style="{StaticResource Entry}">
+                    <StackPanel>
+                        <TextBlock Text="Byterunners" Style="{StaticResource PersonName}"/>
+                        <TextBlock Style="{StaticResource Role}"
+                                   Text="Developers of Drug Dealer Simulator 2. This is an unofficial community tool, not affiliated with or endorsed by them."/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Entry}">
+                    <StackPanel>
+                        <TextBlock Text="The DDS2 modding community" Style="{StaticResource PersonName}"/>
+                        <TextBlock Style="{StaticResource Role}"
+                                   Text="Every mod author who publishes their work, and everyone who reported a bug rather than quietly giving up on it. Several fixes in this app exist because somebody sent a screenshot of a blank window."/>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="Licence" Style="{StaticResource SectionHeading}"/>
+                <TextBlock Style="{StaticResource Role}" Margin="0,0,0,4"
+                           Text="DDS2 Mod Manager is free and open source under the MIT licence. The mappings file it ships is generated from the game's own data and belongs to the game's authors."/>
+                <Button Style="{StaticResource Link}" Content="github.com/631Brando/DDS2ModManager" Click="Link_Click"
+                        Tag="https://github.com/631Brando/DDS2ModManager"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Content="View on GitHub" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
+                    Margin="0,0,8,0" Click="Link_Click" Tag="https://github.com/631Brando/DDS2ModManager"/>
+            <Button Content="Close" Style="{StaticResource AccentButton}" Padding="14,6" FontSize="12" Click="Close_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
