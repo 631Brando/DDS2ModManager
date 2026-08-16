@@ -221,8 +221,8 @@
                                 </Style>
                             </StackPanel.Resources>
 
-                            <Button Content="Brando's Mods" Command="{Binding BrowseModsCommand}" Click="MoreMenuItem_Click"
-                                    ToolTip="Every mod published by brando136 on Nexus, with pictures and descriptions."/>
+                            <Button Content="Trusted Mods" Command="{Binding BrowseTrustedModsCommand}" Click="MoreMenuItem_Click"
+                                    ToolTip="DDS2 mods from authors the maintainers rate, listed from Nexus with pictures and descriptions."/>
                             <Button Content="Find Existing Mods" Command="{Binding ScanForExistingModsCommand}" Click="MoreMenuItem_Click"
                                     ToolTip="Finds mods already in your game folders that this manager isn't tracking yet, and offers to import them."/>
                             <Button Content="History" Command="{Binding OpenHistoryCommand}" Click="MoreMenuItem_Click"

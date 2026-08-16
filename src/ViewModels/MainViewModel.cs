@@ -108,7 +108,7 @@ public partial class MainViewModel : ObservableObject
     public IRelayCommand DismissNexusFeedCommand { get; }
     public IRelayCommand<NexusModPost> OpenNexusModCommand { get; }
     public IRelayCommand OpenNexusGameCommand { get; }
-    public IRelayCommand BrowseModsCommand { get; }
+    public IRelayCommand BrowseTrustedModsCommand { get; }
     public IRelayCommand OpenCreditsCommand { get; }
 
     public MainViewModel()
@@ -139,7 +139,7 @@ public partial class MainViewModel : ObservableObject
         OpenNexusModCommand = new RelayCommand<NexusModPost>(OpenNexusMod);
         OpenNexusGameCommand = new RelayCommand(() =>
             OpenUrl($"https://www.nexusmods.com/{NexusGameDomain}/mods/?sort=lastcreated"));
-        BrowseModsCommand = new RelayCommand(BrowseMods);
+        BrowseTrustedModsCommand = new RelayCommand(BrowseTrustedMods);
         OpenCreditsCommand = new RelayCommand(OpenCredits);
 
         // Trust is stored per GitHub ACCOUNT in ModTrustService, not per mod, so ticking one row
@@ -210,7 +210,7 @@ public partial class MainViewModel : ObservableObject
     private void OpenCredits() =>
         new CreditsWindow { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
 
-    private void BrowseMods()
+    private void BrowseTrustedMods()
     {
         if (Game == null)
         {
@@ -218,7 +218,7 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        new ModCatalogWindow(this) { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
+        new TrustedModsWindow(this) { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
     }
 
     /// How many installed mods currently have a newer release waiting. Drives the banner - kept

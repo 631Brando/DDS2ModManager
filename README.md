@@ -58,12 +58,21 @@ WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
     updates would then be fetched from the real account's repository, which they don't control.
     Neither level skips the install prompt: accounts get compromised and curated lists go stale,
     and either silently installing code would be far worse than one click.
-- **Brando's Mods** (under **More**): everything `brando136` has published on Nexus, with
-  pictures, versions and download counts. It's the Nexus index the app already keeps for the
-  hover cards, filtered to one uploader — the public GraphQL API rather than page scraping, so it
-  can't break when Nexus restyles a page. It links out rather than installing: Nexus doesn't hand
-  download links to automated clients, which is the same constraint that made mod updating use
-  each mod's own GitHub releases.
+- **Trusted Mods** (under **More**): every DDS2 mod published by an author on a curated list, with
+  pictures, versions and download counts, filterable by author. The list of authors lives in
+  [trusted-nexus-authors.json](trusted-nexus-authors.json) and is fetched at runtime, so adding
+  someone reaches everybody without a new build.
+
+  It's the Nexus index the app already keeps for the hover cards, filtered to those uploaders — the
+  public GraphQL API rather than page scraping, so it can't break when Nexus restyles a page. It
+  links out rather than installing: Nexus doesn't hand download links to automated clients, which
+  is the same constraint that made mod updating use each mod's own GitHub releases.
+
+  **"Trusted" here is a recommendation, not a security claim**, and is deliberately a *separate*
+  list from [verified-mods.json](verified-mods.json). That one names GitHub accounts and governs
+  how update downloads are described; this one names Nexus accounts and only decides whose mods
+  appear on a browsing page. Keeping them apart means adding a name to help people find good mods
+  can never widen what the updater will install.
 - **Save Log** button exports the on-screen log to a `.txt` you can attach to bug reports.
 - **Windows integration** (in Settings, no admin needed): add an "Open with DDS2 Mod
   Manager" right-click entry for archives, and/or a Desktop/Start Menu shortcut.

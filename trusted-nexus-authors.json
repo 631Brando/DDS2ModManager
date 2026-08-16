@@ -1,0 +1,45 @@
+{
+  "_comment": [
+    "Nexus authors whose DDS2 mods the maintainers are happy to put in front of people.",
+    "Fetched by the manager and cached locally, so adding someone here reaches everyone without",
+    "shipping a new build of the app.",
+    "",
+    "This list drives the Trusted Mods page - which mods get listed there, and nothing else.",
+    "",
+    "It is NOT the same thing as verified-mods.json, and the two must not be confused:",
+    "",
+    "  verified-mods.json         GitHub ACCOUNTS. A security boundary - it decides how the update",
+    "                             prompt describes where a download is coming from.",
+    "  trusted-nexus-authors.json NEXUS accounts. A recommendation. It decides whose mods appear on",
+    "                             a browsing page. Nothing is downloaded or installed from it, and",
+    "                             it makes no claim about any individual file.",
+    "",
+    "Being listed here means the maintainers know this author's work and think it is worth finding.",
+    "It does not mean every mod they publish has been read, and it never will - people publish",
+    "faster than anyone can review. Users still download from Nexus and judge for themselves.",
+    "",
+    "  name     required. Nexus username, exactly as it appears on their profile URL.",
+    "           Matched case-insensitively.",
+    "  note     optional. Shown to users.",
+    "  addedBy  optional. Who added the entry, so a stale one can be chased up."
+  ],
+  "schema": 1,
+  "updated": "2026-08-16",
+  "authors": [
+    {
+      "name": "brando136",
+      "note": "Creator and maintainer of DDS2 Mod Manager.",
+      "addedBy": "631Brando"
+    },
+    {
+      "name": "mifsopo",
+      "note": "Contributor to DDS2 Mod Manager.",
+      "addedBy": "631Brando"
+    },
+    {
+      "name": "huslaa",
+      "note": "Long-running DDS2 modding tools and gameplay mods.",
+      "addedBy": "631Brando"
+    }
+  ]
+}

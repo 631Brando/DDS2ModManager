@@ -1,8 +1,8 @@
-<Window x:Class="DDS2ModManager.Views.ModCatalogWindow"
+<Window x:Class="DDS2ModManager.Views.TrustedModsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:DDS2ModManager.Converters"
-        Title="Brando's Mods" Height="760" Width="900" MinHeight="480" MinWidth="720"
+        Title="Trusted Mods" Height="760" Width="920" MinHeight="480" MinWidth="760"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource BgBrush}"
         Foreground="{StaticResource TextPrimaryBrush}"
@@ -22,7 +22,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" x:Name="TitleText" FontSize="20" FontWeight="Bold" Text="Brando's Mods"/>
+        <TextBlock Grid.Row="0" x:Name="TitleText" FontSize="20" FontWeight="Bold" Text="Trusted Mods"/>
         <TextBlock Grid.Row="1" x:Name="SubtitleText" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,12"
                    Foreground="{StaticResource TextMutedBrush}"/>
 
@@ -42,7 +42,10 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
+
                 <TextBlock Grid.Column="0" Text="Search" VerticalAlignment="Center" FontSize="12" Margin="0,0,8,0"/>
                 <Grid Grid.Column="1">
                     <TextBox x:Name="FilterBox" Padding="6,4" FontSize="12" TextChanged="Filter_Changed"/>
@@ -51,6 +54,10 @@
                                Foreground="{StaticResource TextMutedBrush}"
                                Text="name or description"/>
                 </Grid>
+
+                <TextBlock Grid.Column="2" Text="Author" VerticalAlignment="Center" FontSize="12" Margin="14,0,8,0"/>
+                <ComboBox Grid.Column="3" x:Name="AuthorBox" Width="190" FontSize="12"
+                          SelectionChanged="Author_Changed"/>
             </Grid>
 
             <Border Grid.Row="1" Style="{StaticResource CardBorder}" Padding="0">
@@ -87,9 +94,22 @@
                                         <StackPanel Grid.Column="1" Margin="0,0,12,0">
                                             <StackPanel Orientation="Horizontal">
                                                 <TextBlock Text="{Binding Post.Name}" FontSize="14" FontWeight="SemiBold"
-                                                           TextWrapping="Wrap" MaxWidth="420"/>
+                                                           TextWrapping="Wrap" MaxWidth="400"/>
                                                 <TextBlock Text="{Binding VersionDisplay}" FontSize="11" Margin="8,4,0,0"
                                                            Foreground="{StaticResource TextMutedBrush}"/>
+                                            </StackPanel>
+
+                                            <!-- The author matters more here than on a single-author
+                                                 page: the whole list is several people's work, and
+                                                 "who made this" is the reason a row is present. -->
+                                            <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                                <TextBlock Text="by " FontSize="11"
+                                                           Foreground="{StaticResource TextMutedBrush}"/>
+                                                <Button Content="{Binding Post.Uploader}" Click="OpenProfile_Click"
+                                                        Tag="{Binding}" Cursor="Hand"
+                                                        Background="Transparent" BorderThickness="0" Padding="0"
+                                                        FontSize="11" Foreground="{StaticResource AccentBrush}"
+                                                        ToolTip="{Binding AuthorNote}"/>
                                             </StackPanel>
 
                                             <TextBlock Text="{Binding Post.Summary}" FontSize="12" TextWrapping="Wrap"
@@ -140,9 +160,10 @@
         <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,12,0,0">
             <Button Content="Refresh" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
                     Margin="0,0,8,0" Click="Refresh_Click"
-                    ToolTip="Re-fetches the mod list from Nexus."/>
-            <Button Content="Open Profile on Nexus" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
-                    Margin="0,0,8,0" Click="OpenProfile_Click"/>
+                    ToolTip="Re-fetches the author list and the mods from Nexus."/>
+            <Button Content="Browse all DDS2 mods" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
+                    Margin="0,0,8,0" Click="OpenGame_Click"
+                    ToolTip="Opens Nexus, where you can see everything published for the game - not only these authors."/>
             <TextBlock x:Name="CountText" VerticalAlignment="Center" FontSize="11"
                        Foreground="{StaticResource TextMutedBrush}"/>
             <Button Content="Close" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
