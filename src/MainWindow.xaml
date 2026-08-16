@@ -21,7 +21,6 @@
         <conv:InverseBoolConverter x:Key="InverseBool"/>
         <conv:ConflictSeverityToBrushConverter x:Key="SeverityToBrush"/>
         <conv:ConflictSeverityToLabelConverter x:Key="SeverityToLabel"/>
-        <conv:NexusImageConverter x:Key="NexusImage"/>
         <conv:NonEmptyToVisibilityConverter x:Key="NonEmptyToVisibility"/>
 
         <!-- A checkbox that reads as a star rather than a tick box. Unstarred is a dim outline
@@ -53,9 +52,9 @@
              install is unpublished local work, so NO card is the normal case and the row simply
              behaves as it always did.
 
-             The picture is fetched and decoded off the UI thread (NexusImageConverter): the card
-             opens immediately without one and gains it a moment later, rather than freezing the
-             window for the length of an HTTP request the first time a row is hovered. -->
+             The picture is fetched when the card is about to open (Row_ToolTipOpening) and stored
+             on the mod itself, so the card appears immediately without one and gains it a moment
+             later rather than freezing the window for the length of an HTTP request. -->
         <DataTemplate x:Key="NexusModCard">
             <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource CardBorderBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="0" MaxWidth="380">
@@ -64,8 +63,7 @@
                          no empty band at the top. -->
                     <Border CornerRadius="8,8,0,0" ClipToBounds="True" MaxHeight="180"
                             Visibility="{Binding NexusInfo.CardImageUrl, Converter={StaticResource NonEmptyToVisibility}}">
-                        <Image Source="{Binding NexusInfo, Converter={StaticResource NexusImage}}"
-                               Stretch="UniformToFill" MaxHeight="180"/>
+                        <Image Source="{Binding NexusThumbnail}" Stretch="UniformToFill" MaxHeight="180"/>
                     </Border>
 
                     <StackPanel Margin="12,10,12,12">
@@ -118,6 +116,9 @@
              empty one, which is what the HasNexusInfo trigger is for. The trigger re-evaluates
              when NexusInfo arrives, since matching happens asynchronously after startup. -->
         <Style x:Key="ModRowStyle" TargetType="DataGridRow">
+            <!-- Fetches the card's picture just before it appears, so nothing is downloaded for
+                 mods the user never hovers over. -->
+            <EventSetter Event="ToolTipOpening" Handler="Row_ToolTipOpening"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding HasNexusInfo}" Value="True">
                     <Setter Property="ToolTipService.InitialShowDelay" Value="400"/>

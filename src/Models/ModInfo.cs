@@ -203,6 +203,19 @@ public partial class ModInfo : ObservableObject
 
     [JsonIgnore] public bool HasNexusInfo => NexusInfo != null;
 
+    /// This mod's Nexus picture, once it has been fetched and decoded.
+    ///
+    /// Lives on the mod rather than being produced by a value converter, because the card binds
+    /// Image.Source directly and Source only accepts an ImageSource - a converter that has to
+    /// return something else while a download is in flight cannot satisfy it, which is what left
+    /// every card pictureless on first hover.
+    ///
+    /// Filled in on demand when the card is about to open (MainWindow.Row_ToolTipOpening), so
+    /// nothing is downloaded for mods the user never hovers.
+    [ObservableProperty]
+    [property: JsonIgnore]
+    private System.Windows.Media.Imaging.BitmapImage? nexusThumbnail;
+
     // ---- derived from UpdateSource; never stored ---------------------------------------------
 
     /// Where this mod publishes its updates, verbatim as the author wrote it. Always a github.com

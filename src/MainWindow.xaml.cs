@@ -103,6 +103,30 @@ public partial class MainWindow : Window
         ViewModel.SetSelection(grid.SelectedItems.OfType<ModInfo>());
     }
 
+    /// Loads a mod's Nexus picture the first time its hover card is about to open.
+    ///
+    /// The card shows immediately without waiting for the download; the picture appears when it
+    /// lands, because ModInfo raises a change notification and the card is bound to it. Doing this
+    /// on demand rather than up front means a user with twenty published mods doesn't spend twenty
+    /// downloads at startup on pictures they may never look at.
+    private async void Row_ToolTipOpening(object sender, System.Windows.Controls.ToolTipEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not ModInfo mod) return;
+        if (mod.NexusThumbnail != null) return;
+
+        var post = mod.NexusInfo;
+        if (post == null || string.IsNullOrWhiteSpace(post.CardImageUrl)) return;
+
+        try
+        {
+            mod.NexusThumbnail = await NexusImageCache.Instance.GetAsync(post.ModId, post.CardImageUrl);
+        }
+        catch
+        {
+            // NexusImageCache logs its own failures, and a card without a picture is still useful.
+        }
+    }
+
     private void MoreMenu_Click(object sender, RoutedEventArgs e) => MoreMenu.IsOpen = !MoreMenu.IsOpen;
 
     /// The popup's StaysOpen=False closes it when you click away, but not when you click something
