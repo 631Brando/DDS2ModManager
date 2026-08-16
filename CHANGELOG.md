@@ -3,12 +3,11 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
-## v1.1.0-exp.1
+## v1.1.0
 
-**This is an experimental build.** It carries a lot of new work that hasn't had wide testing yet,
-including a restructure of how the mod list is built. If something misbehaves, switch back to
-Stable in Settings — you'll be offered v1.0.6 and everything will carry on as before. Reports are
-very welcome; that's what this channel is for.
+The largest release so far, and the stable version of the work that went out as `v1.1.0-exp.1`
+plus the fixes that came back from it. If you're on the experimental channel you can switch back
+to Stable in Settings and stay on this build; it's the same code.
 
 ### Hover a mod to see what it is
 
@@ -83,11 +82,18 @@ The result keeps the stronger half of each:
 - **A curated Verified list**, published by the maintainers and cached for offline use, alongside
   the per-user trust tick.
 
-### Trust is per account, and never skips the prompt
+### Trust is per account, describes the address, and never skips the prompt
 
 The **Trusted** tick now grants trust to the GitHub *account* rather than to one mod — whoever
 holds the account holds every release under it, so ticking one of an author's mods lights up
 their others too. The tooltip says so rather than letting it look like a bug.
+
+What Trusted and Verified actually mean is *where the download comes from*, not who wrote the mod.
+A mod declares its own update address and nothing is signed, so the manager never learns an
+author's identity — it reads a string the mod handed it, and any mod can name any account. The
+claim gains an impostor nothing, since updates would then be fetched from the real account's
+repository, which they don't control. But the wording used to read as though authorship had been
+checked, and now says only what is known.
 
 The setting that let trusted mods update without asking has been **removed**, not defaulted off.
 A mod update is executable content from the author's own repository that Nexus never scanned, and
@@ -116,10 +122,20 @@ discarded, and is kept alongside the new one instead of being overwritten.
   but the app now names the cause and explains the fix.
 - **Stable and experimental update channels.** `v1.2.0-exp.1` builds as `1.2.0.1`, so an
   experimental build sorts above the stable release it came from and below the next one.
-- **Browse Mods**, a catalog of maintainer-published mods that installs through the normal path.
+- **Brando's Mods** (under **More**): everything the maintainer has published on Nexus, with
+  pictures, versions and download counts, and a badge on the ones you already have. It links out
+  rather than installing — Nexus only hands download links to premium members, so an Install
+  button here would promise something that can't work.
+- **Credits**, also under More: who made this, and the projects it's built on.
 - Manifest field names are read case-insensitively, and the earlier `modUpdateUrl` spelling is
   still accepted, so manifests already published keep working.
 - Releases are now gated on the test suite.
+
+### Fixed since v1.1.0-exp.1
+
+- **Hover cards came up with an empty band where the picture should be.** The picture has to be
+  downloaded, and the binding that asked for it could only answer immediately — so it answered
+  "nothing" and the image that arrived a moment later had nowhere to go. Pictures now appear.
 
 ## v1.0.6
 
