@@ -5,19 +5,60 @@ using DDS2ModManager.ViewModels;
 
 namespace DDS2ModManager.Views;
 
-/// Browse and install mods from a published catalog.
+/// One row on the Brando's Mods page: a mod from Nexus, plus whether it's already installed.
 ///
-/// The catalog is only a list of pointers. Installing from here downloads the release asset and
-/// hands it to the ordinary installer, so it gets the same type detection, the same placement
-/// rules and the same conflict checking as a mod installed by hand. Being listed grants nothing.
+/// Observable because the thumbnail arrives after the row does: the list appears straight away and
+/// each picture fills in as it's fetched.
+public partial class CatalogRow : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
+{
+    public NexusModPost Post { get; init; } = new();
+
+    /// Filled in once the picture has been fetched and decoded off the UI thread.
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private System.Windows.Media.Imaging.BitmapImage? thumbnail;
+
+    /// The matching installed mod, if the user already has it.
+    public ModInfo? Installed { get; set; }
+
+    /// True for the manager's own Nexus page. It belongs in the list - it's one of the author's
+    /// published mods, and people endorse it there - but it is not something to install as a mod,
+    /// and a row that looks identical to the others invites exactly that mistake.
+    public bool IsThisApp { get; init; }
+
+    public bool IsInstalled => Installed != null && !IsThisApp;
+
+    public string VersionDisplay => string.IsNullOrWhiteSpace(Post.Version) ? "" : $"v{Post.Version}";
+
+    public string UpdatedDisplay => Post.UpdatedAt == default
+        ? ""
+        : $"updated {Post.UpdatedAt:d MMM yyyy}";
+}
+
+/// Everything one author has published, listed from Nexus.
+///
+/// The list comes from the Nexus index the app already keeps for hover cards - the same public
+/// GraphQL API, the same three-day cache - filtered to one uploader. No page scraping: the profile
+/// page is HTML built for a browser, so reading it would break the first time Nexus restyled
+/// anything, while the API already returns names, versions, pictures and counts as data.
+///
+/// Deliberately links out rather than installing. Nexus doesn't hand download links to automated
+/// clients (its API only does so for premium members), which is the same constraint that made mod
+/// updating use each mod's own GitHub releases instead. Offering an Install button here would mean
+/// promising something that cannot work, so the page shows what exists and opens the page.
 public partial class ModCatalogWindow : Window
 {
-    private readonly ModCatalogService _catalogService = new();
-    private readonly ModUpdateService _downloader = new();
-    private readonly GitHubReleaseService _github = new();
+    /// The Nexus account whose mods this page lists.
+    private const string Uploader = "brando136";
+    private const string GameDomain = "drugdealersimulator2";
+
+    /// This application's own Nexus page. Matched on the mod id rather than the name: an id never
+    /// changes, whereas a title can be reworded at any time and would silently stop matching.
+    private const int ThisAppModId = 118;
+
+    private readonly NexusIndexService _index = new();
     private readonly MainViewModel _mainViewModel;
 
-    private ModCatalog? _catalog;
+    private List<CatalogRow> _rows = new();
 
     public ModCatalogWindow(MainViewModel mainViewModel)
     {
@@ -26,60 +67,92 @@ public partial class ModCatalogWindow : Window
         Loaded += async (_, _) => await LoadAsync();
     }
 
-    private async Task LoadAsync()
+    private async Task LoadAsync(bool forceRefresh = false)
     {
-        SubtitleText.Text = "Loading...";
+        SubtitleText.Text = "Loading from Nexus...";
         ModList.ItemsSource = null;
+        EmptyText.Visibility = Visibility.Collapsed;
 
-        _catalog = await _catalogService.LoadAsync();
+        List<NexusModPost> all;
+        try
+        {
+            all = await _index.GetAsync(GameDomain, forceRefresh);
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Instance.Warn($"Couldn't load the Nexus mod index: {ex.Message}");
+            all = new List<NexusModPost>();
+        }
+
+        _rows = all
+            .Where(m => string.Equals(m.Uploader, Uploader, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(m => m.UpdatedAt)
+            .Select(m => new CatalogRow { Post = m, IsThisApp = m.ModId == ThisAppModId })
+            .ToList();
+
+        MatchAgainstInstalled();
         Render();
+
+        // After the list is on screen, not before: the rows appear immediately and gain their
+        // pictures as they arrive, rather than the window sitting blank through nine downloads.
+        _ = LoadThumbnailsAsync();
+    }
+
+    /// Fetches each row's picture through the same cache the hover cards use, so a picture is
+    /// downloaded once per machine no matter which feature asks for it first.
+    ///
+    /// Sequential on purpose. Nine small images is not worth nine simultaneous connections to
+    /// Nexus, and each one lands the moment it's ready either way.
+    private async Task LoadThumbnailsAsync()
+    {
+        foreach (var row in _rows.ToList())
+        {
+            if (row.Thumbnail != null) continue;
+
+            var url = row.Post.CardImageUrl;
+            if (string.IsNullOrWhiteSpace(url)) continue;
+
+            try
+            {
+                row.Thumbnail = await NexusImageCache.Instance.GetAsync(row.Post.ModId, url);
+            }
+            catch
+            {
+                // The cache logs its own failures; a missing picture is not worth a second line,
+                // and the row is perfectly usable without one.
+            }
+        }
     }
 
     private void Render()
     {
-        if (_catalog == null)
-        {
-            TitleText.Text = "Browse Mods";
-            SubtitleText.Text = "";
-            EmptyText.Visibility = Visibility.Visible;
-            EmptyText.Text =
-                "No mod catalog is available yet.\n\n"
-                + "This page lists mods published by the manager's maintainers so they can be installed and kept "
-                + "up to date from here. It fills in automatically once the catalog is published - nothing is "
-                + "wrong with your install, and you can carry on installing mods normally in the meantime.";
-            CountText.Text = "";
-            return;
-        }
+        SubtitleText.Text = $"Published by {Uploader} on Nexus Mods. Opens each mod's page - nothing is downloaded from here.";
 
-        TitleText.Text = string.IsNullOrWhiteSpace(_catalog.Title) ? "Browse Mods" : _catalog.Title;
+        // An empty list after a successful fetch means Nexus returned nothing for this uploader,
+        // which is a different situation from the fetch having failed. Say which.
+        NoticeBanner.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        NoticeText.Text = "Couldn't reach Nexus, and there's no saved copy of the mod list yet. "
+                          + "Check your connection and press Refresh.";
 
-        var parts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(_catalog.Description)) parts.Add(_catalog.Description!);
-        if (!string.IsNullOrWhiteSpace(_catalog.Author)) parts.Add($"by {_catalog.Author}");
-        if (!string.IsNullOrWhiteSpace(_catalog.Updated)) parts.Add($"updated {_catalog.Updated}");
-        SubtitleText.Text = string.Join("  ·  ", parts);
-
-        // Being explicit about a cached list matters: an out-of-date catalog looks identical to a
-        // current one otherwise.
-        OfflineBanner.Visibility = _catalogService.LastFetchWasLive ? Visibility.Collapsed : Visibility.Visible;
-        OfflineText.Text = "Showing a saved copy of the catalog - it couldn't be refreshed just now, so it may be "
-                           + "out of date. Anything you install still comes straight from its own GitHub release.";
-
-        MatchAgainstInstalled();
         ApplyFilter();
     }
 
-    /// Marks catalog entries the user already has, so the page reflects their install rather than
-    /// offering everything as though it were new.
+    /// Reuses the same matcher the mod grid uses for its hover cards, so a mod counts as installed
+    /// here on exactly the same basis it does there - rather than by a second, subtly different rule.
     private void MatchAgainstInstalled()
     {
-        if (_catalog == null) return;
+        var installed = _mainViewModel.Mods.ToList();
+        if (installed.Count == 0) return;
 
-        foreach (var entry in _catalog.Mods)
+        var index = NexusModMatcher.BuildIndex(_rows.Select(r => r.Post));
+
+        foreach (var mod in installed)
         {
-            entry.Installed = _mainViewModel.Mods.FirstOrDefault(m =>
-                string.Equals(m.Name, entry.Name, StringComparison.OrdinalIgnoreCase)
-                || (entry.Id.Length > 0 && string.Equals(m.Name, entry.Id, StringComparison.OrdinalIgnoreCase)));
+            var match = NexusModMatcher.Match(mod.Name, index);
+            if (match == null) continue;
+
+            var row = _rows.FirstOrDefault(r => r.Post.ModId == match.ModId);
+            if (row != null) row.Installed = mod;
         }
     }
 
@@ -87,128 +160,45 @@ public partial class ModCatalogWindow : Window
 
     private void ApplyFilter()
     {
-        if (_catalog == null) return;
-
         var filter = FilterBox.Text.Trim();
         FilterHint.Visibility = filter.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        var matches = _catalog.Mods.Where(m =>
+        var matches = _rows.Where(r =>
             filter.Length == 0
-            || m.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
-            || (m.Summary?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false)
-            || m.Tags.Any(t => t.Contains(filter, StringComparison.OrdinalIgnoreCase))).ToList();
+            || r.Post.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
+            || r.Post.Summary.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
 
         ModList.ItemsSource = matches;
 
         EmptyText.Visibility = matches.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (matches.Count == 0)
         {
-            // A published-but-empty catalog, a search that found nothing, and no catalog at all
-            // are three different situations. Each gets its own wording rather than one vague one.
-            EmptyText.Text = _catalog.Mods.Count == 0
-                ? "The catalog is published but doesn't list any mods yet. Check back later."
+            EmptyText.Text = _rows.Count == 0
+                ? "No mods to show yet."
                 : $"Nothing matches \"{filter}\".";
         }
 
         CountText.Text = filter.Length == 0
-            ? $"{_catalog.Mods.Count} mod(s)"
-            : $"{matches.Count} of {_catalog.Mods.Count} mod(s)";
+            ? $"{_rows.Count} mod(s)  ·  {_rows.Count(r => r.IsInstalled)} installed"
+            : $"{matches.Count} of {_rows.Count} mod(s)";
     }
 
-    private async void Install_Click(object sender, RoutedEventArgs e)
+    private void OpenOnNexus_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is not CatalogMod entry) return;
-
-        if (!GitHubUrlParser.TryParse(entry.Repo, out var owner, out var repo))
-        {
-            MessageBox.Show($"'{entry.Name}' doesn't point at a GitHub repository, so it can't be installed from here.",
-                "Browse Mods", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        if (entry.IsInstalled)
-        {
-            var replace = MessageBox.Show(
-                $"'{entry.Name}' is already installed. Reinstall it with the latest release?",
-                "Browse Mods", MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (replace != MessageBoxResult.Yes) return;
-        }
-
-        IsEnabled = false;
-        try
-        {
-            var release = await _github.GetLatestReleaseAsync(owner, repo);
-            if (release == null)
-            {
-                MessageBox.Show($"Couldn't reach the release page for '{entry.Name}'. See the log for details.",
-                    "Browse Mods", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            var asset = PickAsset(release, entry);
-            if (asset == null)
-            {
-                MessageBox.Show(
-                    $"The latest release of '{entry.Name}' ({release.TagName}) doesn't have a single obvious file to " +
-                    "download, so it's being left alone rather than guessing. Use View Source to grab it by hand.",
-                    "Browse Mods", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            // A bare .pak identifies the release but the installer can't unpack one, so say that
-            // instead of downloading it and failing on the way in.
-            if (!ModUpdateService.CanAutoInstall(asset))
-            {
-                MessageBox.Show(
-                    $"The latest release of '{entry.Name}' ({release.TagName}) is published as {asset.Name}, which this " +
-                    "manager can't unpack on its own - it installs .zip, .7z and .rar. Use View Source to download it " +
-                    "and then install it with \"Install Mod...\".",
-                    "Browse Mods", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            var downloaded = await _downloader.DownloadAsync(asset.BrowserDownloadUrl, asset.Name);
-            if (downloaded == null)
-            {
-                MessageBox.Show($"Downloading '{entry.Name}' failed. See the log for details.",
-                    "Browse Mods", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            // Straight into the normal installer - same detection and conflict checks as any other
-            // install, and the same prompts if something needs deciding.
-            await _mainViewModel.InstallFromPathAsync(downloaded);
-
-            MatchAgainstInstalled();
-            ApplyFilter();
-        }
-        catch (Exception ex)
-        {
-            LoggingService.Instance.Error($"Installing '{entry.Name}' from the catalog failed: {ex.Message}");
-            MessageBox.Show($"Couldn't install '{entry.Name}': {ex.Message}",
-                "Browse Mods", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            IsEnabled = true;
-        }
+        if ((sender as FrameworkElement)?.Tag is not CatalogRow row) return;
+        OpenUrl(row.Post.Url);
     }
 
-    /// Defers to ModUpdateService so the catalog and the updater cannot disagree about which file
-    /// in a release IS the mod. This was a third copy of the rule; the copies had already drifted.
-    private static GitHubAsset? PickAsset(GitHubReleaseInfo release, CatalogMod entry) =>
-        ModUpdateService.PickAsset(release, new ModUpdateSource { DeclaredAssetName = entry.Asset ?? "" });
+    private void OpenProfile_Click(object sender, RoutedEventArgs e) =>
+        OpenUrl($"https://www.nexusmods.com/profile/{Uploader}/mods");
 
-    private void ViewSource_Click(object sender, RoutedEventArgs e)
+    private static void OpenUrl(string url)
     {
-        if ((sender as FrameworkElement)?.Tag is not CatalogMod entry) return;
-        if (!GitHubUrlParser.TryParse(entry.Repo, out var owner, out var repo)) return;
-
-        try { Process.Start(new ProcessStartInfo($"https://github.com/{owner}/{repo}") { UseShellExecute = true }); }
-        catch (Exception ex) { LoggingService.Instance.Warn($"Couldn't open the repository page: {ex.Message}"); }
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
+        catch (Exception ex) { LoggingService.Instance.Warn($"Couldn't open '{url}': {ex.Message}"); }
     }
 
-    private async void Refresh_Click(object sender, RoutedEventArgs e) => await LoadAsync();
+    private async void Refresh_Click(object sender, RoutedEventArgs e) => await LoadAsync(forceRefresh: true);
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
 }

@@ -190,8 +190,8 @@
                         ToolTip="Launches the game through Steam. Warns first if your enabled mods have critical conflicts."/>
                 <Button Content="Check Mod Updates" Style="{StaticResource GhostButton}" Command="{Binding CheckModUpdatesCommand}" Margin="0,0,8,6"
                         ToolTip="Checks each mod that publishes an update address for a newer release. Those updates come from the mod author's own repository, not from Nexus, and nothing is downloaded or installed without asking."/>
-                <Button Content="Browse Mods" Style="{StaticResource GhostButton}" Command="{Binding BrowseModsCommand}" Margin="0,0,8,6"
-                        ToolTip="Mods published by the manager's maintainers, installable from here."/>
+                <Button Content="Re-scan Mod Files" Style="{StaticResource GhostButton}" Command="{Binding RunDeepScanCommand}" Margin="0,0,8,6"
+                        ToolTip="Re-reads every installed mod's pak from disk. Conflict checking is automatic, so you only need this if a mod's files changed outside the manager."/>
                 <Button Content="Saves &amp; Config" Style="{StaticResource GhostButton}" Command="{Binding OpenGameDataCommand}"
                         Margin="0,0,8,6"
                         ToolTip="View, clone, disable or delete save games, and edit the game's config files."/>
@@ -220,10 +220,10 @@
                                 </Style>
                             </StackPanel.Resources>
 
+                            <Button Content="Brando's Mods" Command="{Binding BrowseModsCommand}" Click="MoreMenuItem_Click"
+                                    ToolTip="Every mod published by brando136 on Nexus, with pictures and descriptions."/>
                             <Button Content="Find Existing Mods" Command="{Binding ScanForExistingModsCommand}" Click="MoreMenuItem_Click"
                                     ToolTip="Finds mods already in your game folders that this manager isn't tracking yet, and offers to import them."/>
-                            <Button Content="Re-scan Mod Files" Command="{Binding RunDeepScanCommand}" Click="MoreMenuItem_Click"
-                                    ToolTip="Re-reads every installed mod's pak from disk. Conflict checking is automatic, so you only need this if a mod's files changed outside the manager."/>
                             <Button Content="History" Command="{Binding OpenHistoryCommand}" Click="MoreMenuItem_Click"
                                     ToolTip="What changed and when, including the release notes from each update you applied."/>
                             <Button Content="Find File" Command="{Binding FindAssetOwnersCommand}" Click="MoreMenuItem_Click"

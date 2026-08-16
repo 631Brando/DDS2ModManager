@@ -55,10 +55,12 @@ WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
     and cached for offline use. Neither one skips the install prompt — an account can be
     compromised and a curated list can go stale, and either silently installing code would be far
     worse than one click.
-- **Browse Mods**: a catalog of maintainer-published mods, listed in
-  [mods-catalog.json](mods-catalog.json), installable from inside the app. The catalog is only a
-  list of pointers — everything it offers goes through the ordinary installer, with the same type
-  detection and conflict checking, so being listed grants a mod no special treatment.
+- **Brando's Mods** (under **More**): everything `brando136` has published on Nexus, with
+  pictures, versions and download counts. It's the Nexus index the app already keeps for the
+  hover cards, filtered to one uploader — the public GraphQL API rather than page scraping, so it
+  can't break when Nexus restyles a page. It links out rather than installing: Nexus doesn't hand
+  download links to automated clients, which is the same constraint that made mod updating use
+  each mod's own GitHub releases.
 - **Save Log** button exports the on-screen log to a `.txt` you can attach to bug reports.
 - **Windows integration** (in Settings, no admin needed): add an "Open with DDS2 Mod
   Manager" right-click entry for archives, and/or a Desktop/Start Menu shortcut.
