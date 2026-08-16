@@ -53,24 +53,33 @@ public partial class ModUpdatePromptWindow : Window
         SourceText.Text = $"Downloading from {source.RepositoryUrl}\n"
                           + $"Declared by the mod itself, via {DescribeDeclaration(source.Declaration)}.";
 
+        // Every string here describes the ADDRESS, never the mod file.
+        //
+        // Nothing ties an installed mod to the account it names: the address is declared by the mod
+        // itself, and no signature is checked, so any mod can claim any repository. Wording that
+        // said "verified source - the maintainers have checked this author" therefore vouched for
+        // something nobody had checked. What is actually true is narrower and still worth knowing:
+        // the download will come from that account's repository on github.com, and no other.
         switch (trust)
         {
             case ModTrustLevel.Verified:
-                TrustText.Text = "Verified source — the maintainers have checked this author.";
+                TrustText.Text = $"Verified update address — the maintainers have checked the account '{source.Owner}'. "
+                                 + "That covers where this download comes from, not the mod you already have.";
                 TrustText.Foreground = (System.Windows.Media.Brush)FindResource("SuccessBrush");
                 TrustAuthorBox.Visibility = Visibility.Collapsed;
                 break;
 
             case ModTrustLevel.TrustedByUser:
-                TrustText.Text = $"You've trusted '{source.Owner}' before. You're still asked each time.";
+                TrustText.Text = $"You've trusted '{source.Owner}' as an update address before. You're still asked each time.";
                 TrustText.Foreground = (System.Windows.Media.Brush)FindResource("SuccessBrush");
                 TrustAuthorBox.Visibility = Visibility.Collapsed;
                 break;
 
             default:
-                TrustText.Text = $"Unrecognised source — '{source.Owner}' isn't verified, and you haven't trusted them yet.";
+                TrustText.Text = $"Unrecognised update address — you haven't trusted '{source.Owner}', "
+                                 + "and the maintainers haven't checked them.";
                 TrustText.Foreground = (System.Windows.Media.Brush)FindResource("WarningBrush");
-                TrustAuthorBox.Content = $"Trust updates from '{source.Owner}' in future (covers all of their mods)";
+                TrustAuthorBox.Content = $"Trust '{source.Owner}' as an update address (applies to any mod naming it)";
                 TrustAuthorBox.Visibility = Visibility.Visible;
                 break;
         }

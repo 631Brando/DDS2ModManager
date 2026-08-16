@@ -74,7 +74,7 @@ public partial class ModAuthorGuideWindow : Window
 
         AddStep(6, "What players see",
             "The manager checks your repository at most once every six hours and shows the mod as updateable in their list.\n\n" +
-            "Before anything downloads they are shown the release notes and the address it is coming from, because an update from your repository has not been through Nexus's virus scanning. Players are asked every single time - marking you as a trusted author changes how much the prompt has to explain, it never removes it.\n\n" +
+            "Before anything downloads they are shown the release notes and the address it is coming from, because an update from your repository has not been through Nexus's virus scanning. Players are asked every single time - marking your account as a recognised update address changes how much the prompt has to explain, it never removes it.\n\n" +
             "If your mod's update address ever changes, they are warned, no update is offered until they confirm it, and trust in your account does not carry over.",
             emphasis: "The address must point at a github.com repository - any other host, and plain http, are ignored, so players can always read the source of what they are about to run. The full https URL, github.com/you/YourMod, and the short you/YourMod are all accepted and mean the same thing. Whichever you pick, keep it byte-for-byte identical in every release: it is compared as the exact string you wrote, so even reformatting it reads as the address having moved.");
 

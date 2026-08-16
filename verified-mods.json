@@ -4,9 +4,14 @@
     "Fetched by the manager on startup and cached locally, so adding an entry here reaches",
     "everyone without shipping a new build of the app.",
     "",
-    "Being on this list means someone trusted looked at the mod and the account publishing it.",
-    "It does NOT mean the mod is guaranteed safe forever - an author's account can be",
-    "compromised. The manager still asks the user before installing anything, verified or not.",
+    "An entry vouches for a GitHub ACCOUNT, and only for that. It means a download fetched from",
+    "that account is coming from somewhere the maintainers have looked at.",
+    "",
+    "It does NOT vouch for any particular mod. A mod declares its own update address and nothing",
+    "is signed, so a mod naming an account is not evidence it came from that account - the claim",
+    "gains an attacker nothing (updates would be fetched from the real account's repository, which",
+    "they don't control) but it would still look reassuring. Nor does it mean safe forever: an",
+    "account can be compromised later. The manager still asks before installing anything.",
     "",
     "  owner       required. GitHub account. Matched case-insensitively.",
     "  repo        optional. Verifies only that repository. Leave it out to verify everything",
@@ -15,11 +20,16 @@
     "  verifiedBy  optional. Who added the entry, so a stale one can be chased up."
   ],
   "schema": 1,
-  "updated": "2026-08-09",
+  "updated": "2026-08-16",
   "entries": [
     {
       "owner": "631Brando",
-      "note": "Maintainer of DDS2 Mod Manager.",
+      "note": "Creator and maintainer of DDS2 Mod Manager.",
+      "verifiedBy": "631Brando"
+    },
+    {
+      "owner": "mifsopo1",
+      "note": "Contributor to DDS2 Mod Manager.",
       "verifiedBy": "631Brando"
     }
   ]

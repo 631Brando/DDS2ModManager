@@ -182,9 +182,11 @@ silent update would turn that into code running on someone's machine with no war
 
 ## Getting verified
 
-`verified-mods.json` in this repository lists sources the maintainers have checked. Being on it
-means users see "Verified source" instead of "Unrecognised source". Open a pull request or an
-issue to be considered.
+`verified-mods.json` in this repository lists GitHub accounts the maintainers have checked. Being
+on it means players see "Verified update address" instead of "Unrecognised update address". Open a
+pull request or an issue to be considered.
 
-Verification says someone trusted looked at your account and your mod. It doesn't promise
-anything permanent, and it doesn't skip the install prompt.
+Be clear about what it claims, because it's narrower than it sounds: **it vouches for the account
+your updates are fetched from, not for any particular mod.** Nothing is signed, and a mod declares
+its own address, so the badge follows the address rather than the file. It also doesn't promise
+anything permanent — accounts get compromised — and it never skips the install prompt.

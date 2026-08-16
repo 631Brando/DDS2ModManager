@@ -38,7 +38,7 @@
         </Border>
 
         <CheckBox Grid.Row="4" x:Name="TrustAuthorBox" Margin="0,12,0,0" FontSize="12"
-                  ToolTip="Stops the manager asking whether to check this author's mods for updates. It will still ask before installing anything."/>
+                  ToolTip="Marks this GitHub account as a source you recognise, so it stops being flagged as unrecognised. It applies to any mod that names this account as its update address, and you are still asked before anything installs."/>
 
         <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
             <Button Content="View Source" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"

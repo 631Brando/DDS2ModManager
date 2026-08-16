@@ -618,7 +618,7 @@
                                               HorizontalAlignment="Center" VerticalAlignment="Center"
                                               Visibility="{Binding ModUpdateUrl, Converter={StaticResource NullToCollapsed}}"
                                               IsEnabled="{Binding UpdateUrlChanged, Converter={StaticResource InverseBool}}"
-                                              ToolTip="{Binding UpdateAuthor, StringFormat='Trust {0} to publish updates. This covers all of their mods, and you are still asked before anything installs.'}"/>
+                                              ToolTip="{Binding UpdateAuthor, StringFormat='Treat {0} as an update address you recognise. It applies to any mod naming that account, describes where updates are fetched from rather than who made this mod, and you are still asked before anything installs.'}"/>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>

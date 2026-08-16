@@ -32,10 +32,18 @@ public class VerifiedEntry
 /// Fetched from a repository the maintainers control, so entries can be added without shipping a
 /// new build of the manager, and cached on disk so it still works offline.
 ///
-/// Verification says "someone trusted looked at this", not "this is safe forever" - an author's
-/// account can still be compromised. It exists so a user doesn't have to weigh up every unknown
-/// mod alone, not to remove the decision from them: the manager still asks before installing
-/// anything, verified or not.
+/// What an entry actually asserts is narrow, and worth stating exactly: the maintainers have
+/// checked the GitHub ACCOUNT, so a download fetched from it is coming from somewhere known.
+///
+/// It says nothing about any particular mod file. A mod declares its own update address, and
+/// nothing is signed, so any mod can name any account and inherit its badge - the claim would be
+/// useless to an attacker (updates would then be fetched from the real account's repository, which
+/// they do not control) but it would still look reassuring, which is why the wording everywhere
+/// describes the address rather than the mod.
+///
+/// Nor does it mean "safe forever": an account can be compromised later. It exists so a user
+/// doesn't have to weigh up every unknown address alone, not to remove the decision from them -
+/// the manager still asks before installing anything, verified or not.
 public class VerifiedList
 {
     [JsonPropertyName("schema")]

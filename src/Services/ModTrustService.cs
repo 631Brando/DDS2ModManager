@@ -8,26 +8,32 @@ public enum ModTrustLevel
     /// Nothing known. Updates are still offered, but the user is told the source is unrecognised.
     Unknown,
 
-    /// The user has trusted this author themselves.
+    /// The user has trusted this update address themselves.
     TrustedByUser,
 
-    /// On the maintainers' curated list.
+    /// The account is on the maintainers' curated list.
     Verified
 }
 
-/// Tracks which mod authors the user trusts, and which the maintainers have verified.
+/// Tracks which update addresses the user trusts, and which the maintainers have checked.
+///
+/// Everything here is keyed on a GitHub ACCOUNT, and that is all it can ever speak for. A mod
+/// declares its own update address and nothing is signed, so a mod naming an account is not
+/// evidence it came from that account. What trust buys is knowledge of where a download will be
+/// fetched from - which is genuinely useful, and is what the wording throughout says.
 ///
 /// Two separate ideas that are easy to conflate:
 ///
-///   Trusted    a local, per-user decision. "I know who this is, stop asking me whether to check
-///              for their updates." Stored on this machine only.
+///   Trusted    a local, per-user decision. "I recognise this address, stop flagging it." Stored
+///              on this machine only.
 ///   Verified   a curated judgement from the maintainers, fetched from a repository they control.
 ///              Shared by everyone, and nothing the user can grant themselves.
 ///
 /// Neither one means an update installs itself. The manager always asks first - trust decides how
-/// much explaining the prompt has to do, not whether the user gets one. An author's account can be
-/// compromised, and a curated list can go stale; making trust silent would turn either of those
-/// into code running on someone's machine without them ever seeing it.
+/// much explaining the prompt has to do, not whether the user gets one. An account can be
+/// compromised, a curated list can go stale, and a mod can name an address it has nothing to do
+/// with; making trust silent would turn any of those into code running on someone's machine
+/// without them ever seeing it.
 public class ModTrustService
 {
     private static readonly Lazy<ModTrustService> _instance = new(() => new ModTrustService());

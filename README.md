@@ -49,12 +49,15 @@ WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
     GitHub repository is refused rather than guessed at (`GitHubUrlParser`).
   - **Nothing installs without being asked**, whatever the trust setting. The prompt shows the
     version, the release notes, and *which repository the download comes from*.
-  - **Trusted / Verified.** "Trusted" is a local per-user decision, granted per GitHub account
-    since whoever controls the account controls every release under it. "Verified" is a curated
-    list the maintainers publish in [verified-mods.json](verified-mods.json), fetched on startup
-    and cached for offline use. Neither one skips the install prompt — an account can be
-    compromised and a curated list can go stale, and either silently installing code would be far
-    worse than one click.
+  - **Trusted / Verified describe the update *address*, not the mod.** Both are keyed on a GitHub
+    account: "Trusted" is a local per-user decision, "Verified" is a curated list the maintainers
+    publish in [verified-mods.json](verified-mods.json), fetched on startup and cached offline.
+    What either one asserts is that a download will be fetched from a known account's repository.
+    Because a mod declares its own address and nothing is signed, **a mod naming an account is not
+    evidence it came from that account** — though the claim gains an attacker nothing, since
+    updates would then be fetched from the real account's repository, which they don't control.
+    Neither level skips the install prompt: accounts get compromised and curated lists go stale,
+    and either silently installing code would be far worse than one click.
 - **Brando's Mods** (under **More**): everything `brando136` has published on Nexus, with
   pictures, versions and download counts. It's the Nexus index the app already keeps for the
   hover cards, filtered to one uploader — the public GraphQL API rather than page scraping, so it
