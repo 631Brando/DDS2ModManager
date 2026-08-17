@@ -36,15 +36,28 @@ public class GameDetectionService
 
         results.Add(steamPath);
 
+        // The extra libraries are a bonus on top of the default one, so a failure to read them must
+        // not cost us the default. Steam rewrites this file while it runs and can hold it locked,
+        // and an exception escaping here would abort auto-detection completely - reporting "could
+        // not find the game" to someone whose game is sitting in the folder we already know about.
         var vdfPath = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
         if (File.Exists(vdfPath))
         {
-            var text = File.ReadAllText(vdfPath);
-            foreach (Match m in Regex.Matches(text, "\"path\"\\s*\"([^\"]+)\""))
+            try
             {
-                var p = m.Groups[1].Value.Replace("\\\\", "\\");
-                if (!results.Contains(p, StringComparer.OrdinalIgnoreCase))
-                    results.Add(p);
+                var text = File.ReadAllText(vdfPath);
+                foreach (Match m in Regex.Matches(text, "\"path\"\\s*\"([^\"]+)\""))
+                {
+                    var p = m.Groups[1].Value.Replace("\\\\", "\\");
+                    if (!results.Contains(p, StringComparer.OrdinalIgnoreCase))
+                        results.Add(p);
+                }
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Instance.Warn(
+                    $"Couldn't read Steam's library list ({ex.Message}). Only the default Steam folder will be "
+                    + "searched - if the game is on another drive, browse for it manually.");
             }
         }
 

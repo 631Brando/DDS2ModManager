@@ -436,9 +436,23 @@ public class ModInstallerService
         if (mod.Type == ModType.LuaMod)
         {
             _lua.SetEnabled(_game, LuaFolderName(mod), false);
-            mod.IsEnabled = false;
-            _registry.Upsert(mod);
-            log.Info($"Disabled '{mod.Name}' (mods.txt set to 0 - files left in place).");
+            // Guarded exactly like the pak path below. mods.txt is an ordinary file that can be
+            // read-only or held open, and without this an unwritable one throws straight out
+            // through the command that called us and takes the app down. Worse for a two-part mod:
+            // the caller toggles each half in turn, so a throw here would leave the pak half
+            // disabled and the lua half enabled, with no undo recorded - the exact half-enabled
+            // state the rest of this class exists to prevent.
+            try
+            {
+                _lua.SetEnabled(_game, LuaFolderName(mod), false);
+                mod.IsEnabled = false;
+                _registry.Upsert(mod);
+                log.Info($"Disabled '{mod.Name}' (mods.txt set to 0 - files left in place).");
+            }
+            catch (Exception ex)
+            {
+                log.Error($"Failed to disable '{mod.Name}': {ex.Message}");
+            }
             return;
         }
 
@@ -473,10 +487,19 @@ public class ModInstallerService
 
         if (mod.Type == ModType.LuaMod)
         {
-            _lua.SetEnabled(_game, LuaFolderName(mod), true);
-            mod.IsEnabled = true;
-            _registry.Upsert(mod);
-            log.Success($"Enabled '{mod.Name}'.");
+            // Guarded for the same reason as Disable: an unwritable mods.txt must be reported, not
+            // thrown out through the caller mid-way through a two-part toggle.
+            try
+            {
+                _lua.SetEnabled(_game, LuaFolderName(mod), true);
+                mod.IsEnabled = true;
+                _registry.Upsert(mod);
+                log.Success($"Enabled '{mod.Name}'.");
+            }
+            catch (Exception ex)
+            {
+                log.Error($"Failed to enable '{mod.Name}': {ex.Message}");
+            }
             return;
         }
 

@@ -10,6 +10,24 @@
         TextElement.Foreground="{StaticResource TextPrimaryBrush}"
         FontFamily="Segoe UI">
 
+    <!-- Keyboard shortcuts for the things people do repeatedly. Deliberately none for the
+         destructive actions: uninstalling and resetting stay behind a deliberate click, because a
+         key pressed with the grid focused and the wrong row selected is exactly the kind of
+         mistake a shortcut should not make easy. Each gesture is repeated in its button's tooltip,
+         since a shortcut nobody can discover is the same as no shortcut. -->
+    <Window.InputBindings>
+        <!-- Ctrl+F is added in code-behind: it moves focus to a named control, which is the view's
+             own business and nothing the view model should know about. -->
+        <KeyBinding Key="Escape"                Command="{Binding ClearModSearchCommand}"/>
+        <KeyBinding Key="O"   Modifiers="Ctrl" Command="{Binding InstallModCommand}"/>
+        <KeyBinding Key="F5"                    Command="{Binding RunDeepScanCommand}"/>
+        <KeyBinding Key="U"   Modifiers="Ctrl" Command="{Binding CheckModUpdatesCommand}"/>
+        <KeyBinding Key="L"   Modifiers="Ctrl" Command="{Binding ToggleLogCommand}"/>
+        <KeyBinding Key="OemComma" Modifiers="Ctrl" Command="{Binding OpenSettingsCommand}"/>
+        <KeyBinding Key="S"   Modifiers="Ctrl" Command="{Binding OpenGameDataCommand}"/>
+        <KeyBinding Key="P"   Modifiers="Ctrl" Command="{Binding OpenProfilesCommand}"/>
+    </Window.InputBindings>
+
     <Window.Resources>
         <conv:ModTypeToBrushConverter x:Key="ModTypeToBrush"/>
         <conv:BoolToEnabledTextConverter x:Key="BoolToEnabledText"/>
@@ -185,20 +203,21 @@
                      want when something has gone wrong - is under "More". Thirteen buttons across
                      two rows didn't make the rare ones easy to reach, it made the common ones hard
                      to find. -->
-                <Button Content="Install Mod..." Style="{StaticResource AccentButton}" Command="{Binding InstallModCommand}" Margin="0,0,8,6"/>
+                <Button Content="Install Mod..." Style="{StaticResource AccentButton}" Command="{Binding InstallModCommand}" Margin="0,0,8,6"
+                        ToolTip="Install a mod from a .zip, .7z, .rar or folder. You can also drag one onto this window.  (Ctrl+O)"/>
                 <Button Content="▶ Play" Style="{StaticResource PlayButton}" Command="{Binding LaunchGameCommand}"
                         Margin="0,0,8,6"
                         ToolTip="Launches the game through Steam. Warns first if your enabled mods have critical conflicts."/>
                 <Button Content="Check Mod Updates" Style="{StaticResource GhostButton}" Command="{Binding CheckModUpdatesCommand}" Margin="0,0,8,6"
-                        ToolTip="Checks each mod that publishes an update address for a newer release. Those updates come from the mod author's own repository, not from Nexus, and nothing is downloaded or installed without asking."/>
+                        ToolTip="Checks each mod that publishes an update address for a newer release. Those updates come from the mod author's own repository, not from Nexus, and nothing is downloaded or installed without asking.  (Ctrl+U)"/>
                 <Button Content="Re-scan Mod Files" Style="{StaticResource GhostButton}" Command="{Binding RunDeepScanCommand}" Margin="0,0,8,6"
-                        ToolTip="Re-reads every installed mod's pak from disk. Conflict checking is automatic, so you only need this if a mod's files changed outside the manager."/>
+                        ToolTip="Re-reads every installed mod's pak from disk. Conflict checking is automatic, so you only need this if a mod's files changed outside the manager.  (F5)"/>
                 <Button Content="Saves &amp; Config" Style="{StaticResource GhostButton}" Command="{Binding OpenGameDataCommand}"
                         Margin="0,0,8,6"
-                        ToolTip="View, clone, disable or delete save games, and edit the game's config files."/>
+                        ToolTip="View, clone, disable or delete save games, and edit the game's config files.  (Ctrl+S)"/>
                 <Button Content="Profiles" Style="{StaticResource GhostButton}" Command="{Binding OpenProfilesCommand}"
                         Margin="0,0,8,6"
-                        ToolTip="Saved sets of enabled mods. Applying one only toggles mods you already have."/>
+                        ToolTip="Saved sets of enabled mods. Applying one only toggles mods you already have.  (Ctrl+P)"/>
 
                 <!-- A Popup rather than a ContextMenu: menus aren't styled for this dark theme, so
                      one would render as WPF's default light chrome - the same white-on-white the
@@ -265,10 +284,11 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <TextBox Grid.Column="0" Text="{Binding ModSearch, UpdateSourceTrigger=PropertyChanged, Delay=120}"
+                        <TextBox Grid.Column="0" x:Name="ModSearchBox"
+                                 Text="{Binding ModSearch, UpdateSourceTrigger=PropertyChanged, Delay=120}"
                                  Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
                                  Padding="8,0" Foreground="{StaticResource TextPrimaryBrush}"
-                                 ToolTip="Filter the mod list. Searches names, type, author, and Nexus descriptions."/>
+                                 ToolTip="Filter the mod list. Searches names, type, author, and Nexus descriptions.  (Ctrl+F)"/>
 
                         <!-- Placeholder text, shown only while the box is empty. A TextBox has no
                              built-in one, and IsHitTestVisible=False keeps it from stealing the
@@ -475,6 +495,25 @@
 
             <!-- Mod list -->
             <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource CardBorder}" Padding="0">
+              <Grid>
+                <!-- Shown only when nothing is installed at all, which is deliberately NOT the same
+                     as "no rows visible". A search that matches nothing leaves Mods.Count above
+                     zero, and that case already has its own answer next to the search box - so
+                     binding to the underlying list rather than the filtered view keeps the two from
+                     ever appearing at once and contradicting each other. -->
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="40"
+                            MaxWidth="460" Panel.ZIndex="1"
+                            Visibility="{Binding Mods.Count, Converter={StaticResource ZeroCountToVisibility}}">
+                    <TextBlock Text="No mods installed yet" FontSize="16" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <TextBlock TextWrapping="Wrap" TextAlignment="Center" FontSize="12" Margin="0,8,0,0"
+                               Foreground="{StaticResource TextMutedBrush}"
+                               Text="Drag a .zip, .7z or .rar onto this window, or use Install Mod… above. Every mod is opened and read before it's installed, so it lands in the right folder and you're told about conflicts up front."/>
+                    <TextBlock TextWrapping="Wrap" TextAlignment="Center" FontSize="12" Margin="0,10,0,0"
+                               Foreground="{StaticResource TextMutedBrush}"
+                               Text="Already installed some by hand? More → Find Existing Mods will read them and offer to start tracking them, leaving the files where they are."/>
+                </StackPanel>
+
                 <!-- Scroll rather than squeeze. Every column below except Name has a fixed width,
                      so when they don't all fit something has to give - and without this, the thing
                      that gave was Name: the one column that says which mod a row actually is. -->
@@ -727,6 +766,7 @@
                         </DataGridTemplateColumn>
                     </DataGrid.Columns>
                 </DataGrid>
+              </Grid>
             </Border>
 
             <!-- Conflicts panel -->

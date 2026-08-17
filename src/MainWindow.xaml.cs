@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Input;
 using DDS2ModManager.ViewModels;
 
 namespace DDS2ModManager;
@@ -18,6 +19,17 @@ public partial class MainWindow : Window
 
         RestoreWindowSize();
         Closing += (_, _) => SaveWindowSize();
+
+        // Ctrl+F lives here rather than in XAML because it moves focus to a named control, which
+        // is the view's own business. Selecting the existing text means a second Ctrl+F replaces
+        // the old term instead of appending to it, which is what every other search box does.
+        InputBindings.Add(new KeyBinding(
+            new CommunityToolkit.Mvvm.Input.RelayCommand(() =>
+            {
+                ModSearchBox.Focus();
+                ModSearchBox.SelectAll();
+            }),
+            Key.F, ModifierKeys.Control));
 
         Loaded += async (_, _) =>
         {

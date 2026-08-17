@@ -74,6 +74,10 @@ WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
   how update downloads are described; this one names Nexus accounts and only decides whose mods
   appear on a browsing page. Keeping them apart means adding a name to help people find good mods
   can never widen what the updater will install.
+- **Keyboard shortcuts** for the repeated actions: `Ctrl+F` search (`Esc` clears), `Ctrl+O` install,
+  `F5` re-scan, `Ctrl+U` check mod updates, `Ctrl+S` saves, `Ctrl+P` profiles, `Ctrl+L` log,
+  `Ctrl+,` settings. Each is shown in its button's tooltip. Nothing destructive is bound — a key
+  pressed with the wrong row selected shouldn't be able to uninstall anything.
 - **Save Log** button exports the on-screen log to a `.txt` you can attach to bug reports.
 - **Windows integration** (in Settings, no admin needed): add an "Open with DDS2 Mod
   Manager" right-click entry for archives, and/or a Desktop/Start Menu shortcut.

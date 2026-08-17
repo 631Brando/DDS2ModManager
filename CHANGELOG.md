@@ -3,6 +3,54 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
+## v1.2.0
+
+### Keyboard shortcuts
+
+The things you reach for repeatedly now have keys:
+
+| | |
+|---|---|
+| `Ctrl+F` | Search the mod list (again to replace what you typed) |
+| `Esc` | Clear the search |
+| `Ctrl+O` | Install Mod… |
+| `F5` | Re-scan Mod Files |
+| `Ctrl+U` | Check Mod Updates |
+| `Ctrl+S` | Saves & Config |
+| `Ctrl+P` | Profiles |
+| `Ctrl+L` | Show/hide the log |
+| `Ctrl+,` | Settings |
+
+Each one is repeated in its button's tooltip, since a shortcut you can't discover may as well not
+exist. There are deliberately **no shortcuts for uninstalling or resetting** — a key pressed with
+the grid focused and the wrong row selected is exactly the mistake a shortcut shouldn't make easy.
+
+### The mod list explains itself when it's empty
+
+A fresh install showed bare column headers and nothing else. It now says how to add a mod — drag
+an archive on, or use Install Mod… — and points at **Find Existing Mods** for anyone who already
+modded by hand. It appears only when nothing is installed, never when a search simply matched
+nothing; that case already has its own answer next to the search box.
+
+### Fixed: disabling a Lua mod could take the app down with it
+
+Enabling and disabling handled failure for pak mods but not for Lua ones, where the write to
+`mods.txt` was left unguarded. A read-only or locked `mods.txt` therefore threw straight out
+through the app rather than being reported.
+
+For a two-part mod it was worse than a crash: the halves are toggled one at a time, so the pak
+half would flip and the lua half would throw, leaving exactly the half-enabled state the manager
+goes out of its way to prevent — and no undo recorded, because that only happens once both halves
+are done. Both paths now report the failure and leave the mod as it was.
+
+### Fixed: one unreadable Steam file could hide your game
+
+Auto-detection reads Steam's list of library folders to find installs on other drives. That read
+was unguarded, and Steam rewrites the file while it runs, so a locked or unreadable copy aborted
+detection completely — reporting "could not auto-detect the game" to someone whose game sits in
+the default Steam folder the manager had already found. It now warns and carries on with what it
+knows.
+
 ## v1.1.2
 
 ### Trusted Mods
