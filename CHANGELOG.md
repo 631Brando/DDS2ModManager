@@ -3,7 +3,10 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
-## v1.2.0-exp.2
+## v1.2.0
+
+Keyboard shortcuts, UE4SS's settings editable in Saves & Config, a mod list that explains itself
+when it's empty, and fixes for three crashes found in a review of the whole program.
 
 ### UE4SS's settings are editable in Saves & Config
 
@@ -28,12 +31,6 @@ UE4SS's folder also contains `imgui.ini`, which is the debug UI's remembered win
 rather than a setting — ImGui rewrites it every time the game closes. It's left out of the list,
 because an editor whose changes silently vanish teaches you the wrong thing about the whole
 window.
-
-## v1.2.0-exp.1
-
-**This is an experimental build.** It's the work below getting some use before it goes out to
-everyone. If something misbehaves, switch back to Stable in Settings — you'll be offered v1.1.2 and
-everything carries on as before. Reports are very welcome; that's what this channel is for.
 
 ### Keyboard shortcuts
 
