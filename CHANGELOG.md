@@ -3,7 +3,11 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
-## v1.2.0
+## v1.2.0-exp.1
+
+**This is an experimental build.** It's the work below getting some use before it goes out to
+everyone. If something misbehaves, switch back to Stable in Settings — you'll be offered v1.1.2 and
+everything carries on as before. Reports are very welcome; that's what this channel is for.
 
 ### Keyboard shortcuts
 
