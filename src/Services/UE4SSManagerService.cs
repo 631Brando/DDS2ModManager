@@ -94,8 +94,23 @@ public class UE4SSManagerService
             File.Copy(dwmapiSrc, Path.Combine(game.Win64Path, "dwmapi.dll"), true);
 
             // Never clobber the user's existing mods.txt / mods.json when updating.
-            CopyDirectoryPreserving(ue4ssSrc, game.UE4SSRootPath,
-                new[] { Path.Combine("Mods", "mods.txt"), Path.Combine("Mods", "mods.json") });
+            var preserve = new List<string> { Path.Combine("Mods", "mods.txt"), Path.Combine("Mods", "mods.json") };
+
+            // ...and don't discard settings the user edited through Saves & Config either. Keyed on
+            // the backup this manager takes the first time a file is saved, so it means "the user
+            // changed this", not "this file exists".
+            //
+            // That distinction is the point. Preserving every settings file unconditionally would
+            // pin people to an old default forever and hide new options a UE4SS release adds;
+            // preserving none silently threw away their work. Only the ones actually edited are
+            // worth keeping, and everyone else gets the new version.
+            foreach (var ini in SafeEnumerateIni(game.UE4SSRootPath))
+            {
+                if (File.Exists(ini + GameConfigService.BackupSuffix))
+                    preserve.Add(Path.GetFileName(ini));
+            }
+
+            CopyDirectoryPreserving(ue4ssSrc, game.UE4SSRootPath, preserve.ToArray());
 
             var manifest = new UE4SSManifest
             {
@@ -116,6 +131,23 @@ public class UE4SSManagerService
         finally
         {
             try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    /// Top-level .ini files in an existing UE4SS folder. Returns nothing rather than throwing when
+    /// the folder is missing or unreadable - this only decides what to preserve, and a first-time
+    /// install has nothing to preserve anyway.
+    private static IEnumerable<string> SafeEnumerateIni(string ue4ssRoot)
+    {
+        try
+        {
+            return Directory.Exists(ue4ssRoot)
+                ? Directory.GetFiles(ue4ssRoot, "*.ini", SearchOption.TopDirectoryOnly)
+                : Enumerable.Empty<string>();
+        }
+        catch
+        {
+            return Enumerable.Empty<string>();
         }
     }
 

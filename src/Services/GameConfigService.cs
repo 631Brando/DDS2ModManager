@@ -8,7 +8,9 @@ namespace DDS2ModManager.Services;
 /// safe to get wrong.
 public class GameConfigService
 {
-    private const string BackupSuffix = ".dds2mm.bak";
+    /// Public because the UE4SS installer needs it: whether a backup exists is how it tells a
+    /// settings file the user has edited from one they've never touched.
+    public const string BackupSuffix = ".dds2mm.bak";
 
     private readonly GameInstallation _game;
 
@@ -22,22 +24,59 @@ public class GameConfigService
     /// (Engine, Game, GameUserSettings, Input) in noise, so empty ones are filtered out.
     public List<GameConfigFile> GetConfigFiles()
     {
-        if (!ConfigFolderExists) return new List<GameConfigFile>();
+        var files = new List<GameConfigFile>();
 
-        return Directory.GetFiles(_game.ConfigPath, "*.ini")
-            .Select(f => new FileInfo(f))
-            .Where(f => f.Length > 4)
-            .Select(f => new GameConfigFile
-            {
-                Name = f.Name,
-                Path = f.FullName,
-                SizeBytes = f.Length,
-                LastModified = f.LastWriteTime,
-                HasBackup = File.Exists(f.FullName + BackupSuffix)
-            })
-            .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        if (ConfigFolderExists)
+        {
+            files.AddRange(Directory.GetFiles(_game.ConfigPath, "*.ini")
+                .Select(f => new FileInfo(f))
+                .Where(f => f.Length > 4)
+                .Select(f => Describe(f, isGameConfig: true))
+                .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase));
+        }
+
+        files.AddRange(GetModLoaderConfigFiles());
+        return files;
     }
+
+    /// UE4SS's own settings, which live in the mod loader's folder rather than the game's config
+    /// folder. Listed alongside the game's because it is the other file people are told to edit -
+    /// to turn on the debug console, or change a keybind - and hunting through Binaries\Win64 for
+    /// it is exactly the kind of thing this window exists to save.
+    ///
+    /// Found by enumerating the folder rather than looking up "UE4SS-settings.ini" by name, so a
+    /// build that ships it under a different name still appears instead of silently going missing.
+    /// The backup-on-save protection is the same as for the game's files.
+    private IEnumerable<GameConfigFile> GetModLoaderConfigFiles()
+    {
+        if (!Directory.Exists(_game.UE4SSRootPath)) return Enumerable.Empty<GameConfigFile>();
+
+        try
+        {
+            return Directory.GetFiles(_game.UE4SSRootPath, "*.ini", SearchOption.TopDirectoryOnly)
+                .Select(f => new FileInfo(f))
+                .Select(f => Describe(f, isGameConfig: false))
+                .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            // The game's own config files are the main event here; failing to list UE4SS's must not
+            // take the whole list down with it.
+            LoggingService.Instance.Warn($"Couldn't list UE4SS's settings files: {ex.Message}");
+            return Enumerable.Empty<GameConfigFile>();
+        }
+    }
+
+    private static GameConfigFile Describe(FileInfo f, bool isGameConfig) => new()
+    {
+        Name = f.Name,
+        Path = f.FullName,
+        SizeBytes = f.Length,
+        LastModified = f.LastWriteTime,
+        HasBackup = File.Exists(f.FullName + BackupSuffix),
+        IsGameConfig = isGameConfig
+    };
 
     public string ReadText(GameConfigFile file) => File.ReadAllText(file.Path);
 
@@ -100,5 +139,20 @@ public class GameConfigFile
     public DateTime LastModified { get; set; }
     public bool HasBackup { get; set; }
 
+    /// False for UE4SS's own settings file, which sits in the mod loader's folder rather than the
+    /// game's config folder and changes the loader's behaviour, not the game's.
+    ///
+    /// The distinction is not pedantry: the two are edited for completely different reasons, they
+    /// live on opposite sides of the install, and "I changed a setting and the game didn't change"
+    /// is a confusing thing to work out on your own. Everything user-facing keys off this.
+    public bool IsGameConfig { get; set; } = true;
+
+    /// Group heading in the file list.
+    public string Category => IsGameConfig ? "Game config" : "Mod loader (UE4SS)";
+
     public string SizeDisplay => SizeBytes < 1024 ? $"{SizeBytes} B" : $"{SizeBytes / 1024.0:F1} KB";
+
+    /// The folder this file lives in - the two kinds are in different places, so "Open Folder" has
+    /// to follow the selection rather than always opening the game's config folder.
+    public string Folder => System.IO.Path.GetDirectoryName(Path) ?? "";
 }

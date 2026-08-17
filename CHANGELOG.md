@@ -3,6 +3,27 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
+## v1.2.0-exp.2
+
+### UE4SS's settings are editable in Saves & Config
+
+`UE4SS-settings.ini` — where the debug console and the mod loader's own keybinds live — now
+appears in the **Config Files** list, so you don't have to go digging through
+`Binaries\Win64\ue4ss` for it.
+
+It is kept clearly apart from the game's config, because the two are not the same thing and
+nothing on screen used to say so. It sits under its own **Mod loader (UE4SS)** heading, and
+selecting it shows a notice saying what it actually configures, where it lives, and that changing
+it won't alter anything in the game itself.
+
+Editing it here also protects it. Updating UE4SS replaces that file — that was already true and
+silently cost people their settings. Now a settings file you've edited through the manager is kept
+when UE4SS updates, while one you've never touched still gets the new version, so nobody ends up
+pinned to a stale default that's missing options a newer UE4SS added.
+
+**Open Folder** now follows whichever file is selected, since the game's config and the loader's
+are in different places.
+
 ## v1.2.0-exp.1
 
 **This is an experimental build.** It's the work below getting some use before it goes out to

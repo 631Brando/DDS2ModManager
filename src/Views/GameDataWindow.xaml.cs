@@ -302,12 +302,19 @@ public partial class GameDataWindow : Window
 
     private void RefreshConfigs()
     {
-        ConfigList.ItemsSource = _configs.GetConfigFiles();
+        // Grouped by kind. GetConfigFiles returns the game's files first and the mod loader's
+        // last, and ListCollectionView keeps that order, so "Game config" stays the heading you
+        // land on rather than the list opening on UE4SS.
+        var view = new System.Windows.Data.ListCollectionView(_configs.GetConfigFiles());
+        view.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription(nameof(GameConfigFile.Category)));
+        ConfigList.ItemsSource = view;
     }
 
     private void ConfigList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         _currentConfig = ConfigList.SelectedItem as GameConfigFile;
+        UpdateModLoaderNotice();
+
         if (_currentConfig == null)
         {
             ConfigEditor.Text = "";
@@ -355,7 +362,34 @@ public partial class GameDataWindow : Window
             ConfigEditor.Text = _configs.ReadText(_currentConfig);
     }
 
-    private void OpenConfigFolder_Click(object sender, RoutedEventArgs e) => OpenFolder(_configs.ConfigPath);
+    /// Spells out what the selected file actually is, at the point the user is about to edit it.
+    ///
+    /// Named as "the mod loader's" rather than "UE4SS's" first, because someone who installed
+    /// UE4SS through this app has never had to care what it is called - and a warning that only
+    /// makes sense if you already know the jargon isn't a warning.
+    private void UpdateModLoaderNotice()
+    {
+        if (_currentConfig == null || _currentConfig.IsGameConfig)
+        {
+            ModLoaderConfigNotice.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        ModLoaderConfigNoticeText.Text =
+            $"{_currentConfig.Name} configures UE4SS — the mod loader that runs your Lua mods — not Drug Dealer "
+            + "Simulator 2. Changing it won't alter anything in the game itself; it's where things like the "
+            + "debug console and UE4SS's own keybinds live.\n\n"
+            + $"It sits in the mod loader's folder ({_currentConfig.Folder}), not with the game's config files. "
+            + "Reinstalling or updating UE4SS replaces it — though once you've edited it here, your version is "
+            + "kept and the update leaves it alone.";
+
+        ModLoaderConfigNotice.Visibility = Visibility.Visible;
+    }
+
+    /// Follows the selection: the game's config files and the mod loader's are in different places,
+    /// so a single fixed folder would open the wrong one half the time.
+    private void OpenConfigFolder_Click(object sender, RoutedEventArgs e) =>
+        OpenFolder(_currentConfig is { } c && Directory.Exists(c.Folder) ? c.Folder : _configs.ConfigPath);
 
     private static void OpenFolder(string path)
     {
