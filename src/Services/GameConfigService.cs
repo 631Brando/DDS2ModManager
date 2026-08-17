@@ -55,6 +55,7 @@ public class GameConfigService
         {
             return Directory.GetFiles(_game.UE4SSRootPath, "*.ini", SearchOption.TopDirectoryOnly)
                 .Select(f => new FileInfo(f))
+                .Where(f => !IsGeneratedState(f.Name))
                 .Select(f => Describe(f, isGameConfig: false))
                 .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -67,6 +68,15 @@ public class GameConfigService
             return Enumerable.Empty<GameConfigFile>();
         }
     }
+
+    /// Files in the UE4SS folder that end in .ini but aren't settings.
+    ///
+    /// imgui.ini is the debug UI's remembered window positions and sizes, rewritten by ImGui every
+    /// time the game closes. Offering it for editing would be worse than useless: it looks like
+    /// configuration, none of it is, and any change made here is overwritten on the next run - so
+    /// the one thing the user would learn is that editing config in this window doesn't stick.
+    private static bool IsGeneratedState(string fileName) =>
+        fileName.Equals("imgui.ini", StringComparison.OrdinalIgnoreCase);
 
     private static GameConfigFile Describe(FileInfo f, bool isGameConfig) => new()
     {

@@ -111,6 +111,20 @@ public class ConfigListingTests : IDisposable
         Assert.True(file.HasBackup);
     }
 
+    // Found in a real install alongside UE4SS-settings.ini. ImGui rewrites it every run, so an
+    // edit made here would silently vanish - teaching the user that this window doesn't work.
+    [Fact]
+    public void Imgui_window_state_is_not_offered_for_editing()
+    {
+        WriteUe4ssIni("UE4SS-settings.ini");
+        WriteUe4ssIni("imgui.ini", "[Window][Debug##Default]\nPos=60,60\nSize=400,400\n");
+
+        var listed = new GameConfigService(_game).GetConfigFiles();
+
+        Assert.DoesNotContain(listed, f => f.Name.Equals("imgui.ini", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(listed, f => f.Name == "UE4SS-settings.ini");
+    }
+
     // The .bak this manager writes is bookkeeping, not something to offer for editing.
     [Fact]
     public void Backup_files_are_not_listed_as_editable()

@@ -24,6 +24,11 @@ pinned to a stale default that's missing options a newer UE4SS added.
 **Open Folder** now follows whichever file is selected, since the game's config and the loader's
 are in different places.
 
+UE4SS's folder also contains `imgui.ini`, which is the debug UI's remembered window positions
+rather than a setting — ImGui rewrites it every time the game closes. It's left out of the list,
+because an editor whose changes silently vanish teaches you the wrong thing about the whole
+window.
+
 ## v1.2.0-exp.1
 
 **This is an experimental build.** It's the work below getting some use before it goes out to
