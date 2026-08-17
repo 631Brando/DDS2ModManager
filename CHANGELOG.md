@@ -3,6 +3,31 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
+## v1.1.2
+
+### Trusted Mods
+
+The **Brando's Mods** page under **More** is now **Trusted Mods**, and lists every DDS2 mod
+published by any author on a curated list rather than being tied to one account. Each row names
+its author and links to their profile, with a filter to narrow the list to one of them.
+
+It's sortable: **most downloaded** (the default), most endorsed, recently updated, newest, name or
+author. Downloads leads because the page is for finding mods you haven't heard of, and there
+"what is everyone already using" is a more useful opening answer than "what did someone touch most
+recently" — sorted by date, a one-line tweak republished this morning sits above a mod with
+thousands of users.
+
+Starting authors are brando136, mifsopo and huslaa. The list is fetched at runtime rather than
+built into the app, so authors can be added without a new release.
+
+**"Trusted" here means a recommendation, not a safety check**, and it is deliberately a separate
+list from the verified-source list the updater uses. That one names GitHub accounts and decides
+how a download is described to you; this one names Nexus accounts and only decides whose mods
+appear on a browsing page that never downloads anything. Keeping them apart means adding someone
+to help people find good mods can never widen what the updater will install. There's a "Browse all
+DDS2 mods" button alongside, because a curated list with no way past it quietly suggests nothing
+outside it is worth looking at.
+
 ## v1.1.1
 
 ### The experimental channel could hand you older code and call it an update
