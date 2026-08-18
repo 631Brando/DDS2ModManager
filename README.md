@@ -91,8 +91,12 @@ WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
   config files, which backs up the original the first time you save so you can always revert.
   UE4SS's own `UE4SS-settings.ini` is listed there too — under a separate **Mod loader (UE4SS)**
   heading, with a notice on the file itself, since it configures the loader rather than the game
-  and lives in a different folder. Editing it through the manager also protects it: a UE4SS
-  update replaces that file, but a copy you've edited here is kept instead of overwritten.
+  and lives in a different folder. **Your settings also survive a UE4SS update**: the new version's
+  file is taken (so options and documentation it adds arrive), then the values you changed are
+  written back into it. Only values you changed — a default UE4SS deliberately altered still
+  reaches you. It works by snapshotting the file as UE4SS shipped it (`*.dds2mm.default`) and
+  diffing against that, so "you chose this" is distinguishable from "that was the default at the
+  time"; see `IniSettingsMerger`.
 - **Reset Game to Vanilla** (Settings): removes mods from the game itself — tracked mods,
   untracked mod files, optionally UE4SS, optionally the config files. Each part is opt-in and
   **saves are never touched**. Not to be confused with **Reset App Data**, which does the

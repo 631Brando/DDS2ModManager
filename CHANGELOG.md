@@ -19,10 +19,19 @@ nothing on screen used to say so. It sits under its own **Mod loader (UE4SS)** h
 selecting it shows a notice saying what it actually configures, where it lives, and that changing
 it won't alter anything in the game itself.
 
-Editing it here also protects it. Updating UE4SS replaces that file — that was already true and
-silently cost people their settings. Now a settings file you've edited through the manager is kept
-when UE4SS updates, while one you've never touched still gets the new version, so nobody ends up
-pinned to a stale default that's missing options a newer UE4SS added.
+### Your UE4SS settings survive a UE4SS update
+
+Updating UE4SS used to overwrite `UE4SS-settings.ini`, quietly resetting everything you'd set. Your
+settings are now carried across — but the new file is still the one you end up with, so options a
+newer UE4SS adds arrive too, along with the comments that explain them.
+
+Only the values you actually changed are moved over. Everything else follows the new version, so a
+default that UE4SS deliberately changed still reaches you instead of being pinned to whatever it
+used to be. The manager knows the difference because it records what UE4SS shipped, and compares
+your file against that rather than guessing.
+
+The log lists exactly what was kept. If a setting you'd changed no longer exists in the new UE4SS,
+it says so rather than silently dropping it or putting back a key nothing reads.
 
 **Open Folder** now follows whichever file is selected, since the game's config and the loader's
 are in different places.

@@ -96,21 +96,13 @@ public class UE4SSManagerService
             // Never clobber the user's existing mods.txt / mods.json when updating.
             var preserve = new List<string> { Path.Combine("Mods", "mods.txt"), Path.Combine("Mods", "mods.json") };
 
-            // ...and don't discard settings the user edited through Saves & Config either. Keyed on
-            // the backup this manager takes the first time a file is saved, so it means "the user
-            // changed this", not "this file exists".
-            //
-            // That distinction is the point. Preserving every settings file unconditionally would
-            // pin people to an old default forever and hide new options a UE4SS release adds;
-            // preserving none silently threw away their work. Only the ones actually edited are
-            // worth keeping, and everyone else gets the new version.
-            foreach (var ini in SafeEnumerateIni(game.UE4SSRootPath))
-            {
-                if (File.Exists(ini + GameConfigService.BackupSuffix))
-                    preserve.Add(Path.GetFileName(ini));
-            }
+            // Settings files are not preserved wholesale - they are merged below. Read them first,
+            // because the copy is about to overwrite them with the incoming defaults.
+            var settingsBefore = ReadExistingSettings(game);
 
             CopyDirectoryPreserving(ue4ssSrc, game.UE4SSRootPath, preserve.ToArray());
+
+            MergeSettingsFiles(game, settingsBefore);
 
             var manifest = new UE4SSManifest
             {
@@ -133,6 +125,115 @@ public class UE4SSManagerService
             try { Directory.Delete(tempDir, true); } catch { }
         }
     }
+
+    /// The suffix on the snapshot of a settings file as UE4SS shipped it.
+    ///
+    /// This is the baseline the merge needs: without a record of the defaults the user started
+    /// from, a value that differs from the new default could equally be their choice or a default
+    /// UE4SS changed, and there is no way to tell which. Written on every install and update, so
+    /// it always describes the version currently on disk.
+    public const string DefaultSnapshotSuffix = ".dds2mm.default";
+
+    /// The settings files as they are right now, before the incoming version overwrites them.
+    private static Dictionary<string, string> ReadExistingSettings(GameInstallation game)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var path in SafeEnumerateIni(game.UE4SSRootPath))
+        {
+            if (IsGeneratedState(path)) continue;
+            try { result[Path.GetFileName(path)] = File.ReadAllText(path); }
+            catch (Exception ex)
+            {
+                LoggingService.Instance.Warn($"Couldn't read {Path.GetFileName(path)} before updating: {ex.Message}");
+            }
+        }
+
+        return result;
+    }
+
+    /// Puts the user's own settings back on top of the version that just landed.
+    ///
+    /// Not a straight restore of their old file. Doing that would keep their values but also keep
+    /// the whole old file, so options a newer UE4SS added would never appear and the comments
+    /// documenting them would never arrive - the setting would exist with nothing on disk to say
+    /// so. Instead the new file is kept as-is and only the values they changed are written back
+    /// into it, which is why this needs a baseline to know which values those were.
+    ///
+    /// Failure here is not fatal: the mod loader is already installed and working with default
+    /// settings at this point, so a merge that goes wrong is worth reporting, not rolling back.
+    private static void MergeSettingsFiles(GameInstallation game, Dictionary<string, string> before)
+    {
+        var log = LoggingService.Instance;
+
+        foreach (var path in SafeEnumerateIni(game.UE4SSRootPath))
+        {
+            var name = Path.GetFileName(path);
+            if (IsGeneratedState(path)) continue;
+
+            try
+            {
+                var newDefault = File.ReadAllText(path);
+                var snapshotPath = path + DefaultSnapshotSuffix;
+
+                // A first install has nothing to merge - record the baseline and stop.
+                if (!before.TryGetValue(name, out var current))
+                {
+                    File.WriteAllText(snapshotPath, newDefault);
+                    continue;
+                }
+
+                var baseline = File.Exists(snapshotPath) ? File.ReadAllText(snapshotPath) : null;
+
+                // Older builds of this manager kept no snapshot, but did back a file up the first
+                // time it was edited here. That backup is the file as it was before their edits,
+                // which is exactly the baseline wanted.
+                if (baseline == null && File.Exists(path + GameConfigService.BackupSuffix))
+                    baseline = File.ReadAllText(path + GameConfigService.BackupSuffix);
+
+                var merged = IniSettingsMerger.Merge(newDefault, current, baseline);
+
+                // The snapshot always records what UE4SS shipped, never the merged result - it is
+                // the reference for the NEXT update, so it has to stay free of the user's values.
+                File.WriteAllText(snapshotPath, newDefault);
+
+                if (!merged.ChangedAnything && merged.Dropped.Count == 0)
+                {
+                    log.Info($"{name} was left at its defaults, so the new version is used as-is.");
+                    continue;
+                }
+
+                File.WriteAllText(path, merged.Text);
+
+                if (merged.Carried.Count > 0)
+                {
+                    log.Success($"Kept your {merged.Carried.Count} change(s) to {name}, on top of the new version's "
+                                + "defaults - so anything this UE4SS release added is present too.");
+                    foreach (var line in merged.Carried.Take(12)) log.Info($"    {line}");
+                    if (merged.Carried.Count > 12) log.Info($"    ...and {merged.Carried.Count - 12} more");
+                }
+
+                // Worth naming rather than dropping quietly: the user chose these, and the reason
+                // they are gone is that the new UE4SS no longer has the setting at all.
+                foreach (var line in merged.Dropped)
+                    log.Warn($"{name}: '{line}' no longer exists in this version of UE4SS, so it wasn't carried over.");
+
+                if (baseline == null)
+                    log.Info($"There was no record of {name}'s original defaults, so anything differing from the new "
+                             + "version's was treated as yours. Future updates will be exact.");
+            }
+            catch (Exception ex)
+            {
+                log.Error($"Couldn't merge your settings into the new {name}: {ex.Message}. "
+                          + "The new version's file has been left in place.");
+            }
+        }
+    }
+
+    /// Regenerated state that happens to end in .ini. imgui.ini is the debug UI's remembered
+    /// window positions, rewritten every run, so merging it would be busywork over noise.
+    private static bool IsGeneratedState(string path) =>
+        Path.GetFileName(path).Equals("imgui.ini", StringComparison.OrdinalIgnoreCase);
 
     /// Top-level .ini files in an existing UE4SS folder. Returns nothing rather than throwing when
     /// the folder is missing or unreadable - this only decides what to preserve, and a first-time
