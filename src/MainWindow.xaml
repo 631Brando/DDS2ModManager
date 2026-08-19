@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:DDS2ModManager.Converters"
-        Title="DDS2 Mod Manager" Height="980" Width="1760" MinWidth="980" MinHeight="600"
+        Title="{Binding WindowTitle}" Height="980" Width="1760" MinWidth="980" MinHeight="600"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BgBrush}"
@@ -111,9 +111,16 @@
                                        Text="{Binding NexusInfo.Endorsements, StringFormat='{}{0:N0} endorsements'}"/>
                         </StackPanel>
 
+                        <!-- Bound directly to the ModInfo: a tooltip lives in its own PopupRoot,
+                             so a RelativeSource AncestorType=Window binding here silently blanks. -->
                         <TextBlock Text="Click the row's Nexus link to open this page."
                                    FontSize="10" Margin="0,8,0,0" TextWrapping="Wrap"
-                                   Foreground="{StaticResource TextMutedBrush}"/>
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   Visibility="{Binding HasExplicitNexusLink, Converter={StaticResource InverseBoolToVisibility}}"/>
+                        <TextBlock Text="You linked this mod to this page yourself. Use the row's &quot;link&quot; button to change it."
+                                   FontSize="10" Margin="0,8,0,0" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   Visibility="{Binding HasExplicitNexusLink, Converter={StaticResource BoolToVisibility}}"/>
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -138,6 +145,10 @@
                  mods the user never hovers over. -->
             <EventSetter Event="ToolTipOpening" Handler="Row_ToolTipOpening"/>
             <Style.Triggers>
+                <!-- HasNexusInfo, deliberately NOT HasNexusPage. The card shows a picture, a title
+                     and a description, and a link alone carries none of those - a mod linked to a
+                     page not yet in the cached catalogue gets a working button and no card, rather
+                     than a card asserting it has zero downloads. -->
                 <DataTrigger Binding="{Binding HasNexusInfo}" Value="True">
                     <Setter Property="ToolTipService.InitialShowDelay" Value="400"/>
                     <Setter Property="ToolTipService.ShowDuration" Value="30000"/>
@@ -152,6 +163,7 @@
 
     <Grid Margin="18">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- game tabs -->
             <RowDefinition Height="Auto"/>   <!-- header -->
             <RowDefinition Height="Auto"/>   <!-- toolbar -->
             <RowDefinition Height="*"/>      <!-- mods + conflicts -->
@@ -159,8 +171,100 @@
             <RowDefinition Height="Auto"/>   <!-- log panel -->
         </Grid.RowDefinitions>
 
+        <!-- ===== Game tabs =====
+             At the very top and always visible, both games always present. A strip that appeared
+             only when a second game happened to be installed would be invisible to most users,
+             which defeats the point: this exists so it is never ambiguous which game is being
+             modded. A game that isn't installed keeps its tab and turns into a "find it" button,
+             because "we don't support that" and "we can't see it" look identical otherwise. -->
+        <ItemsControl Grid.Row="0" ItemsSource="{Binding GameTabs}" Margin="0,0,0,12">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal"/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Button Command="{Binding DataContext.SwitchGameCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                            CommandParameter="{Binding}"
+                            Margin="0,0,8,0" Padding="0" BorderThickness="0" Cursor="Hand"
+                            HorizontalContentAlignment="Stretch">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="Tab" CornerRadius="8,8,0,0" Padding="16,9"
+                                        Background="{StaticResource CardBrush}"
+                                        BorderBrush="{StaticResource CardBorderBrush}"
+                                        BorderThickness="1,1,1,0">
+                                    <StackPanel>
+                                        <TextBlock x:Name="Short" Text="{Binding ShortName}"
+                                                   FontSize="15" FontWeight="Bold"
+                                                   Foreground="{StaticResource TextMutedBrush}"/>
+                                        <TextBlock Text="{Binding StateLabel}" FontSize="10" Margin="0,1,0,0"
+                                                   Foreground="{StaticResource TextMutedBrush}"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- EVERY visual state lives here, in ControlTemplate.Triggers,
+                                     targeting the named Border.
+
+                                     It cannot live in a <Border.Style> on that same Border. The
+                                     Background / BorderBrush / BorderThickness above are written as
+                                     ATTRIBUTES in this template's markup, which WPF ranks as
+                                     BaseValueSource.ParentTemplate - above BaseValueSource.StyleTrigger.
+                                     A Style trigger trying to change them is silently discarded, so
+                                     the active tab rendered pixel-identical to an inactive one and
+                                     clicking a tab looked like it did nothing at all, even though the
+                                     game underneath had switched. A trigger declared HERE resolves as
+                                     ParentTemplateTrigger and does win. -->
+                                <ControlTemplate.Triggers>
+                                    <!-- A 3px accent lid rather than a colour swap, so the active tab
+                                         reads at a glance even out of the corner of the eye. -->
+                                    <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                        <Setter TargetName="Tab" Property="Background"
+                                                Value="{StaticResource BgBrush}"/>
+                                        <Setter TargetName="Tab" Property="BorderBrush"
+                                                Value="{StaticResource AccentBrush}"/>
+                                        <Setter TargetName="Tab" Property="BorderThickness"
+                                                Value="1,3,1,0"/>
+                                        <Setter TargetName="Short" Property="Foreground"
+                                                Value="{StaticResource TextPrimaryBrush}"/>
+                                    </DataTrigger>
+
+                                    <!-- Dimmed, not hidden: the tab still works, it just opens a
+                                         folder picker instead of switching. -->
+                                    <DataTrigger Binding="{Binding IsInstalled}" Value="False">
+                                        <Setter TargetName="Tab" Property="Opacity" Value="0.55"/>
+                                    </DataTrigger>
+
+                                    <!-- Hover has to look DIFFERENT from active, not identical to it.
+                                         Both used to brighten the label and nothing else, so the tab
+                                         under the pointer was indistinguishable from the open one. -->
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Tab" Property="BorderBrush"
+                                                Value="{StaticResource AccentHoverBrush}"/>
+                                        <Setter TargetName="Short" Property="Foreground"
+                                                Value="{StaticResource TextPrimaryBrush}"/>
+                                    </Trigger>
+
+                                    <!-- The strip goes dead for the length of a switch: both tabs share
+                                         one AsyncRelayCommand, whose CanExecute is false while it runs.
+                                         Without this a click during those seconds produced nothing at
+                                         all - no highlight, no message - which is indistinguishable
+                                         from the app ignoring you. -->
+                                    <Trigger Property="IsEnabled" Value="False">
+                                        <Setter TargetName="Tab" Property="Opacity" Value="0.4"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+
         <!-- ===== Header ===== -->
-        <Grid Grid.Row="0" Margin="0,0,0,14">
+        <Grid Grid.Row="1" Margin="0,0,0,14">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
@@ -168,7 +272,7 @@
 
             <StackPanel Grid.Column="0">
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="DDS2 Mod Manager" FontSize="24" FontWeight="Bold"/>
+                    <TextBlock Text="{Binding HeaderTitle}" FontSize="24" FontWeight="Bold"/>
                     <!-- On screen, not just buried in Settings. A bug report that names a
                          version is worth several that don't, and nobody goes looking for it. -->
                     <TextBlock Text="{Binding AppVersionDisplay}" FontSize="13" Margin="10,0,0,0"
@@ -188,7 +292,7 @@
         </Grid>
 
         <!-- ===== Toolbar ===== -->
-        <Grid Grid.Row="1" Margin="0,0,0,14">
+        <Grid Grid.Row="2" Margin="0,0,0,14">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
@@ -347,21 +451,16 @@
                     </Ellipse>
 
                     <StackPanel>
+                        <!-- Text comes from Ue4ssStatus.StatusLabel, because the honest wording depends
+                             on which GAME is open and not just on two booleans - "unverified
+                             experimental" names the build that crashes DDS1 on startup. Only the
+                             update-available case stays here, since it depends on UpdateAvailable,
+                             a view-model property the status object cannot see. -->
                         <TextBlock FontWeight="SemiBold" FontSize="12">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
-                                    <Setter Property="Text" Value="UE4SS not installed"/>
+                                    <Setter Property="Text" Value="{Binding Ue4ssStatus.StatusLabel}"/>
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Ue4ssStatus.IsInstalled}" Value="True">
-                                            <Setter Property="Text" Value="UE4SS installed (unverified experimental)"/>
-                                        </DataTrigger>
-                                        <MultiDataTrigger>
-                                            <MultiDataTrigger.Conditions>
-                                                <Condition Binding="{Binding Ue4ssStatus.IsInstalled}" Value="True"/>
-                                                <Condition Binding="{Binding Ue4ssStatus.IsManagedByUs}" Value="True"/>
-                                            </MultiDataTrigger.Conditions>
-                                            <Setter Property="Text" Value="UE4SS experimental - up to date"/>
-                                        </MultiDataTrigger>
                                         <!-- Must come after the "up to date" trigger above so it wins when both match
                                              (WPF resolves same-property Setters from multiple matching triggers by
                                              declaration order, last wins) - "up to date" only ever meant "installed
@@ -387,15 +486,33 @@
                     <Button Content="Update" Style="{StaticResource SmallActionButton}" Margin="12,0,0,0"
                             Command="{Binding InstallOrUpdateUE4SSCommand}"
                             Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVisibility}}"/>
-                    <Button Content="Install" Style="{StaticResource AccentButton}" Padding="10,4" FontSize="12" Margin="12,0,0,0"
-                            Command="{Binding InstallOrUpdateUE4SSCommand}"
-                            Visibility="{Binding Ue4ssStatus.IsInstalled, Converter={StaticResource InverseBoolToVisibility}}"/>
+                    <!-- Shown only when UE4SS is absent AND this game is one we may install it into.
+                         Some games need a build that isn't published as a download, and installing the
+                         one we can fetch would crash them - so the button is removed, not just likely
+                         to fail, and the reason is written into the log instead. -->
+                    <Button Content="Install" Padding="10,4" FontSize="12" Margin="12,0,0,0"
+                            Command="{Binding InstallOrUpdateUE4SSCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource AccentButton}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding Ue4ssStatus.IsInstalled}" Value="False"/>
+                                            <Condition Binding="{Binding Ue4ssStatus.CanInstall}" Value="True"/>
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </MultiDataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
                 </StackPanel>
             </Border>
         </Grid>
 
         <!-- ===== Mods + Conflicts ===== -->
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="3">
             <Grid.ColumnDefinitions>
                 <!-- The compatibility panel is usually a single line ("No conflicts found"), while
                      the mod grid has ten columns competing for room, so the split favours the grid. -->
@@ -606,13 +723,29 @@
                                                 CommandParameter="{Binding}"
                                                 ToolTip="{Binding ModUpdateUrl}"/>
 
-                                        <!-- Only for mods that matched a Nexus page. -->
+                                        <!-- The page this mod matched by name, or the one the user
+                                             linked. HasNexusPage and NexusPageUrl, not the NexusInfo
+                                             pair: a link to a mod published inside the three-day
+                                             catalogue window has a page and no card yet. -->
                                         <Button Content="nexus" Style="{StaticResource LinkButton}"
                                                 Margin="6,0,0,0" VerticalAlignment="Center"
-                                                Visibility="{Binding HasNexusInfo, Converter={StaticResource BoolToVisibility}}"
+                                                Visibility="{Binding HasNexusPage, Converter={StaticResource BoolToVisibility}}"
                                                 Command="{Binding DataContext.OpenNexusPageCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                                 CommandParameter="{Binding}"
-                                                ToolTip="{Binding NexusInfo.Url}"/>
+                                                ToolTip="{Binding NexusPageUrl}"/>
+
+                                        <!-- The way in for a name matching can never reach - "AERR"
+                                             is published as "AE Revolutions Reloaded". Hidden for a
+                                             mod that matched cleanly (no reason to invite re-linking
+                                             a working match) and shown for one already linked, so a
+                                             mistyped id is one click from fixed rather than only
+                                             reachable by hand-editing the registry. -->
+                                        <Button Content="link" Style="{StaticResource LinkButton}"
+                                                Margin="6,0,0,0" VerticalAlignment="Center"
+                                                Visibility="{Binding CanEditNexusLink, Converter={StaticResource BoolToVisibility}}"
+                                                Command="{Binding DataContext.LinkNexusPageCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip="Tell the manager which Nexus page this mod is, when its name doesn't match."/>
 
                                         <!-- Skips the six-hour cache, for an author who just
                                              published and wants to see it appear. -->
@@ -888,7 +1021,7 @@
         </Grid>
 
         <!-- ===== Status bar ===== -->
-        <Grid Grid.Row="3" Margin="0,12,0,0">
+        <Grid Grid.Row="4" Margin="0,12,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
@@ -906,7 +1039,7 @@
         </Grid>
 
         <!-- ===== Log panel ===== -->
-        <Border Grid.Row="4" Style="{StaticResource CardBorder}" Margin="0,10,0,0" Height="170"
+        <Border Grid.Row="5" Style="{StaticResource CardBorder}" Margin="0,10,0,0" Height="170"
                 Visibility="{Binding IsLogVisible, Converter={StaticResource BoolToVisibility}}">
             <ScrollViewer VerticalScrollBarVisibility="Auto" x:Name="LogScroller">
                 <ItemsControl ItemsSource="{Binding LogEntries}">

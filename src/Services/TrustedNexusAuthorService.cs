@@ -31,8 +31,7 @@ public class TrustedNexusAuthorService
 
     private TrustedNexusAuthorService()
     {
-        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DDS2ModManager");
-        Directory.CreateDirectory(dir);
+        var dir = AppPaths.EnsureRoot();
         _cachePath = Path.Combine(dir, "trusted-nexus-authors.cache.json");
         LoadCached();
     }

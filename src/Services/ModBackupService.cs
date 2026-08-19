@@ -35,11 +35,11 @@ public class ModBackup
 /// quietly consume a disk.
 public class ModBackupService
 {
-    private static readonly Lazy<ModBackupService> _instance = new(() => new ModBackupService());
-    public static ModBackupService Instance => _instance.Value;
-
     /// Keep the most recent few. Enough to undo the update you just did and the one before it,
     /// which is the realistic window in which someone notices a mod broke something.
+    ///
+    /// This is per game install. As a global cap it was a live hazard the moment a second game
+    /// existed: eight updates in one game would trim away every rollback copy belonging to the other.
     private const int MaxBackups = 8;
 
     /// Never back up something enormous. A mod this size is a content pack, restoring it is not
@@ -50,10 +50,9 @@ public class ModBackupService
     private readonly string _indexPath;
     private List<ModBackup> _backups = new();
 
-    private ModBackupService()
+    public ModBackupService(GameInstallation game)
     {
-        _root = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DDS2ModManager", "Backups");
+        _root = AppPaths.BackupsFor(game.RootPath);
         Directory.CreateDirectory(_root);
         _indexPath = Path.Combine(_root, "index.json");
         Load();

@@ -5,15 +5,20 @@ namespace DDS2ModManager.Views;
 /// Shows what has happened to the user's mods, newest first.
 public partial class ModHistoryWindow : Window
 {
-    public ModHistoryWindow()
+    private readonly ModHistoryService _history;
+
+    /// Takes the history for the active game rather than reaching for a singleton: the record is
+    /// per game install now, and a window that resolved its own would show the wrong game's.
+    public ModHistoryWindow(ModHistoryService history)
     {
+        _history = history;
         InitializeComponent();
         Reload();
     }
 
     private void Reload()
     {
-        var entries = ModHistoryService.Instance.Entries;
+        var entries = _history.Entries;
         HistoryList.ItemsSource = entries;
 
         // An empty list with a heading above it reads as broken; say why it is empty instead.
@@ -27,7 +32,7 @@ public partial class ModHistoryWindow : Window
                 "Clear history", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
             return;
 
-        ModHistoryService.Instance.Clear();
+        _history.Clear();
         Reload();
     }
 

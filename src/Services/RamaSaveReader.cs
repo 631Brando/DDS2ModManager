@@ -63,6 +63,59 @@ public class RamaSaveReader
         catch { return false; }
     }
 
+    /// The Rama container's own format version. Identical on both games - it describes the save
+    /// wrapper, not the engine - which is why the engine layout below has to be probed instead.
+    private const int FormatVersion = 7;
+
+    /// Where a RamaSave's header fields actually begin, which varies in two independent ways.
+    ///
+    ///  1. Some files carry a 4-byte payload size ahead of the format field; some start at it.
+    ///  2. UE4 has no PackageVersionUE5, so everything from the engine version onward sits 4 bytes
+    ///     earlier than on UE5.
+    ///
+    /// Both are probed from the FILE, never taken from the game's profile. The variant is a property
+    /// of how a particular save was written, and one folder can hold more than one shape - DDS1's
+    /// Serialized folder has a compressed, size-prefixed slot sitting next to an uncompressed one
+    /// with no prefix at all.
+    private readonly record struct RamaHeader(int PackageVersionUE4Offset, int EngineOffset, bool HasPackageVersionUE5)
+    {
+        public int BranchOffset => EngineOffset + 10;
+    }
+
+    /// Null when nothing plausible was found, which the caller treats as "assume the historical
+    /// layout" rather than "unreadable" - guessing wrong here only mislabels a version string,
+    /// while refusing outright would stop showing the user a save that used to open.
+    private static RamaHeader? ProbeHeader(byte[] d)
+    {
+        // The format field is the anchor: every RamaSave writes FormatVersion there.
+        foreach (var formatAt in new[] { 4, 0 })
+        {
+            if (formatAt + 4 > d.Length || BitConverter.ToInt32(d, formatAt) != FormatVersion) continue;
+
+            var pkgUe4 = formatAt + 4;
+
+            // UE5 first, so an ambiguous file keeps its previous reading. Accepting a layout needs
+            // BOTH a believable engine major and a branch string that actually names an engine -
+            // the major alone is not enough, because a UE4 patch number of 4 or 5 would pass it.
+            foreach (var hasUe5 in new[] { true, false })
+            {
+                var engine = pkgUe4 + 4 + (hasUe5 ? 4 : 0);
+                if (engine + 10 > d.Length) continue;
+                if (BitConverter.ToUInt16(d, engine) is not (4 or 5)) continue;
+
+                var pos = engine + 10;
+                if (LooksLikeEngineBranch(ReadFString(d, ref pos)))
+                    return new RamaHeader(pkgUe4, engine, hasUe5);
+            }
+        }
+        return null;
+    }
+
+    /// "++UE4+Release-4.21", "UE5", "++UE5+Release-5.3" - all of them name the engine up front.
+    private static bool LooksLikeEngineBranch(string? s) =>
+        !string.IsNullOrWhiteSpace(s) && s.Length <= 64
+        && (s.StartsWith("UE", StringComparison.Ordinal) || s.StartsWith("++UE", StringComparison.Ordinal));
+
     public SaveFileData? Read(string path)
     {
         try
@@ -71,19 +124,23 @@ public class RamaSaveReader
             var d = Decompress(raw);
             if (d.Length < 64) return null;
 
+            // Historical layout as a fallback, so a file the probe does not recognise parses exactly
+            // as it did before this became variable.
+            var h = ProbeHeader(d) ?? new RamaHeader(8, 16, HasPackageVersionUE5: true);
+
             var result = new SaveFileData
             {
                 Path = path,
                 CompressedBytes = raw.Length,
                 DecompressedBytes = d.Length,
-                PackageVersionUE4 = BitConverter.ToInt32(d, 8),
-                PackageVersionUE5 = BitConverter.ToInt32(d, 12),
-                EngineVersion = $"{BitConverter.ToUInt16(d, 16)}.{BitConverter.ToUInt16(d, 18)}.{BitConverter.ToUInt16(d, 20)}"
+                PackageVersionUE4 = BitConverter.ToInt32(d, h.PackageVersionUE4Offset),
+                PackageVersionUE5 = h.HasPackageVersionUE5 ? BitConverter.ToInt32(d, h.PackageVersionUE4Offset + 4) : 0,
+                EngineVersion = $"{BitConverter.ToUInt16(d, h.EngineOffset)}.{BitConverter.ToUInt16(d, h.EngineOffset + 2)}.{BitConverter.ToUInt16(d, h.EngineOffset + 4)}"
             };
 
             // The branch string is variable length, so walk it rather than assuming where the
             // tag list starts.
-            var pos = 26;
+            var pos = h.BranchOffset;
             result.EngineBranch = ReadFString(d, ref pos) ?? "";
             if (pos + 4 > d.Length) return result;
 
@@ -147,7 +204,15 @@ public class RamaSaveReader
     /// produces nothing useful is skipped, and the result is validated by the record chain above.
     private static byte[] Decompress(byte[] src)
     {
+        // A payload that was never wrapped. The container tag is what marks the compressed form, so
+        // its absence means the bytes ARE the payload. Deliberately decided by the tag and not by
+        // "did anything inflate": arbitrary data reliably contains byte pairs that look like a zlib
+        // header, so producing no output is not evidence that a file was uncompressed - and a truly
+        // corrupt compressed save must still fail rather than be parsed as though it were plaintext.
+        if (src.Length >= 4 && BitConverter.ToUInt32(src, 0) != PackageFileTag) return src;
+
         var outMs = new MemoryStream();
+
         for (var i = 0; i < src.Length - 2; i++)
         {
             if (src[i] != 0x78) continue;
@@ -163,6 +228,7 @@ public class RamaSaveReader
             }
             catch { /* not a chunk boundary after all */ }
         }
+
         return outMs.ToArray();
     }
 

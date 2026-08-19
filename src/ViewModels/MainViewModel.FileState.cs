@@ -37,16 +37,29 @@ public partial class MainViewModel
         {
             var previous = mod.Fingerprint;
 
+            var driftDetected = false;
+
             if (previous is { Files.Count: > 0 })
             {
                 var drift = ModFileStateService.Compare(mod);
                 mod.DriftSummary = drift.Any ? drift.Summary : null;
-                if (drift.Any) drifted.Add(mod);
+                driftDetected = drift.Any;
+                if (driftDetected) drifted.Add(mod);
             }
 
-            // Record the current state either way: a mod installed before this existed gets its
-            // first fingerprint here, which is what arms the check from now on.
-            mod.Fingerprint = ModFileStateService.Capture(mod);
+            // Arm the check for a mod that has never been fingerprinted - but do NOT re-arm on the
+            // pass that just found drift.
+            //
+            // Overwriting it here was the bug: the fingerprint would match the file on disk again
+            // while ContainedAssetPaths and DataTableAppends still described the PREVIOUS build, so
+            // the manager reported the mod as unchanged and fully scanned while conflict checking
+            // used stale data. Measured on a real install: a mod whose fingerprint matched to the
+            // microsecond had 13 recorded DataTable appends against 22 actually present.
+            //
+            // Leaving the old fingerprint in place keeps reporting drift until a Deep Scan re-reads
+            // the mod and updates the fingerprint alongside the analysis it describes.
+            if (!driftDetected)
+                mod.Fingerprint = ModFileStateService.Capture(mod);
             total += mod.SizeBytes;
         }
 

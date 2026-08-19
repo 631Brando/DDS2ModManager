@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "Mod sources the DDS2 Mod Manager maintainers have looked at.",
+    "Mod sources the DDS Mod Manager maintainers have looked at.",
     "Fetched by the manager on startup and cached locally, so adding an entry here reaches",
     "everyone without shipping a new build of the app.",
     "",

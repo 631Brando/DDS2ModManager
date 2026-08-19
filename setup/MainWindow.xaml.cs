@@ -33,7 +33,7 @@ public partial class MainWindow : Window
         var installDir = InstallPathBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(installDir))
         {
-            MessageBox.Show("Choose an install location first.", "DDS2 Mod Manager Setup", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("Choose an install location first.", $"{DDS2ModManager.Services.AppPaths.AppDisplayName} Setup", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -76,25 +76,25 @@ public partial class MainWindow : Window
             if (DesktopShortcutBox.IsChecked == true)
             {
                 var desktopPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "DDS2 Mod Manager.lnk");
-                DDS2ModManager.Services.ShortcutCreator.Create(desktopPath, exeDestination, "DDS2 Mod Manager");
+                    Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), DDS2ModManager.Services.AppPaths.AppDisplayName + ".lnk");
+                DDS2ModManager.Services.ShortcutCreator.Create(desktopPath, exeDestination, DDS2ModManager.Services.AppPaths.AppDisplayName);
             }
             if (StartMenuShortcutBox.IsChecked == true)
             {
                 var startMenuPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "DDS2 Mod Manager.lnk");
-                DDS2ModManager.Services.ShortcutCreator.Create(startMenuPath, exeDestination, "DDS2 Mod Manager");
+                    Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", DDS2ModManager.Services.AppPaths.AppDisplayName + ".lnk");
+                DDS2ModManager.Services.ShortcutCreator.Create(startMenuPath, exeDestination, DDS2ModManager.Services.AppPaths.AppDisplayName);
             }
 
             WriteUninstallEntry(installDir, exeDestination, release.TagName);
 
             StatusText.Text = $"Installed {release.TagName} to {installDir}.";
-            DDS2ModManager.Services.LoggingService.Instance.Success($"Installed DDS2 Mod Manager {release.TagName} to {installDir}.");
+            DDS2ModManager.Services.LoggingService.Instance.Success($"Installed {DDS2ModManager.Services.AppPaths.AppDisplayName} {release.TagName} to {installDir}.");
 
             if (LaunchAfterInstallBox.IsChecked == true)
                 Process.Start(new ProcessStartInfo { FileName = exeDestination, WorkingDirectory = installDir, UseShellExecute = true });
 
-            MessageBox.Show($"DDS2 Mod Manager {release.TagName} is installed.", "Setup Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show($"{DDS2ModManager.Services.AppPaths.AppDisplayName} {release.TagName} is installed.", "Setup Complete", MessageBoxButton.OK, MessageBoxImage.Information);
             Close();
         }
         catch (Exception ex)
@@ -113,7 +113,7 @@ public partial class MainWindow : Window
         StatusText.Text = message;
         Progress.Visibility = Visibility.Collapsed;
         DDS2ModManager.Services.LoggingService.Instance.Error(message);
-        MessageBox.Show(message, "DDS2 Mod Manager Setup", MessageBoxButton.OK, MessageBoxImage.Error);
+        MessageBox.Show(message, $"{DDS2ModManager.Services.AppPaths.AppDisplayName} Setup", MessageBoxButton.OK, MessageBoxImage.Error);
     }
 
     /// Registers in Windows "Apps & Features" / "Add or Remove Programs", HKCU only (no admin
@@ -123,7 +123,7 @@ public partial class MainWindow : Window
     {
         using var key = Registry.CurrentUser.CreateSubKey(
             $@"Software\Microsoft\Windows\CurrentVersion\Uninstall\{UninstallKeyName}");
-        key.SetValue("DisplayName", "DDS2 Mod Manager");
+        key.SetValue("DisplayName", DDS2ModManager.Services.AppPaths.AppDisplayName);
         key.SetValue("DisplayVersion", version.TrimStart('v', 'V'));
         key.SetValue("Publisher", "631Brando");
         key.SetValue("InstallLocation", installDir);

@@ -11,6 +11,21 @@ public partial class UnmanagedMod : ObservableObject
 
     public string Name { get; set; } = "";
 
+    /// True when this mod's files sit in a folder inside the game that only LOOKS like it disables
+    /// them - Content\Paks\DisabledMods. Unreal enumerates Content\Paks recursively, so the game
+    /// loads them regardless of the folder name. Importing therefore has to MOVE them out rather
+    /// than just record them as disabled, and CurrentFolder alone does not survive into that
+    /// decision - hence its own flag.
+    public bool ParkedInGameFolder { get; set; }
+
+    /// True for a row that represents a FOLDER of loose assets rather than one identifiable mod.
+    ///
+    /// Ownership of a loose .uasset cannot be recovered from disk - an overriding file at a vanilla
+    /// path is byte-indistinguishable from the vanilla one, and nothing records who put it there.
+    /// So the row is honest about being a folder, and Reset-to-Vanilla refuses to delete it: the
+    /// manager cannot promise those files are all mod files.
+    public bool IsLooseAssetGroup { get; set; }
+
     /// What the mod actually is, according to reading its pak with CUE4Parse (or, for lua mods,
     /// its folder layout). This is what decides where it *should* live - see IsMisplaced.
     public ModType DetectedType { get; set; }

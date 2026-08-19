@@ -13,9 +13,8 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = new MainViewModel();
 
-        // The taskbar and Alt-Tab show the title, so the version travels with any screenshot
-        // somebody posts - which is usually all you get to work from in a bug report.
-        Title = $"DDS2 Mod Manager  {MainViewModel.AppVersionDisplay}";
+        // The title is bound to the view model now (see WindowTitle): it carries the version, as it
+        // always did, and also names the game currently open.
 
         RestoreWindowSize();
         Closing += (_, _) => SaveWindowSize();
@@ -131,7 +130,8 @@ public partial class MainWindow : Window
 
         try
         {
-            mod.NexusThumbnail = await NexusImageCache.Instance.GetAsync(post.ModId, post.CardImageUrl);
+            mod.NexusThumbnail = await NexusImageCache.Instance.GetAsync(
+                post.ModId, post.GameDomain, post.CardImageUrl);
         }
         catch
         {

@@ -18,8 +18,18 @@ namespace DDS2ModManager.Services;
 ///
 /// Measured result of the rule below: 10 of 19 installed rows matched, 0 wrong, 0 ambiguous.
 /// Every mod that WAS on Nexus was found. Expect materially worse recall for third-party mods,
-/// whose names follow no convention - which is what NexusModId on the mod's own declaration is
-/// for. A declared id always wins; this is the fallback for mods that declare nothing.
+/// whose names follow no convention.
+///
+/// Exact name equality is the ONLY route THIS class takes on its own. Nothing a mod ships declares
+/// a Nexus mod id, so a mod whose installed name diverges from its Nexus title gets no card from
+/// matching, and that is the correct outcome rather than a gap to paper over. "AERR" is the worked
+/// example - the page is titled "AE Revolutions Reloaded", the acronym is nowhere in it, and no
+/// normalisation reaches one from the other.
+///
+/// The id-based path is the USER'S: Resolve() takes a NexusModLink set in the link dialog and
+/// honours it outright. That is a declaration, not an inference, which is why it is allowed here
+/// and a fuzzy guess is not. (An earlier version of this comment claimed a declared id always won
+/// when no such mechanism existed. It exists now, and it is Resolve.)
 public static class NexusModMatcher
 {
     /// Keys shorter than this are too generic to trust. "DDS2 - Mod Compilation WIP" produces the
@@ -55,6 +65,36 @@ public static class NexusModMatcher
         return claims
             .Where(kv => kv.Value.Count == 1)
             .ToDictionary(kv => kv.Key, kv => kv.Value[0], StringComparer.Ordinal);
+    }
+
+    /// The Nexus entry for an installed mod: the user's declared link first, name matching second.
+    ///
+    /// A declared link WINS, including when it resolves to nothing. Falling back to a name match
+    /// there would replace the user's answer with the very guess they were correcting.
+    public static NexusModPost? Resolve(
+        string installedName,
+        NexusModLink? link,
+        IReadOnlyList<NexusModPost> catalogue,
+        Dictionary<string, NexusModPost> index,
+        string activeDomain)
+    {
+        // "This mod has no Nexus page." Suppresses matching, and returning null CLEARS whatever a
+        // previous pass put there.
+        if (link is { Kind: NexusLinkKind.NoPage }) return null;
+
+        if (link is { IsUsable: true })
+        {
+            // Mandatory, not defensive. Mod 79 is "AE Revolutions Reloaded" on drugdealersimulator
+            // and "Gh0sted - Rebalance" on drugdealersimulator2; 85 ids collide across the two live
+            // catalogues and not one of them shares a title. A link for another game resolves to
+            // nothing - never to whatever that number happens to mean here.
+            if (!string.Equals(link.GameDomain, activeDomain, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            return catalogue.FirstOrDefault(p => p.ModId == link.ModId);
+        }
+
+        return Match(installedName, index);
     }
 
     /// The Nexus entry for an installed mod, or null. Never guesses.

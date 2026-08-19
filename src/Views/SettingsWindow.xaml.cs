@@ -12,16 +12,34 @@ public partial class SettingsWindow : Window
     /// hints fall back to their offline wording rather than guessing.
     private AppUpdateService.ChannelStatus? _channels;
 
+    /// The game these per-game settings belong to. Four of the boxes on this window (folder, engine
+    /// version, mappings, AES key) describe one game rather than the app, so they follow whichever
+    /// game is open. Falls back to the default profile when no game has been detected yet.
+    private GameProfile ActiveProfile => _mainViewModel.Game?.Profile ?? GameProfiles.Default;
+
+    private GameSettings ActiveGameSettings => AppSettingsService.Instance.ForGame(ActiveProfile);
+
     public SettingsWindow(MainViewModel mainViewModel)
     {
         InitializeComponent();
         _mainViewModel = mainViewModel;
 
         var current = AppSettingsService.Instance.Current;
-        GamePathBox.Text = current.GamePathOverride;
-        EGameCombo.Text = current.EGameVersion;
-        MappingsPathBox.Text = current.MappingsOverridePath;
-        AesKeyBox.Text = current.AesKeyHex;
+        var forGame = ActiveGameSettings;
+
+        GamePathBox.Text = forGame.GamePathOverride;
+        MappingsPathBox.Text = forGame.MappingsOverridePath;
+        AesKeyBox.Text = forGame.AesKeyHex;
+
+        // Shows what will actually be used: the stored override if there is one, otherwise what the
+        // game's profile says. Displaying an empty box for "whatever the profile says" would read
+        // as "no engine version set", which is alarming and wrong.
+        EGameCombo.Text = string.IsNullOrWhiteSpace(forGame.EGameVersion)
+            ? ActiveProfile.EngineVersion.ToString()
+            : forGame.EGameVersion;
+
+        GameScopeText.Text = $"These four apply to {ActiveProfile.DisplayName}.";
+
         AutoCheckBox.IsChecked = current.AutoCheckUE4SSUpdatesOnStartup;
         AutoCheckAppUpdateBox.IsChecked = current.CheckForAppUpdatesOnStartup;
         AutoCheckModUpdateBox.IsChecked = current.CheckForModUpdatesOnStartup;
@@ -180,10 +198,14 @@ public partial class SettingsWindow : Window
         if (result != MessageBoxResult.Yes) return;
 
         var defaults = new AppSettings();
-        GamePathBox.Text = defaults.GamePathOverride;
-        EGameCombo.Text = defaults.EGameVersion;
-        MappingsPathBox.Text = defaults.MappingsOverridePath;
-        AesKeyBox.Text = defaults.AesKeyHex;
+        var gameDefaults = new GameSettings();
+        GamePathBox.Text = gameDefaults.GamePathOverride;
+        MappingsPathBox.Text = gameDefaults.MappingsOverridePath;
+        AesKeyBox.Text = gameDefaults.AesKeyHex;
+
+        // "Default" for the engine version is what the game's profile says, not blank.
+        EGameCombo.Text = ActiveProfile.EngineVersion.ToString();
+
         AutoCheckBox.IsChecked = defaults.AutoCheckUE4SSUpdatesOnStartup;
         AutoCheckAppUpdateBox.IsChecked = defaults.CheckForAppUpdatesOnStartup;
         AutoCheckModUpdateBox.IsChecked = defaults.CheckForModUpdatesOnStartup;
@@ -230,13 +252,13 @@ public partial class SettingsWindow : Window
     private void Uninstall_Click(object sender, RoutedEventArgs e)
     {
         var result = MessageBox.Show(
-            "Uninstall DDS2 Mod Manager?\n\nThis removes the installed program and its Desktop/Start Menu shortcuts, the " +
+            $"Uninstall {AppPaths.AppDisplayName}?\n\nThis removes the installed program and its Desktop/Start Menu shortcuts, the " +
             "right-click context menu entry, and the Windows \"Apps & Features\" entry.\n\n" +
             "It does NOT touch any mods - not the ones currently installed in the game, and not the ones in the Disabled " +
             "Mods folder. Your settings and mod tracking also stay in %AppData%\\DDS2ModManager in case you reinstall " +
             "later (use Reset App Data first if you want those gone too).\n\n" +
             "The app will close immediately after.",
-            "Uninstall DDS2 Mod Manager", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            $"Uninstall {AppPaths.AppDisplayName}", MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (result != MessageBoxResult.Yes) return;
 
         AppUninstaller.Run();
@@ -246,10 +268,23 @@ public partial class SettingsWindow : Window
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         var settings = AppSettingsService.Instance.Current;
-        settings.GamePathOverride = string.IsNullOrWhiteSpace(GamePathBox.Text) ? null : GamePathBox.Text.Trim();
-        settings.EGameVersion = string.IsNullOrWhiteSpace(EGameCombo.Text) ? "GAME_UE5_3" : EGameCombo.Text.Trim();
-        settings.MappingsOverridePath = string.IsNullOrWhiteSpace(MappingsPathBox.Text) ? null : MappingsPathBox.Text.Trim();
-        settings.AesKeyHex = string.IsNullOrWhiteSpace(AesKeyBox.Text) ? null : AesKeyBox.Text.Trim();
+        var forGame = ActiveGameSettings;
+
+        forGame.GamePathOverride = string.IsNullOrWhiteSpace(GamePathBox.Text) ? null : GamePathBox.Text.Trim();
+        forGame.MappingsOverridePath = string.IsNullOrWhiteSpace(MappingsPathBox.Text) ? null : MappingsPathBox.Text.Trim();
+        forGame.AesKeyHex = string.IsNullOrWhiteSpace(AesKeyBox.Text) ? null : AesKeyBox.Text.Trim();
+
+        // Store ONLY a deliberate override. The old code wrote the engine version on every save,
+        // which is why every existing settings.json pins UE 5.3 - carried forward that would
+        // survive any future profile bump, silently, because a wrong engine version still lists
+        // every path in a pak and only fails when an asset is deserialized.
+        var chosen = EGameCombo.Text?.Trim();
+        forGame.EGameVersion =
+            string.IsNullOrWhiteSpace(chosen)
+            || string.Equals(chosen, ActiveProfile.EngineVersion.ToString(), StringComparison.OrdinalIgnoreCase)
+                ? null
+                : chosen;
+
         settings.AutoCheckUE4SSUpdatesOnStartup = AutoCheckBox.IsChecked ?? true;
         settings.CheckForAppUpdatesOnStartup = AutoCheckAppUpdateBox.IsChecked ?? true;
         settings.CheckForModUpdatesOnStartup = AutoCheckModUpdateBox.IsChecked ?? true;

@@ -59,7 +59,7 @@ public class DiagnosticsBundleService
     private static string BuildSummary(BundleRequest r)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("DDS2 Mod Manager - diagnostics");
+        sb.AppendLine($"{AppPaths.AppDisplayName} - diagnostics");
         sb.AppendLine($"Created            {DateTime.Now:yyyy-MM-dd HH:mm:ss} ({TimeZoneInfo.Local.StandardName})");
         sb.AppendLine($"Manager version    {r.ManagerVersion}");
         sb.AppendLine($"Windows            {Environment.OSVersion.Version}  ({(Environment.Is64BitOperatingSystem ? "64-bit" : "32-bit")})");

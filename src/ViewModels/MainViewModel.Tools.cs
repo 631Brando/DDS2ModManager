@@ -20,7 +20,11 @@ public partial class MainViewModel
 {
     // ---- diagnostics, profiles, and getting to things quickly --------------------------------
 
-    private readonly ModProfileService _profiles = new();
+    /// Per game install, so they are rebuilt whenever the active game changes - see
+    /// RebuildGameServices in MainViewModel.cs. Null until a game has been detected.
+    private ModProfileService? _profiles;
+    private ModHistoryService? _history;
+    private ModBackupService? _backups;
 
     /// Writes one zip with everything a bug report needs.
     ///
@@ -52,6 +56,8 @@ public partial class MainViewModel
     [RelayCommand]
     private void SaveProfile()
     {
+        if (_profiles == null) return;
+
         var name = PromptWindow.Ask(
             "Save mod profile",
             "Name this set of enabled mods, so you can come back to it later:",
@@ -70,8 +76,11 @@ public partial class MainViewModel
 
     /// Opens the profile list, where a profile can be applied, exported or deleted.
     [RelayCommand]
-    private void OpenProfiles() =>
+    private void OpenProfiles()
+    {
+        if (_profiles == null) return;
         new ProfilesWindow(this, _profiles) { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
+    }
 
     /// Applies a saved profile, after showing exactly what it will change.
     ///
@@ -79,7 +88,7 @@ public partial class MainViewModel
     /// a profile naming mods you don't have reports them and moves on.
     public void ApplyProfile(ModProfile profile)
     {
-        if (_installer == null) return;
+        if (_installer == null || _profiles == null) return;
 
         var plan = _profiles.Plan(profile, Mods);
 
@@ -118,6 +127,8 @@ public partial class MainViewModel
     [RelayCommand]
     private void CopyModList()
     {
+        if (_profiles == null) return;
+
         var gameVersion = Game != null ? GameVersionWatchService.Read(Game)?.Display ?? "unknown" : "no game";
         var text = ModProfileService.ToShareableText(
             _profiles.Capture("current", Mods, AppVersionDisplay, gameVersion));
@@ -133,8 +144,11 @@ public partial class MainViewModel
 
     /// What changed, and when.
     [RelayCommand]
-    private void OpenHistory() =>
-        new ModHistoryWindow { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
+    private void OpenHistory()
+    {
+        if (_history == null) return;
+        new ModHistoryWindow(_history) { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
+    }
 
     /// Starts the game through Steam, so it launches the same way it normally would.
     [RelayCommand]
@@ -150,16 +164,22 @@ public partial class MainViewModel
 
         // steam:// rather than the exe: Steam has to be running for the game to authenticate, and
         // launching the exe directly is what produces "please start via Steam".
-        OpenUrl("steam://rungameid/1708850");
-        StatusMessage = "Launching through Steam...";
+        var profile = Game?.Profile ?? GameProfiles.Default;
+        OpenUrl($"steam://rungameid/{profile.SteamAppId}");
+        StatusMessage = $"Launching {profile.DisplayName} through Steam...";
     }
 
-    /// Opens a mod's Nexus page. Only ever enabled for a mod that matched one.
+    /// Opens a mod's Nexus page - the one its name matched, or the one the user declared.
+    ///
+    /// Reads NexusPageUrl, not NexusInfo: a link to a mod published since the last catalogue
+    /// refresh has a page and no card, and the button is visible for it. The URL is composed from
+    /// an int and a domain, never taken from a stored string - OpenUrl is ShellExecute and a
+    /// registry is a hand-editable file, the same reasoning as re-parsing a mod's source URL.
     [RelayCommand]
     private void OpenNexusPage(ModInfo? mod)
     {
-        if (mod?.NexusInfo == null) return;
-        OpenUrl(mod.NexusInfo.Url);
+        if (mod?.NexusPageUrl is not string url) return;
+        OpenUrl(url);
     }
 
     private static void RevealInExplorer(string path)

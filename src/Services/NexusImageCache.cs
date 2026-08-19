@@ -45,9 +45,7 @@ public class NexusImageCache
 
     private NexusImageCache()
     {
-        _cacheDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "DDS2ModManager", "NexusImages");
+        _cacheDir = AppPaths.NexusImages;
 
         try { Directory.CreateDirectory(_cacheDir); }
         catch (Exception ex) { LoggingService.Instance.Warn($"Couldn't create the Nexus image cache folder: {ex.Message}"); }
@@ -59,18 +57,31 @@ public class NexusImageCache
 
     /// An already-decoded picture, without starting any work. Lets a tooltip show its image
     /// instantly on a second hover instead of going through the async path again.
-    public bool TryGetDecoded(int modId, out BitmapImage? image) =>
-        _decoded.TryGetValue(modId.ToString(), out image);
+    public bool TryGetDecoded(int modId, string gameDomain, out BitmapImage? image) =>
+        _decoded.TryGetValue(KeyFor(modId, gameDomain), out image);
+
+    /// Nexus mod ids restart per game, so mod 42 exists on both and they are different mods.
+    ///
+    /// Keyed on id alone this cache showed one game's picture on the other game's card - and never
+    /// corrected itself, because a cached file short-circuits the download. It is the one place a
+    /// game switch produced the wrong game's DATA rather than merely the wrong words.
+    private static string KeyFor(int modId, string gameDomain)
+    {
+        var safe = new string((gameDomain ?? "").Select(c =>
+            Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray());
+        return $"{safe}_{modId}";
+    }
 
     /// Returns a decoded thumbnail, or null if there isn't one and there is nothing to be done
     /// about it. Never throws.
     ///
     /// Cached on disk by mod id, so a second launch shows the card instantly and offline.
-    public async Task<BitmapImage?> GetAsync(int modId, string? pictureUrl, CancellationToken cancel = default)
+    public async Task<BitmapImage?> GetAsync(
+        int modId, string gameDomain, string? pictureUrl, CancellationToken cancel = default)
     {
         if (modId <= 0 || string.IsNullOrWhiteSpace(pictureUrl)) return null;
 
-        var key = modId.ToString();
+        var key = KeyFor(modId, gameDomain);
         if (_decoded.TryGetValue(key, out var already)) return already;
         if (_decoderMissing) return null;
 

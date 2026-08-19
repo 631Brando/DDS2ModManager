@@ -47,7 +47,7 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Margin="0,0,0,4">
-            <TextBlock Text="DDS2 Mod Manager" FontSize="22" FontWeight="Bold"/>
+            <TextBlock Text="DDS Mod Manager" FontSize="22" FontWeight="Bold"/>
             <TextBlock x:Name="VersionText" FontSize="12" Foreground="{StaticResource TextMutedBrush}" Margin="0,3,0,0"/>
         </StackPanel>
 
@@ -163,7 +163,7 @@
 
                 <TextBlock Text="Licence" Style="{StaticResource SectionHeading}"/>
                 <TextBlock Style="{StaticResource Role}" Margin="0,0,0,4"
-                           Text="DDS2 Mod Manager is free and open source under the MIT licence. The mappings file it ships is generated from the game's own data and belongs to the game's authors."/>
+                           Text="DDS Mod Manager is free and open source under the MIT licence. The mappings file it ships is generated from the game's own data and belongs to the game's authors."/>
                 <Button Style="{StaticResource Link}" Content="github.com/631Brando/DDS2ModManager" Click="Link_Click"
                         Tag="https://github.com/631Brando/DDS2ModManager"/>
             </StackPanel>

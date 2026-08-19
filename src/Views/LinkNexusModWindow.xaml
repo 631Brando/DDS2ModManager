@@ -1,0 +1,154 @@
+<Window x:Class="DDS2ModManager.Views.LinkNexusModWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Link to a Nexus page" Height="640" Width="720"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BgBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}"
+        TextElement.Foreground="{StaticResource TextPrimaryBrush}"
+        FontFamily="Segoe UI">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="HeaderText" Grid.Row="0" FontSize="18" FontWeight="Bold" Margin="0,0,0,6"/>
+        <TextBlock Grid.Row="1" TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,14">
+            Some mods are published under a different name than the one they install as, so the
+            manager can't work out which page they are. Tell it once and it remembers.
+        </TextBlock>
+
+        <!-- Paste. Kept above the list because a user who already has the page open in a browser
+             will paste, and one who doesn't will search - forcing a mode choice before they know
+             which they are is the worse dialog. -->
+        <Border Grid.Row="2" Style="{StaticResource CardBorder}" Padding="12" Margin="0,0,0,12">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.ColumnSpan="2" FontSize="11" Margin="0,0,0,6"
+                           Foreground="{StaticResource TextMutedBrush}"
+                           Text="Paste the mod's Nexus address, or just its mod number."/>
+
+                <TextBox x:Name="UrlBox" Grid.Row="1" Grid.Column="0" Padding="8,6" FontSize="13"
+                         Background="#12131A" BorderBrush="{StaticResource CardBorderBrush}"
+                         Foreground="{StaticResource TextPrimaryBrush}" CaretBrush="{StaticResource TextPrimaryBrush}"
+                         TextChanged="UrlBox_TextChanged" KeyDown="UrlBox_KeyDown"/>
+
+                <Button x:Name="UseUrlButton" Grid.Row="1" Grid.Column="1" Content="Use this"
+                        Style="{StaticResource AccentButton}" Margin="8,0,0,0" IsEnabled="False"
+                        Click="UseUrl_Click"/>
+
+                <TextBlock x:Name="UrlFeedback" Grid.Row="2" Grid.ColumnSpan="2" FontSize="11"
+                           Margin="0,8,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+            </Grid>
+        </Border>
+
+        <!-- Search. Opens UNFILTERED: pre-seeding with the installed name would show
+             'Nothing matches "AERR"' for the exact mod this dialog exists to fix. -->
+        <Border Grid.Row="3" Style="{StaticResource CardBorder}" Padding="0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <TextBox x:Name="FilterBox" Grid.Row="0" Margin="10" Padding="8,6" FontSize="13"
+                         Background="#12131A" BorderBrush="{StaticResource CardBorderBrush}"
+                         Foreground="{StaticResource TextPrimaryBrush}" CaretBrush="{StaticResource TextPrimaryBrush}"
+                         TextChanged="FilterBox_TextChanged"/>
+
+                <TextBlock x:Name="EmptyText" Grid.Row="1" Visibility="Collapsed" Margin="24"
+                           TextWrapping="Wrap" FontSize="12" VerticalAlignment="Top"
+                           Foreground="{StaticResource TextMutedBrush}"/>
+
+                <ListBox x:Name="ModList" Grid.Row="1" Background="Transparent" BorderThickness="0"
+                         HorizontalContentAlignment="Stretch"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         SelectionChanged="ModList_SelectionChanged"
+                         MouseDoubleClick="ModList_MouseDoubleClick">
+
+                    <!-- The row Background lives HERE, not as an attribute on the row Border.
+                         TrustedModsWindow sets it locally, which outranks every style trigger -
+                         fine for a browse list, fatal for a picker that has to show a selection. -->
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Background" Value="#1B1D27"/>
+                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="#2E2440"/>
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#242733"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Padding="12" Margin="6,4" CornerRadius="6"
+                                    Background="{Binding Background, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
+                                    BorderThickness="1" BorderBrush="{StaticResource CardBorderBrush}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <Border Grid.Column="0" Width="110" Height="62" CornerRadius="4"
+                                            ClipToBounds="True" Margin="0,0,12,0"
+                                            Background="#12131A" VerticalAlignment="Top">
+                                        <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"/>
+                                    </Border>
+
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="{Binding Post.Name}" FontSize="14" FontWeight="SemiBold"
+                                                   TextWrapping="Wrap"/>
+                                        <TextBlock FontSize="11" Margin="0,3,0,0"
+                                                   Foreground="{StaticResource TextMutedBrush}"
+                                                   Text="{Binding ByLine}"/>
+                                        <TextBlock Text="{Binding Post.Summary}" FontSize="11" Margin="0,4,0,0"
+                                                   TextWrapping="Wrap" MaxHeight="34"
+                                                   Foreground="{StaticResource TextMutedBrush}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="4" Margin="0,14,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                <Button Content="Not on Nexus" Style="{StaticResource GhostButton}" Click="NoPage_Click"
+                        ToolTip="Record that this mod has no Nexus page, so the manager stops trying to match it."/>
+                <Button x:Name="UnlinkButton" Content="Unlink" Style="{StaticResource GhostButton}"
+                        Margin="8,0,0,0" Visibility="Collapsed" Click="Unlink_Click"
+                        ToolTip="Forget the link and go back to matching this mod by name."/>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Cancel" Style="{StaticResource GhostButton}" IsCancel="True"/>
+                <Button x:Name="LinkButton" Content="Link" Style="{StaticResource AccentButton}"
+                        Margin="8,0,0,0" IsDefault="True" IsEnabled="False" Click="Link_Click"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

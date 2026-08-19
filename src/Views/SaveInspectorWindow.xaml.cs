@@ -69,10 +69,28 @@ public partial class SaveInspectorWindow : Window
         }
     }
 
+    /// Which file to show first: the one most likely to hold the actual playthrough.
+    ///
+    /// DDS2 names it "&lt;cartel&gt;_Progress.save", so that still wins outright. Falling back to the
+    /// largest file rather than the first covers every other shape - DDS1's slots are called
+    /// saveSlot-N.save and sit beside far smaller settings and index files, and opening on an
+    /// alphabetically-first metadata file would look like the inspector could not read the save.
     private static int PreferredFileIndex(List<string> files)
     {
         var idx = files.FindIndex(f => f.EndsWith("_Progress.save", StringComparison.OrdinalIgnoreCase));
-        return idx >= 0 ? idx : 0;
+        if (idx >= 0) return idx;
+
+        var largest = 0;
+        long largestSize = -1;
+        for (var i = 0; i < files.Count; i++)
+        {
+            long size;
+            try { size = new FileInfo(files[i]).Length; } catch { continue; }
+            if (size <= largestSize) continue;
+            largestSize = size;
+            largest = i;
+        }
+        return largest;
     }
 
     private void FileCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)

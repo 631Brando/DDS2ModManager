@@ -21,16 +21,60 @@ public class SaveGameService
         _game = game;
         // Keyed by game path so managing two different games (or two installs) can't mix their
         // disabled saves together - same reasoning as the per-game mod registry file.
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(game.RootPath.ToLowerInvariant())))[..12];
-        _disabledDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "DDS2ModManager", "DisabledSaves", hash);
+        _disabledDir = AppPaths.DisabledSavesFor(game.RootPath);
+    }
+
+    /// The root a save with no recorded RootName belongs to. First entry of the profile's list.
+    private string PrimaryRoot => _game.Profile.SaveSubfolders.FirstOrDefault() ?? "SaveGames";
+
+    private bool IsPrimaryRoot(string? rootName) =>
+        string.IsNullOrEmpty(rootName) || rootName.Equals(PrimaryRoot, StringComparison.OrdinalIgnoreCase);
+
+    private string RootPathFor(string? rootName) =>
+        Path.Combine(_game.SavedPath, IsPrimaryRoot(rootName) ? PrimaryRoot : rootName!);
+
+    private const char RootQualifierSeparator = '#';
+
+    /// The folder a disabled save is parked in, beneath _disabledDir.
+    ///
+    /// The primary root keeps the historical name unchanged, so a save disabled by an earlier build
+    /// still re-enables correctly. Only an additional root gets a qualified name - without it a save
+    /// taken out of Serialized would be restored into SaveGames, a folder the game never reads for
+    /// playthroughs, so the save would look lost.
+    ///
+    /// NOTE: the qualifier goes in the GROUP segment, never into _disabledDir itself. BackupsPath is
+    /// derived from _disabledDir by walking up a level, so adding a segment there would silently
+    /// relocate every save backup.
+    private string DisabledKeyFor(string? rootName, string? group)
+    {
+        var g = group ?? RootGroupMarker;
+        return IsPrimaryRoot(rootName) ? g : rootName + RootQualifierSeparator + g;
+    }
+
+    private (string? Root, string? Group) ParseDisabledKey(string key)
+    {
+        var i = key.IndexOf(RootQualifierSeparator);
+        if (i > 0)
+        {
+            var root = key[..i];
+            // Only treat it as qualified when the prefix really is one of this game's save roots,
+            // so a container whose name happens to contain the separator is not misread.
+            if (_game.Profile.SaveSubfolders.Contains(root, StringComparer.OrdinalIgnoreCase))
+            {
+                var g = key[(i + 1)..];
+                return (root, g == RootGroupMarker ? null : g);
+            }
+        }
+        return (null, key == RootGroupMarker ? null : key);
     }
 
     public string SaveGamesPath => _game.SaveGamesPath;
     public string DisabledSavesPath => _disabledDir;
     public string BackupsPath => Path.Combine(Path.GetDirectoryName(_disabledDir)!, "..", "SaveBackups", Path.GetFileName(_disabledDir));
-    public bool SaveFolderExists => Directory.Exists(_game.SaveGamesPath);
+    /// True when the game has any save root on disk. Checks them all: DDS1's playthroughs live in
+    /// Serialized, so keying this on SaveGames alone could report "no saves yet" to someone with a
+    /// folder full of them.
+    public bool SaveFolderExists => _game.SaveRootPaths.Any(Directory.Exists);
 
     /// Copies a save into a timestamped folder under %AppData%\DDS2ModManager\SaveBackups.
     ///
@@ -76,19 +120,27 @@ public class SaveGameService
     public List<SaveEntry> GetSaves()
     {
         var results = new List<SaveEntry>();
-        if (Directory.Exists(_game.SaveGamesPath))
-            CollectFrom(_game.SaveGamesPath, group: null, isEnabled: true, results);
+
+        // Every root the game uses, not just SaveGames. DDS1 keeps only a slot index and the
+        // graphics settings there; the actual playthroughs live in Saved\Serialized, so looking at
+        // one folder would tell a DDS1 player they have no saves at all.
+        foreach (var rootName in _game.Profile.SaveSubfolders)
+        {
+            var rootPath = Path.Combine(_game.SavedPath, rootName);
+            if (Directory.Exists(rootPath))
+                CollectFrom(rootPath, group: null, isEnabled: true, results, rootName);
+        }
 
         if (Directory.Exists(_disabledDir))
         {
             foreach (var groupDir in Directory.GetDirectories(_disabledDir))
             {
-                // Disabled saves are stored as <disabledRoot>\<group or "_root">\<save>, so the
-                // original location is recoverable when re-enabling.
-                var group = Path.GetFileName(groupDir);
-                var groupName = group == RootGroupMarker ? null : group;
+                // Disabled saves are stored as <disabledRoot>\<key>\<save>, where the key records the
+                // container and, for a non-primary root, which root it came out of - so the original
+                // location is fully recoverable when re-enabling.
+                var (root, groupName) = ParseDisabledKey(Path.GetFileName(groupDir));
                 foreach (var path in Directory.GetFileSystemEntries(groupDir))
-                    results.Add(Describe(path, groupName, isEnabled: false));
+                    results.Add(Describe(path, groupName, isEnabled: false, root));
             }
         }
 
@@ -101,7 +153,7 @@ public class SaveGameService
     /// Marker folder name for saves that sat directly in SaveGames rather than inside a container.
     private const string RootGroupMarker = "_root";
 
-    private void CollectFrom(string dir, string? group, bool isEnabled, List<SaveEntry> results)
+    private void CollectFrom(string dir, string? group, bool isEnabled, List<SaveEntry> results, string? rootName)
     {
         foreach (var sub in Directory.GetDirectories(dir))
         {
@@ -111,12 +163,12 @@ public class SaveGameService
             // deleting it would wipe every save at once.
             if (Directory.GetDirectories(sub).Any(ContainsSaveFiles))
             {
-                CollectFrom(sub, Path.GetFileName(sub), isEnabled, results);
+                CollectFrom(sub, Path.GetFileName(sub), isEnabled, results, rootName);
                 continue;
             }
 
             if (ContainsSaveFiles(sub))
-                results.Add(Describe(sub, group, isEnabled));
+                results.Add(Describe(sub, group, isEnabled, rootName));
         }
 
         // Loose save files only count at the top level. Inside a container they're shared data
@@ -125,7 +177,7 @@ public class SaveGameService
         if (group == null)
         {
             foreach (var file in Directory.GetFiles(dir).Where(IsSaveFile))
-                results.Add(Describe(file, group: null, isEnabled));
+                results.Add(Describe(file, group: null, isEnabled, rootName));
         }
     }
 
@@ -135,7 +187,7 @@ public class SaveGameService
     private static bool ContainsSaveFiles(string dir) =>
         Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Any(IsSaveFile);
 
-    private static SaveEntry Describe(string path, string? group, bool isEnabled)
+    private SaveEntry Describe(string path, string? group, bool isEnabled, string? rootName = null)
     {
         var isFolder = Directory.Exists(path);
         var files = isFolder
@@ -148,6 +200,8 @@ public class SaveGameService
             Path = path,
             IsFolder = isFolder,
             GroupName = group,
+            // Left empty for the primary root, so nothing about the ordinary single-root case changes.
+            RootName = IsPrimaryRoot(rootName) ? "" : rootName!,
             IsEnabled = isEnabled,
             FileCount = files.Length,
             SizeBytes = files.Sum(f => { try { return new FileInfo(f).Length; } catch { return 0L; } }),
@@ -174,6 +228,19 @@ public class SaveGameService
         var log = LoggingService.Instance;
         try
         {
+            if (!_game.Profile.SupportsSaveCloning)
+            {
+                // Refused rather than attempted. The copy would be written successfully and then
+                // never appear in game, because this game loads a fixed set of slots named in an
+                // index rather than whatever files it finds - so "it worked" would be a lie the
+                // user only discovers when they go looking for the save later.
+                log.Error(
+                    $"{_game.Profile.DisplayName} loads a fixed set of save slots from an index, so a copy under a " +
+                    "new name would never show up in game. Use Back Up instead - it keeps a full copy outside the " +
+                    "game folder that you can restore over a slot.");
+                return null;
+            }
+
             if (string.IsNullOrWhiteSpace(newName))
             {
                 log.Error("Enter a name for the copy.");
@@ -218,7 +285,7 @@ public class SaveGameService
                 VerifyClone(dest, newName);
 
                 log.Success($"Cloned save '{save.Name}' to '{newName}'.");
-                return Describe(dest, save.GroupName, isEnabled: save.IsEnabled);
+                return Describe(dest, save.GroupName, isEnabled: save.IsEnabled, save.RootName);
             }
             else
             {
@@ -230,7 +297,7 @@ public class SaveGameService
                 }
                 File.Copy(save.Path, dest);
                 log.Success($"Cloned save '{save.Name}' to '{newName}'.");
-                return Describe(dest, save.GroupName, isEnabled: save.IsEnabled);
+                return Describe(dest, save.GroupName, isEnabled: save.IsEnabled, save.RootName);
             }
         }
         catch (Exception ex)
@@ -307,13 +374,13 @@ public class SaveGameService
             string destParent;
             if (enabled)
             {
-                destParent = save.GroupName == null
-                    ? _game.SaveGamesPath
-                    : Path.Combine(_game.SaveGamesPath, save.GroupName);
+                // Back to the root it came out of, which is only SaveGames for a single-root game.
+                var root = RootPathFor(save.RootName);
+                destParent = save.GroupName == null ? root : Path.Combine(root, save.GroupName);
             }
             else
             {
-                destParent = Path.Combine(_disabledDir, save.GroupName ?? RootGroupMarker);
+                destParent = Path.Combine(_disabledDir, DisabledKeyFor(save.RootName, save.GroupName));
             }
 
             Directory.CreateDirectory(destParent);

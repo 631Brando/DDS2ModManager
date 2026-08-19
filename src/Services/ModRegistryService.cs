@@ -24,13 +24,18 @@ public class ModRegistryService
     public List<ModInfo> Mods { get; private set; } = new();
 
     public ModRegistryService(GameInstallation game)
+        : this(AppPaths.RegistryForKey(AppPaths.GameKey(game.RootPath))) { }
+
+    /// Explicit file, for the one-time state migration (which recovers a key from a filename and
+    /// has no GameInstallation to hand) and for tests.
+    public ModRegistryService(string registryPath)
     {
-        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DDS2ModManager");
-        Directory.CreateDirectory(dir);
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(game.RootPath.ToLowerInvariant())))[..12];
-        _registryPath = Path.Combine(dir, $"registry_{hash}.json");
+        AppPaths.EnsureRoot();
+        _registryPath = registryPath;
         Load();
     }
+
+    public string RegistryPath => _registryPath;
 
     public void Load()
     {

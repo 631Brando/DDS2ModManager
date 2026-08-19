@@ -32,7 +32,9 @@ public partial class MainViewModel
         var current = GameVersionWatchService.Read(Game);
         if (current == null) return;
 
-        var settings = AppSettingsService.Instance.Current;
+        // Per game: the two games are patched independently, and a shared stamp would report every
+        // game switch as "the game was updated".
+        var settings = AppSettingsService.Instance.ForGame(Game.Profile);
         var previous = settings.LastSeenGameWrittenUtc is { } written
             ? new GameVersionWatchService.GameStamp(settings.LastSeenGameVersion ?? "", settings.LastSeenGameSize, written)
             : null;

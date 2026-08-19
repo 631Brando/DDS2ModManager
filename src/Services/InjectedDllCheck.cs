@@ -58,7 +58,7 @@ public static class InjectedDllCheck
                 "When that happens this window usually opens completely blank.\n\n" +
                 $"To fix it: move {exeName} into a folder of its own, away from the UE4SS files, and run it from " +
                 "there. Nothing needs uninstalling.",
-                "DDS2 Mod Manager - wrong folder",
+                $"{AppPaths.AppDisplayName} - wrong folder",
                 System.Windows.MessageBoxButton.OK,
                 System.Windows.MessageBoxImage.Warning);
         }

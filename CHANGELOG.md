@@ -3,6 +3,142 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
+## v1.3.0-exp.1
+
+Drug Dealer Simulator 1 is now supported, alongside DDS2, in the same app. A tab at the top of the
+window switches between them, and everything below it — the mod list, conflicts, saves, config,
+Nexus, backups — follows the game you picked.
+
+The app is now called **DDS Mod Manager**, since it is no longer about one game.
+
+### Both games, one app
+
+Pick the game from the tabs at the top left. Only the differences live in a per-game profile; the
+rest of the manager is shared, so a fix in one is a fix in both.
+
+DDS1 is not a variant of DDS2 — it is a different engine with a different container format:
+
+| | DDS1 | DDS2 |
+|---|---|---|
+| Engine | Unreal Engine 4.21 | Unreal Engine 5.3 |
+| Mods ship as | one `.pak`, or loose files, or a DLL | `.pak` + `.ucas` + `.utoc` |
+| Loader | UnrealModLoader / UnrealModUnlocker | UE4SS |
+| Config | `Saved\Config\WindowsNoEditor` | `Saved\Config\Windows` |
+| Saves | `Saved\Serialized\` and `Saved\SaveGames\` | `Saved\SaveGames\Cartels\` |
+
+Each game keeps its own mod registry, profiles, backups, history, disabled mods, Nexus cache and
+settings. If you had DDS2 mods installed already, they are moved into their new per-game home the
+first time you run this build — nothing is deleted, and nothing needs re-importing.
+
+### DDS1 mods come in five shapes, and all five install
+
+Two of them do not exist on DDS2 at all:
+
+**Loose `.uasset` files** — how most DDS1 mods ship. The folder tree inside the archive *is* the
+mod: a loose asset only replaces the packed original when it sits at exactly the same relative
+path, so the tree is preserved rather than flattened. Uninstall removes only the files that mod
+recorded when it was installed, because ownership of a loose file cannot be worked out from where
+it sits.
+
+**Native DLL plugins** — a `.dll` that a mod loader loads, usually with a data folder it creates
+beside itself. There is no shared convention for where these go: UnrealModUnlocker reads
+`Binaries\Win64\UnrealModPlugins`, UnrealModLoader reads `coremods`. The manager works it out from
+the loader you actually have, and **refuses the install outright when nothing installed can load a
+DLL** — putting a native DLL somewhere the game never reads looks exactly like a mod that doesn't
+work.
+
+Only the DLLs get placed. If the archive also carries a settings or content folder, you are told
+what it contains and where the mod's own instructions say it goes, rather than the manager
+guessing at a layout only that framework documents.
+
+### Mod loaders are detected, not assumed
+
+UE4SS, UnrealModLoader and UnrealModUnlocker are all recognised, including UE4SS's older layout
+where its files sit directly in `Binaries\Win64` — that is what DDS1's scene runs, and it was
+previously invisible, so the manager offered to install something already there.
+
+**The manager will never offer to install UE4SS on DDS1.** Both the stock and experimental builds
+crash it on startup; it needs a custom build that ships no download. Recognising a loader and
+being allowed to install it are now two separate questions, and the answer to the second is no.
+
+UnrealModUnlocker is identified by reading the file, not by its name. `dxgi.dll` is one of the
+most-reused filenames in PC modding — ReShade and half a dozen overlays use it — and that matters
+now that the answer decides where a DLL plugin gets installed.
+
+### Tell the manager which Nexus page a mod is
+
+Mods are matched to their Nexus page by name, which works when the mod installs under the name it
+is published as, and cannot work otherwise. "AERR" is published as "AE Revolutions Reloaded"; no
+amount of matching gets from one to the other.
+
+Rows that didn't match now have a **link** button. Paste the mod's Nexus address, or just its mod
+number, or search the list of published mods — you see the real title, author and picture before
+you commit to it. From then on that mod gets its page link, its card and its picture like any
+other, and it is remembered.
+
+There is also **Not on Nexus**, for a mod you know has no page, which stops the manager trying.
+
+Nexus mod ids restart per game — mod 79 is a different mod on each — so a link records which game
+it belongs to and is refused if it turns up under the other one.
+
+### Fixed: mods installed from an archive could be named after a temporary folder
+
+A mod with no `.pak` and no `Scripts` folder — which means every loose-asset and DLL mod — was
+named after the temporary folder it was unpacked into, so it appeared in the list as
+`DDS2MM_Install_` followed by 32 random characters. That name is not cosmetic: it is what
+duplicate detection, profiles and Nexus matching all key on, and nothing in the app could rename
+it afterwards.
+
+Mods are now named from the archive's own contents, and an install that genuinely cannot be named
+is refused with an explanation rather than given a meaningless one. If a mod ships a
+`.dds2mod.json`, the name its author put there is used ahead of anything guessed from filenames.
+
+This also affected Lua mods whose archive had no folder around `Scripts\`, where the random name
+was written into `ue4ss\Mods\` and into `mods.txt` — the one place the wrong name stops the mod
+loading at all.
+
+### Fixed: updating a mod discarded your notes, tags and favourite
+
+Updating a mod replaces its entry, and everything you had added to it — the star, your notes, your
+tags — went with it. They now survive an update, along with the Nexus link.
+
+### Fixed: `Content\Paks\DisabledMods` was described as disabling mods
+
+It never did. Unreal loads every `.pak` under `Content\Paks` no matter how deeply nested, so a mod
+parked in a folder named `DisabledMods` is still running. The manager used to say otherwise. It
+now reports those mods as loaded, and says what to do about it.
+
+### Fixed: a mod could stay analysed as an older version of itself
+
+The record of what a mod's files looked like was refreshed by the check that *detects* a change,
+so a mod could be seen to have changed and then be marked unchanged before anything re-read it.
+One mod on the development machine was being conflict-checked against an analysis two builds old,
+hiding nine data table changes.
+
+### Fixed on DDS1 specifically
+
+- **Logic mods installed where the loader never looks.** UnrealModLoader scans `LogicMods` flat,
+  while UE4SS reads per-mod subfolders. A DDS1 logic mod installed into a subfolder mounted fine
+  and then did nothing, with no error to explain it.
+- **Saves wouldn't open.** UE4 save files have one fewer field in their header than UE5 ones, so
+  every offset after it shifted by four bytes. DDS1's real saves live in `Saved\Serialized\`, which
+  wasn't being read at all.
+- **Cloning a save is refused, and says why.** DDS1 loads a fixed set of slots, so a renamed copy
+  is written successfully and then never appears in game. Back Up does what people wanted.
+- **The base game pak can't be deleted.** Anything sitting directly in `Content\Paks` that looks
+  like the game's own — or anything over 2 GB — is refused by Reset, whatever it is called.
+
+### Smaller things
+
+- The mod list now finds loose assets somebody installed by hand, and reports when a loose file and
+  a pak mod both claim the same asset. Neither is named as the winner, because which one the engine
+  serves has to be observed in game.
+- Uninstalling a mod no longer deletes a file another installed mod also lists.
+- Trusted Mods used to report "check your connection" when the real answer was that nobody had
+  curated a list for that game yet.
+- One game's mod picture could appear on the other game's card, since Nexus ids restart per game.
+- Switching games mid-scan could apply one game's results to the other.
+
 ## v1.2.0
 
 Keyboard shortcuts, UE4SS's settings editable in Saves & Config, a mod list that explains itself

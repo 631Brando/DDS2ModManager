@@ -101,18 +101,12 @@ public class GameResetService
 
         // Mappings/EGame only matter for identifying mod *types*, which a delete doesn't need, so
         // a failed CUE4Parse read here is harmless: the scanner still reports the files.
-        var settings = AppSettingsService.Instance.Current;
-        var mappingsPath = !string.IsNullOrWhiteSpace(settings.MappingsOverridePath) && File.Exists(settings.MappingsOverridePath)
-            ? settings.MappingsOverridePath!
-            : MappingsProviderService.EnsureExtracted();
-        var egame = Enum.TryParse<CUE4Parse.UE4.Versions.EGame>(settings.EGameVersion, out var parsed)
-            ? parsed
-            : CUE4Parse.UE4.Versions.EGame.GAME_UE5_3;
+        var opts = GameMountService.OptionsFor(_game);
 
         List<UnmanagedMod> untracked;
         try
         {
-            untracked = _scanner.Scan(_game, _registry.Mods, mappingsPath, egame, settings.AesKeyHex);
+            untracked = _scanner.Scan(_game, _registry.Mods, opts.MappingsPath, opts.EGame, opts.AesKeyHex);
         }
         catch (Exception ex)
         {
@@ -125,8 +119,37 @@ public class GameResetService
             // Lua mods live in ue4ss\Mods; those come out with UE4SS (or via the mod list), not here.
             if (mod.DetectedType == ModType.LuaMod) continue;
 
+            // A loose-asset FOLDER is not something this can safely empty. Ownership of an
+            // individual .uasset cannot be recovered from disk, so "delete every mod file here"
+            // cannot be distinguished from "delete some of the game". Reported, never deleted.
+            if (mod.IsLooseAssetGroup)
+            {
+                var why = $"Left '{mod.Name}' alone - it's a folder of loose assets whose ownership can't be "
+                          + "determined, so removing it automatically could delete more than mod files. "
+                          + "Remove it by hand if you mean to.";
+                log.Warn(why);
+                result.Failures.Add(why);
+                continue;
+            }
+
             foreach (var f in mod.Files.Where(File.Exists))
             {
+                // Second, independent check before an irreversible delete.
+                //
+                // The scanner is already supposed to have excluded the base game, but that filter and
+                // this File.Delete were a single point of failure for losing an 11.3 GB install that
+                // no undo can bring back. One regression in one predicate is not an acceptable
+                // distance from "reset my mods" to "re-download the entire game", so the deleter
+                // refuses on its own account rather than trusting what it was handed.
+                if (IsProtectedGameFile(f))
+                {
+                    var why = $"Refused to delete '{Path.GetFileName(f)}' - it looks like part of the base game, "
+                              + "not a mod. Nothing was removed for this entry.";
+                    log.Warn(why);
+                    result.Failures.Add(why);
+                    continue;
+                }
+
                 try
                 {
                     File.Delete(f);
@@ -143,33 +166,102 @@ public class GameResetService
         return removed;
     }
 
+    /// Files this service will never delete, however it was asked.
+    ///
+    /// Two rules, either of which is enough to refuse:
+    ///  - it sits DIRECTLY in Content\Paks and the scanner's own base-game test claims it. Mods live
+    ///    in Mods\ or LogicMods\ subfolders; a loose archive at the top of Paks is the shipped game.
+    ///  - it is enormous. No mod is gigabytes; the base paks are. A size rule catches a base pak
+    ///    whose name nobody anticipated, which is exactly the case a name-based rule cannot.
+    private bool IsProtectedGameFile(string path)
+    {
+        try
+        {
+            var directlyInPaks = string.Equals(
+                Path.GetDirectoryName(path)?.TrimEnd(Path.DirectorySeparatorChar),
+                _game.PaksPath.TrimEnd(Path.DirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase);
+
+            if (directlyInPaks &&
+                UnmanagedModScannerService.IsBaseGameArchive(Path.GetFileNameWithoutExtension(path), _game))
+                return true;
+
+            return new FileInfo(path).Length >= BasePakSizeFloorBytes;
+        }
+        catch
+        {
+            // Can't tell what it is, so don't delete it.
+            return true;
+        }
+    }
+
+    /// A mod this big does not exist; a cooked base pak does. Deliberately far above any plausible
+    /// content pack so it never blocks a legitimate removal.
+    private const long BasePakSizeFloorBytes = 2L * 1024 * 1024 * 1024;
+
+    /// Removes UE4SS, but only when there is something that can be removed without collateral.
+    ///
+    /// Driven by what detection found rather than by fixed paths. Under UE4SS's older layout its
+    /// files sit directly in Binaries\Win64 - the folder holding the game's executable, with the
+    /// user's own mods in its Mods\ subfolder - so there is no directory that can be deleted
+    /// wholesale. That case is reported and skipped, never approximated.
     private bool RemoveUE4SS(VanillaResetResult result)
     {
         var log = LoggingService.Instance;
+        var loader = new ModLoaderService().Detect(_game, ModLoaders.UE4SS);
+
+        if (loader is not { IsInstalled: true })
+        {
+            log.Info("UE4SS isn't installed - nothing to remove.");
+            return true;
+        }
+
+        if (!loader.CanRemoveAutomatically)
+        {
+            var why = loader.RemovalBlockedReason ?? "UE4SS can't be removed automatically here.";
+            log.Warn(why);
+            result.Failures.Add(why);
+            return false;
+        }
+
         var ok = true;
 
-        try
+        foreach (var file in loader.RemovableFiles)
         {
-            var dwmapi = Path.Combine(_game.Win64Path, "dwmapi.dll");
-            if (File.Exists(dwmapi)) File.Delete(dwmapi);
-        }
-        catch (Exception ex)
-        {
-            result.Failures.Add($"Couldn't delete dwmapi.dll: {ex.Message}");
-            ok = false;
-        }
-
-        try
-        {
-            if (Directory.Exists(_game.UE4SSRootPath)) Directory.Delete(_game.UE4SSRootPath, true);
-        }
-        catch (Exception ex)
-        {
-            result.Failures.Add($"Couldn't delete the ue4ss folder: {ex.Message}");
-            ok = false;
+            try { if (File.Exists(file)) File.Delete(file); }
+            catch (Exception ex)
+            {
+                result.Failures.Add($"Couldn't delete {Path.GetFileName(file)}: {ex.Message}");
+                ok = false;
+            }
         }
 
-        if (ok) log.Info("Removed UE4SS (dwmapi.dll and the ue4ss folder).");
+        var root = loader.RemovableRoot;
+        if (root != null)
+        {
+            // Belt and braces on an irreversible recursive delete: refuse anything that is not a
+            // strict subfolder of Binaries\Win64. If RemovableRoot were ever set to Win64 itself,
+            // "remove UE4SS" would delete the game.
+            var win64 = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_game.Win64Path));
+            var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+
+            if (!full.StartsWith(win64 + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                var why = $"Refused to delete '{root}' - it isn't inside the game's Binaries\\Win64 folder.";
+                log.Error(why);
+                result.Failures.Add(why);
+                return false;
+            }
+
+            try { if (Directory.Exists(full)) Directory.Delete(full, true); }
+            catch (Exception ex)
+            {
+                result.Failures.Add($"Couldn't delete the ue4ss folder: {ex.Message}");
+                ok = false;
+            }
+        }
+
+        if (ok) log.Info("Removed UE4SS.");
         return ok;
     }
 

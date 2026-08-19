@@ -52,8 +52,7 @@ public class ModTrustService
 
     private ModTrustService()
     {
-        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DDS2ModManager");
-        Directory.CreateDirectory(dir);
+        var dir = AppPaths.EnsureRoot();
         _trustFilePath = Path.Combine(dir, "trusted-authors.json");
         _verifiedCachePath = Path.Combine(dir, "verified-mods.cache.json");
 

@@ -31,8 +31,12 @@ public partial class MainViewModel
     /// Fire-and-forget from startup. A slow or down Nexus must never delay the window.
     private async Task CheckNexusFeedAsync()
     {
-        var settings = AppSettingsService.Instance.Current;
-        if (!settings.ShowNexusNewModBanner) return;
+        if (!AppSettingsService.Instance.Current.ShowNexusNewModBanner) return;
+        if (Game == null) return;
+
+        // Per game - the two games have separate Nexus catalogues, so "what's new since I last
+        // looked" is a separate answer for each.
+        var settings = AppSettingsService.Instance.ForGame(Game.Profile);
 
         // First run starts two weeks back. Without a floor the first launch would list every
         // mod ever published for the game, which is a catalogue, not news.
@@ -51,9 +55,13 @@ public partial class MainViewModel
         foreach (var p in fresh.Take(6)) NexusNewMods.Add(p);
 
         HasNexusNewMods = true;
+
+        // Named from the game this actually came from. It was hardcoded to "DDS2", so a DDS1 user
+        // was told about "new DDS2 mods" on a page listing DDS1's catalogue.
+        var game = Game?.Profile.ShortName ?? GameProfiles.Default.ShortName;
         NexusBannerText = fresh.Count == 1
-            ? "1 new DDS2 mod on Nexus"
-            : $"{fresh.Count} new DDS2 mods on Nexus";
+            ? $"1 new {game} mod on Nexus"
+            : $"{fresh.Count} new {game} mods on Nexus";
 
         LoggingService.Instance.Info(
             $"{fresh.Count} new mod(s) published on Nexus since {since.ToLocalTime():d MMM}: " +
@@ -70,35 +78,70 @@ public partial class MainViewModel
     /// Fire-and-forget from startup, and deliberately quiet: a mod with no card is the normal
     /// case (roughly half of a typical install is unpublished local work), so nothing here
     /// reports a failure to find one.
-    private async Task RefreshNexusDetailsAsync(bool force = false)
+    /// The active game's catalogue and its name index, kept for the session so ONE mod can be
+    /// resolved without re-reading the cache file - NexusIndexService holds nothing in memory and
+    /// re-deserialises on every GetAsync. Domain-tagged, and dropped in ClearPerGameState: this is
+    /// per GAME, and the registry's per-install key is not the same question.
+    private (string Domain, List<NexusModPost> Catalogue, Dictionary<string, NexusModPost> Index)? _nexusCatalogue;
+
+    private async Task RefreshNexusDetailsAsync(int context, bool force = false)
     {
         if (!AppSettingsService.Instance.Current.ShowNexusModDetails) return;
 
         try
         {
-            var catalogue = await _nexusIndex.GetAsync(NexusGameDomain, force);
+            // Captured BEFORE the await. Everything below is about this domain, and Game can change
+            // while a cold-cache fetch pages through the whole catalogue.
+            var domain = NexusGameDomain;
+
+            var catalogue = await _nexusIndex.GetAsync(domain, force);
             if (catalogue.Count == 0) return;
+
+            // RunForGameAsync only LOGS a stale result; it does not discard one. The check has to
+            // happen here, before anything is written - Mods is a single collection that a game
+            // switch refills in place, and the settings write below is against the CURRENT game.
+            // With id-based lookup this stops being unlikely: mod 79 exists on both domains and is
+            // a different mod on each.
+            if (IsStaleGameContext(context)) return;
 
             // Built once for the whole list rather than per mod: the uniqueness guard that makes
             // matching safe needs to see every mod at once to know which keys are ambiguous.
             var index = NexusModMatcher.BuildIndex(catalogue);
+            _nexusCatalogue = (domain, catalogue, index);
 
             var matched = 0;
+            var linked = 0;
             foreach (var mod in Mods)
             {
-                var hit = NexusModMatcher.Match(mod.Name, index);
-                if (hit == null) continue;
+                // Assigned unconditionally, INCLUDING null. That is what makes unlinking and
+                // re-pointing take effect - nothing else in this codebase ever sets NexusInfo back.
+                mod.NexusInfo = NexusModMatcher.Resolve(mod.Name, mod.NexusLink, catalogue, index, domain);
 
-                mod.NexusInfo = hit;
-                matched++;
+                if (mod.HasExplicitNexusLink) linked++;
+                else if (mod.NexusInfo != null) matched++;
             }
 
-            AppSettingsService.Instance.Current.NexusIndexRefreshedUtc = DateTime.UtcNow;
-            AppSettingsService.Instance.Save();
+            if (Game != null)
+            {
+                AppSettingsService.Instance.ForGame(Game.Profile).NexusIndexRefreshedUtc = DateTime.UtcNow;
+                AppSettingsService.Instance.Save();
+            }
 
             LoggingService.Instance.Info(
-                $"Matched {matched} of {Mods.Count} installed mod(s) to their Nexus page. " +
+                $"Matched {matched} of {Mods.Count} installed mod(s) to their Nexus page by name" +
+                (linked > 0 ? $", plus {linked} you linked yourself. " : ". ") +
                 "Hover a mod to see its picture and description.");
+
+            // One aggregate line, and only what is known. A link the catalogue does not carry is
+            // normal for a mod published inside the 3-day refresh window - the link still opens.
+            var pending = Mods.Where(m => m.HasExplicitNexusLink && m.NexusInfo == null).ToList();
+            if (pending.Count > 0)
+            {
+                LoggingService.Instance.Info(
+                    $"{pending.Count} linked mod(s) aren't in the cached Nexus list yet (" +
+                    string.Join(", ", pending.Take(3).Select(m => $"{m.Name} -> mod {m.NexusLink!.ModId}")) +
+                    "). Their links still open; the cards fill in after a later refresh.");
+            }
         }
         catch (Exception ex)
         {
@@ -107,13 +150,59 @@ public partial class MainViewModel
         }
     }
 
+    /// Resolves ONE mod, for a link the user just set or a mod just installed.
+    ///
+    /// RefreshNexusDetailsAsync runs once per game load, so without this a link takes effect only
+    /// after a restart - which reads as the feature not working. Synchronous and network-free by
+    /// construction: it reads the catalogue already held in memory, so it is safe to call from a
+    /// dialog's OK button and from an install loop.
+    private void ResolveNexusFor(ModInfo mod)
+    {
+        if (_nexusCatalogue is not { } c) return;
+        if (!string.Equals(c.Domain, NexusGameDomain, StringComparison.OrdinalIgnoreCase)) return;
+
+        mod.NexusInfo = NexusModMatcher.Resolve(mod.Name, mod.NexusLink, c.Catalogue, c.Index, c.Domain);
+    }
+
+    /// Asks which Nexus page a mod is, and records the answer.
+    ///
+    /// Single mod only. One Nexus id applied across a multi-selection is almost always wrong, and a
+    /// wrong card is the thing this whole area refuses to risk.
+    [RelayCommand]
+    private void LinkNexusPage(ModInfo? mod)
+    {
+        if (mod == null) return;
+
+        if (_nexusCatalogue is not { } c ||
+            !string.Equals(c.Domain, NexusGameDomain, StringComparison.OrdinalIgnoreCase))
+        {
+            StatusMessage = "The Nexus mod list hasn't loaded yet - try again in a moment.";
+            return;
+        }
+
+        var dlg = new Views.LinkNexusModWindow(mod, c.Catalogue, c.Domain)
+        {
+            Owner = System.Windows.Application.Current.MainWindow
+        };
+
+        if (dlg.ShowDialog() != true || !dlg.Committed) return;
+
+        // The property change persists it: NexusLink is on OnModAnnotationChanged's list, so this
+        // one assignment both saves and re-renders. Nothing calls Upsert here - two writers of one
+        // fact is how they get out of step.
+        mod.NexusLink = dlg.Result;
+
+        // Immediate, and network-free.
+        ResolveNexusFor(mod);
+    }
+
     /// Marks everything currently shown as seen, so the banner does not return for the same mods.
     private void DismissNexusFeed()
     {
-        if (NexusNewMods.Count > 0)
+        if (NexusNewMods.Count > 0 && Game != null)
         {
             var newest = NexusNewMods.Max(p => p.CreatedAt).ToUniversalTime();
-            AppSettingsService.Instance.Current.NexusFeedLastSeenUtc = newest;
+            AppSettingsService.Instance.ForGame(Game.Profile).NexusFeedLastSeenUtc = newest;
             AppSettingsService.Instance.Save();
         }
 

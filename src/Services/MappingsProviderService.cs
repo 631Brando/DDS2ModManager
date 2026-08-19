@@ -9,9 +9,8 @@ public static class MappingsProviderService
 {
     public static string EnsureExtracted()
     {
-        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DDS2ModManager");
-        Directory.CreateDirectory(dir);
-        var dest = Path.Combine(dir, "mappings.usmap");
+        AppPaths.EnsureRoot();
+        var dest = AppPaths.Mappings;
 
         var asm = Assembly.GetExecutingAssembly();
         var resourceName = asm.GetManifestResourceNames()

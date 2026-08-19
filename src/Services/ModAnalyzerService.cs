@@ -56,6 +56,27 @@ public class ModAnalyzerService
         _aesKeyHex = aesKeyHex;
     }
 
+    /// The folder in an extracted archive that corresponds to the game's own Content directory.
+    ///
+    /// Loose-asset mods are published both ways: rooted at Content\ (so the archive mirrors the game
+    /// folder) and already inside it (just DataTables\... at the top). Picking the shallowest
+    /// "Content" folder if there is one, and the archive root otherwise, handles both without
+    /// asking the user - and getting it wrong writes the files one level off, where nothing loads
+    /// them and nothing reports why.
+    public static string? FindLooseAssetRoot(string root)
+    {
+        if (!Directory.Exists(root)) return null;
+
+        var hasCookedAssets = Directory.EnumerateFiles(root, "*.uasset", SearchOption.AllDirectories).Any()
+                           || Directory.EnumerateFiles(root, "*.umap", SearchOption.AllDirectories).Any();
+        if (!hasCookedAssets) return null;
+
+        return Directory.EnumerateDirectories(root, "Content", SearchOption.AllDirectories)
+                   .OrderBy(d => d.Length)
+                   .FirstOrDefault()
+               ?? root;
+    }
+
     public ModAnalysisResult Analyze(string modFolderPath)
     {
         var result = new ModAnalysisResult();
@@ -81,6 +102,42 @@ public class ModAnalyzerService
             return result;
         }
 
+        // Loose cooked assets: no pak and no lua script, just .uasset/.uexp laid out the way they
+        // sit inside the game's Content folder. Only considered for a game that can actually load
+        // them, so an IoStore title still reports "couldn't determine a mod type" as it should.
+        // A native DLL plugin: a .dll and usually a data folder, with no pak, no lua and no cooked
+        // assets. Checked before the loose-asset branch because a framework may ship example content
+        // alongside its DLL, and the DLL is what identifies it.
+        if (modPaks.Count == 0 && mainLua == null && _game.Profile.SupportsDllPlugins)
+        {
+            var dlls = Directory.GetFiles(modFolderPath, "*.dll", SearchOption.AllDirectories);
+            if (dlls.Length > 0)
+            {
+                result.Type = ModType.DllPlugin;
+                foreach (var f in Directory.GetFiles(modFolderPath, "*", SearchOption.AllDirectories))
+                    result.AssetPaths.Add(Path.GetRelativePath(modFolderPath, f).Replace('\\', '/'));
+
+                result.UpdateSource =
+                    _updateSources.FromManifestFolder(modFolderPath, Path.GetFileName(modFolderPath));
+                return result;
+            }
+        }
+
+        if (modPaks.Count == 0 && mainLua == null && _game.Profile.SupportsLooseAssets)
+        {
+            var looseRoot = FindLooseAssetRoot(modFolderPath);
+            if (looseRoot != null)
+            {
+                result.Type = ModType.LooseAsset;
+                foreach (var f in Directory.GetFiles(looseRoot, "*", SearchOption.AllDirectories))
+                    result.AssetPaths.Add(Path.GetRelativePath(looseRoot, f).Replace('\\', '/'));
+
+                result.UpdateSource =
+                    _updateSources.FromManifestFolder(modFolderPath, Path.GetFileName(modFolderPath));
+                return result;
+            }
+        }
+
         if (modPaks.Count == 0)
         {
             result.Type = ModType.Unknown;
@@ -88,8 +145,9 @@ public class ModAnalyzerService
             return result;
         }
 
-        // Gather the mod's full container set (.pak + .ucas + .utoc).
-        var modFiles = new[] { ".pak", ".ucas", ".utoc" }
+        // Gather the mod's full container set - a .pak/.ucas/.utoc trio on an IoStore game, or a
+        // lone .pak on UE4, where the other two do not exist and looking for them finds nothing.
+        var modFiles = _game.Profile.ContainerExtensions
             .SelectMany(ext => Directory.GetFiles(modFolderPath, "*" + ext, SearchOption.AllDirectories))
             .ToList();
 
@@ -101,7 +159,8 @@ public class ModAnalyzerService
         {
             if (!Directory.Exists(_game.PaksPath))
                 throw new DirectoryNotFoundException(
-                    $"Game Paks folder not found at {_game.PaksPath}. Can't analyze IoStore mods without the game's global.utoc.");
+                    $"Game Paks folder not found at {_game.PaksPath}. Mods are read against the game's own paks, "
+                    + "so there is nothing to analyze them alongside.");
 
             // Stage the mod's files into the real Content\Paks so its IoStore container(s) mount
             // alongside global.utoc. Prefixed so they're unmistakable, and always removed below.
@@ -130,8 +189,9 @@ public class ModAnalyzerService
             {
                 throw new InvalidOperationException(
                     "Mounted the mod's container(s) against the game but couldn't read any files from them. This " +
-                    "usually means the Unreal Engine version (Settings > EGame) doesn't match (DDS2 is GAME_UE5_3), " +
-                    "Oodle isn't available (see startup log), or the container format isn't supported.");
+                    $"usually means the Unreal Engine version (Settings > EGame) doesn't match " +
+                    $"({_game.Profile.DisplayName} is {_game.Profile.EngineVersion}), Oodle isn't available " +
+                    "(see startup log), or the container format isn't supported.");
             }
 
             result.AssetPaths = modPaths.ToList();
@@ -176,7 +236,8 @@ public class ModAnalyzerService
             result.Warnings.Add(
                 "Couldn't verify this mod's contents, so installation was blocked rather than guessing its type. " +
                 "Check that Oodle is available (see startup log), the Unreal Engine version is correct " +
-                "(Settings > EGame, DDS2 = GAME_UE5_3), and - if the mod is encrypted - an AES key is set.");
+                $"(Settings > EGame, {_game.Profile.DisplayName} = {_game.Profile.EngineVersion}), and - if the " +
+                "mod is encrypted - an AES key is set.");
         }
         finally
         {

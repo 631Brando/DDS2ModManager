@@ -22,11 +22,15 @@ public class TrustGateTests
     [Fact]
     public void There_is_no_setting_that_installs_mod_updates_without_asking()
     {
-        var suspicious = typeof(AppSettings)
-            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+        // Both halves of the settings object. Splitting the per-game fields out into GameSettings
+        // opened a hole this gate could not see through: a re-added "AutoInstallTrustedUpdates"
+        // would most naturally land on the per-game side, and scanning only AppSettings would have
+        // waved it straight past.
+        var suspicious = new[] { typeof(AppSettings), typeof(GameSettings) }
+            .SelectMany(t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
             .Where(p => p.Name.Contains("AutoInstall", StringComparison.OrdinalIgnoreCase)
                      || p.Name.Contains("Silent", StringComparison.OrdinalIgnoreCase))
-            .Select(p => p.Name)
+            .Select(p => $"{p.DeclaringType!.Name}.{p.Name}")
             .ToList();
 
         Assert.True(suspicious.Count == 0,

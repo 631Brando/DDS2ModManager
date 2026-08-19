@@ -18,6 +18,9 @@
             <StackPanel>
                 <TextBlock Text="Settings" FontSize="20" FontWeight="Bold" Margin="0,0,0,16"/>
 
+                <TextBlock x:Name="GameScopeText" FontSize="11" FontStyle="Italic"
+                           Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+
                 <TextBlock Text="Game folder override" FontWeight="SemiBold" Margin="0,0,0,4"/>
                 <TextBlock Text="Leave blank to auto-detect via Steam on every startup." FontSize="11"
                            Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" TextWrapping="Wrap"/>
@@ -33,9 +36,16 @@
                 </Grid>
 
                 <TextBlock Text="Unreal Engine version (CUE4Parse EGame)" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                <TextBlock Text="DDS2 currently runs UE 5.3.2 -&gt; GAME_UE5_3. Only change this if the game updates to a newer engine version."
+                <TextBlock Text="Each game already knows its own engine version - DDS2 is UE 5.3, DDS1 is UE 4.21. Only change this if a game updates to a newer engine than this build expects; leaving it as shown keeps following the game."
                            FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" TextWrapping="Wrap"/>
                 <ComboBox x:Name="EGameCombo" IsEditable="True" Padding="8" Margin="0,0,0,16">
+                    <ComboBoxItem Content="GAME_UE4_21"/>
+                    <ComboBoxItem Content="GAME_UE4_22"/>
+                    <ComboBoxItem Content="GAME_UE4_23"/>
+                    <ComboBoxItem Content="GAME_UE4_24"/>
+                    <ComboBoxItem Content="GAME_UE4_25"/>
+                    <ComboBoxItem Content="GAME_UE4_26"/>
+                    <ComboBoxItem Content="GAME_UE4_27"/>
                     <ComboBoxItem Content="GAME_UE5_0"/>
                     <ComboBoxItem Content="GAME_UE5_1"/>
                     <ComboBoxItem Content="GAME_UE5_2"/>
@@ -66,7 +76,7 @@
                          Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,16"/>
 
                 <CheckBox x:Name="AutoCheckBox" Content="Automatically check for UE4SS updates on startup" Margin="0,0,0,8"/>
-                <CheckBox x:Name="AutoCheckAppUpdateBox" Content="Automatically check for DDS2 Mod Manager updates on startup" Margin="0,0,0,8"/>
+                <CheckBox x:Name="AutoCheckAppUpdateBox" Content="Automatically check for DDS Mod Manager updates on startup" Margin="0,0,0,8"/>
                 <CheckBox x:Name="AutoCheckModUpdateBox" Content="Automatically check installed mods for updates on startup" Margin="0,0,0,4"/>
                 <TextBlock Text="Only mods that publish an update address are checked. Those updates come from the mod author's own repository rather than Nexus, so nothing is ever downloaded or installed without asking you first — whether you trust the author or not."
                            FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="24,0,0,10"/>
@@ -94,7 +104,7 @@
                            Foreground="{StaticResource WarningBrush}" Visibility="Collapsed"/>
 
                 <TextBlock Text="Windows integration" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                <CheckBox x:Name="ContextMenuBox" Content="Add 'Open with DDS2 Mod Manager' to the right-click menu for .zip/.7z/.rar files"
+                <CheckBox x:Name="ContextMenuBox" Content="Add 'Open with DDS Mod Manager' to the right-click menu for .zip/.7z/.rar files"
                           Margin="0,0,0,8" Click="ContextMenu_Toggled"/>
                 <CheckBox x:Name="StartMenuBox" Content="Add a Start Menu shortcut"
                           Margin="0,0,0,8" Click="StartMenu_Toggled"/>
@@ -127,7 +137,7 @@
                 <Button Content="Reset App Data..." Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
                         Foreground="{StaticResource ErrorBrush}" Padding="10,5" FontSize="12" Click="ResetAppData_Click" Margin="0,0,0,8"/>
 
-                <Button Content="Uninstall DDS2 Mod Manager..." Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
+                <Button Content="Uninstall DDS Mod Manager..." Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
                         Foreground="{StaticResource ErrorBrush}" Padding="10,5" FontSize="12" Click="Uninstall_Click"/>
             </StackPanel>
         </ScrollViewer>

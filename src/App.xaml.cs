@@ -21,9 +21,9 @@ public partial class App : Application
         if (e.Args.Any(a => string.Equals(a, "--uninstall", StringComparison.OrdinalIgnoreCase)))
         {
             var result = MessageBox.Show(
-                "Uninstall DDS2 Mod Manager?\n\nThis removes the installed program and its shortcuts. Your settings, " +
+                $"Uninstall {AppPaths.AppDisplayName}?\n\nThis removes the installed program and its shortcuts. Your settings, " +
                 "mod tracking, logs, and any disabled-mod files stay in %AppData%\\DDS2ModManager in case you reinstall later.",
-                "Uninstall DDS2 Mod Manager", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                $"Uninstall {AppPaths.AppDisplayName}", MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (result == MessageBoxResult.Yes)
                 AppUninstaller.Run();
 
@@ -53,7 +53,7 @@ public partial class App : Application
                 _lastExceptionDialogAt = now;
                 MessageBox.Show(
                     $"{args.Exception.Message}\n\nThis has been logged. If it keeps happening, use Settings > Reset App Data to clear cached state.",
-                    "DDS2 Mod Manager - Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    $"{AppPaths.AppDisplayName} - Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
 
             args.Handled = true;

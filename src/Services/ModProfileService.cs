@@ -25,6 +25,16 @@ public class ModProfile
     public DateTime SavedUtc { get; set; } = DateTime.UtcNow;
     public string ManagerVersion { get; set; } = "";
     public string GameVersion { get; set; } = "";
+
+    /// Which game this profile describes (a GameProfile.Id). Makes an exported list self-describing
+    /// once more than one game is manageable.
+    ///
+    /// Additive on purpose, and Schema deliberately stays 1: Read() rejects any profile whose Schema
+    /// exceeds SupportedSchema, so bumping it for a new optional field would make every profile
+    /// written from now on unreadable by the previous build, for no gain. An older profile has no
+    /// GameId and renders exactly as it always did.
+    public string GameId { get; set; } = "";
+
     public List<ProfileMod> Mods { get; set; } = new();
 
     public const int SupportedSchema = 1;
@@ -46,11 +56,19 @@ public class ModProfile
 public class ModProfileService
 {
     private readonly string _dir;
+    private readonly string _gameId;
 
-    public ModProfileService()
+    /// Profiles are per game install: a DDS2 load order means nothing applied to DDS1, and without
+    /// scoping two games both holding a profile called "Main" would overwrite each other's file.
+    public ModProfileService(GameInstallation game)
+        : this(AppPaths.ProfilesFor(game.RootPath), game.Profile.Id) { }
+
+    /// Explicit folder, for tests. Without this a test run writes into the user's real profile
+    /// folder, which is both a surprise and a way for a test to delete something they wanted.
+    public ModProfileService(string directory, string gameId = "")
     {
-        _dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DDS2ModManager", "Profiles");
+        _dir = directory;
+        _gameId = gameId;
         Directory.CreateDirectory(_dir);
     }
 
@@ -105,6 +123,7 @@ public class ModProfileService
             Name = name,
             ManagerVersion = managerVersion,
             GameVersion = gameVersion,
+            GameId = _gameId,
             Mods = mods.Select(m => new ProfileMod
             {
                 Name = m.Name,
@@ -112,7 +131,13 @@ public class ModProfileService
                 Enabled = m.IsEnabled,
                 Version = m.InstalledVersion,
                 UpdateUrl = m.ModUpdateUrl ?? "",
-                NexusModId = m.NexusInfo?.ModId ?? 0
+                // The user's declaration first, the name match second - same order as the resolver.
+                // Any non-null link ENDS the chain: a "NoPage" link carries ModId 0, and falling
+                // through to the matched id there would export the very guess the user rejected.
+                //
+                // Write-only, and no domain of its own: ModProfile.GameId qualifies it. Nothing in
+                // this repo reads it back, and nothing may ever restore it as a link.
+                NexusModId = m.NexusLink is { } link ? link.ModId : (m.NexusInfo?.ModId ?? 0)
             }).ToList()
         };
 
@@ -205,7 +230,9 @@ public class ModProfileService
     {
         var lines = new List<string>
         {
-            $"DDS2 mod list - {profile.Name}",
+            // Named from the profile so a shared list says which game it is for. A profile written
+            // before GameId existed has none, and falls back to the original wording exactly.
+            $"{GameProfiles.ById(profile.GameId)?.ShortName ?? GameProfiles.Default.ShortName} mod list - {profile.Name}",
             $"Saved {profile.SavedDisplay}   Manager {profile.ManagerVersion}   Game {profile.GameVersion}",
             $"{profile.Summary}",
             ""

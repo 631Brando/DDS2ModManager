@@ -1,17 +1,29 @@
 # Making your mod updatable
 
-DDS2 Mod Manager can check your mod for updates and install them for your users, without them
+DDS Mod Manager can check your mod for updates and install them for your users, without them
 having to visit a page and re-download anything by hand.
 
 This is entirely opt-in. You tell the manager where your releases live; it does the rest. If you
 don't set anything up, nothing changes and your mod works exactly as it does today.
+
+**Applies to both games.** Everything below works the same for Drug Dealer Simulator and Drug
+Dealer Simulator 2.
+
+> **`.dds2mod.json` still works everywhere, and always will.** The app is now called DDS Mod Manager
+> rather than DDS2 Mod Manager, but the manifest was NOT renamed out from under anyone: renaming it
+> would stop every mod that already ships one from declaring an update source, and the only symptom
+> would be that updates quietly stop appearing.
+>
+> If shipping a file with "dds2" in the name bothers you on a DDS1 mod, `.ddsmod.json` is accepted
+> as an exact equivalent. Both names are read everywhere, on both games, with `.dds2mod.json`
+> checked first. Use whichever you prefer — there is nothing to migrate either way.
 
 ## The short version
 
 Publish your mod's files as **GitHub releases**, then point the manager at the repository:
 
 - **LogicMods** — add a `ModUpdateUrl` string variable to your `ModActor` Blueprint
-- **Lua and patch mods** — ship a `.dds2mod.json` file with your mod
+- **Lua, patch, loose-asset and DLL-plugin mods** — ship a `.dds2mod.json` file with your mod
 
 That's it. Users get an "Update to v1.3.0" button, see your release notes, and choose whether to
 install.
@@ -111,11 +123,12 @@ it can't get separated from the mod.
 Leave the variable blank and nothing happens — Unreal doesn't write out values that match the
 default, so a blank `ModUpdateUrl` reads exactly like not having one.
 
-## Lua and patch mods: `.dds2mod.json`
+## Lua, patch, loose-asset and DLL mods: `.dds2mod.json`
 
 Ship a file called `.dds2mod.json` alongside your mod's files. For a Lua mod that's your mod's
 own folder; for a patch mod it sits next to your `.pak`, named after it
-(`YourMod.pak` → `YourMod.dds2mod.json`).
+(`YourMod.pak` → `YourMod.dds2mod.json`). For a loose-asset or DLL-plugin mod, put it at the top
+level of your archive.
 
 ```json
 {
@@ -134,7 +147,8 @@ own folder; for a patch mod it sits next to your `.pak`, named after it
 | `version` | in practice, yes | Your current version. Without it no update is ever offered — see below. |
 | `schema` | no | Manifest format version. Leave it at `1`. |
 | `asset` | no | Which release file to download — see below. |
-| `name`, `author`, `description` | no | Recorded, but not currently shown anywhere. |
+| `name` | no | What the mod is called. Overrides the name the manager would otherwise work out from your `.pak`, your folder or your `.dll` — worth setting if those don't match your mod's real name. |
+| `author`, `description` | no | Recorded, but not currently shown anywhere. |
 
 Field names are matched ignoring case, so `updateUrl` and `UpdateUrl` both work. The older spelling
 `modUpdateUrl` is still read, so manifests published before this was renamed keep working. `//`

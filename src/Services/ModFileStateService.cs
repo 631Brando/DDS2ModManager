@@ -28,6 +28,23 @@ public static class ModFileStateService
     /// Walks everything a mod owns. InstallFiles holds loose files for pak mods and a directory
     /// for lua mods, so both shapes have to be handled - a directory is expanded, a file is taken
     /// as it is.
+    /// A file's path relative to where the mod's files live, falling back to the bare filename when
+    /// the two are unrelated (different roots, or no install path recorded).
+    private static string RelativeKey(ModInfo mod, string file)
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(mod.InstallPath))
+            {
+                var rel = Path.GetRelativePath(mod.InstallPath, file);
+                if (!rel.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(rel)) return rel;
+            }
+        }
+        catch { /* unrelated roots - fall through */ }
+
+        return Path.GetFileName(file);
+    }
+
     public static ModFileFingerprint Capture(ModInfo mod)
     {
         var print = new ModFileFingerprint();
@@ -43,7 +60,15 @@ public static class ModFileStateService
                 }
                 else if (File.Exists(entry))
                 {
-                    Add(print, Path.GetFileName(entry), entry);
+                    // Keyed on the path relative to the mod's install root, not the bare filename.
+                    //
+                    // A pak mod's files sit directly in InstallPath, so this is identical to the
+                    // filename and nothing changes. A loose-asset mod's files span Content\<Category>\
+                    // subfolders where the SAME filename under two categories is completely normal -
+                    // keyed on the filename those two collapse into one entry, so the fingerprint
+                    // silently describes fewer files than the mod owns and drift in the shadowed one
+                    // can never be detected.
+                    Add(print, RelativeKey(mod, entry), entry);
                 }
             }
             catch (Exception ex)
@@ -92,6 +117,15 @@ public static class ModFileStateService
         if (mod.Fingerprint is not { Files.Count: > 0 } recorded) return empty;
 
         var now = Capture(mod);
+
+        // Every recorded file gone is the loudest drift there is, not a reason to report nothing.
+        //
+        // Capture() returns an empty fingerprint when none of a mod's files can be found, and the
+        // guard above then treats the NEXT comparison as "nothing recorded" - so a mod whose files
+        // vanished had its drift check permanently disarmed, silently. Five rows in one real
+        // registry were already in that state.
+        if (now.Files.Count == 0)
+            return new Drift(new(), recorded.Files.Keys.ToList(), new());
 
         var modified = new List<string>();
         var missing = new List<string>();

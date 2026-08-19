@@ -15,6 +15,19 @@ public class TrustedNexusAuthor
 
     [JsonPropertyName("addedBy")]
     public string? AddedBy { get; set; }
+
+    /// Which games this author is recommended for, by GameProfile.Id ("dds1", "dds2").
+    ///
+    /// **Absent or empty means every game**, which is what makes this change safe in both
+    /// directions: the list already published has no such field, so a new build reading it behaves
+    /// exactly as before, and an older build reading a new file simply ignores the property. Nobody
+    /// has to update anything for either to keep working.
+    [JsonPropertyName("games")]
+    public List<string>? Games { get; set; }
+
+    public bool AppliesTo(string? gameId) =>
+        Games == null || Games.Count == 0
+        || (gameId != null && Games.Any(g => string.Equals(g, gameId, StringComparison.OrdinalIgnoreCase)));
 }
 
 /// The curated list of Nexus authors behind the Trusted Mods page.
@@ -46,12 +59,21 @@ public class TrustedNexusAuthorList
 
     public const int SupportedSchema = 1;
 
-    public bool Contains(string? uploader) =>
-        !string.IsNullOrWhiteSpace(uploader)
-        && Authors.Any(a => string.Equals(a.Name, uploader, StringComparison.OrdinalIgnoreCase));
+    /// Whether this uploader is recommended for the given game.
+    ///
+    /// gameId is required rather than optional on purpose: the Trusted Mods page filters ONE game's
+    /// catalogue, and an unscoped check would put a DDS2-only author in front of a DDS1 player as
+    /// though the maintainers had recommended them there.
+    public bool Contains(string? uploader, string? gameId) => Find(uploader, gameId) != null;
 
-    public TrustedNexusAuthor? Find(string? uploader) =>
-        Authors.FirstOrDefault(a => string.Equals(a.Name, uploader, StringComparison.OrdinalIgnoreCase));
+    public TrustedNexusAuthor? Find(string? uploader, string? gameId) =>
+        string.IsNullOrWhiteSpace(uploader)
+            ? null
+            : Authors.FirstOrDefault(a =>
+                string.Equals(a.Name, uploader, StringComparison.OrdinalIgnoreCase) && a.AppliesTo(gameId));
+
+    /// Everyone recommended for one game.
+    public IEnumerable<TrustedNexusAuthor> ForGame(string? gameId) => Authors.Where(a => a.AppliesTo(gameId));
 
     /// Compiled into the build so the page works on a machine that has never reached GitHub.
     ///
@@ -62,9 +84,12 @@ public class TrustedNexusAuthorList
     {
         Authors =
         {
-            new TrustedNexusAuthor { Name = "brando136", Note = "Creator and maintainer of DDS2 Mod Manager." },
-            new TrustedNexusAuthor { Name = "mifsopo", Note = "Contributor to DDS2 Mod Manager." },
-            new TrustedNexusAuthor { Name = "huslaa", Note = "Long-running DDS2 modding tools and gameplay mods." }
+            new TrustedNexusAuthor { Name = "brando136", Note = "Creator and maintainer of DDS Mod Manager." },
+            new TrustedNexusAuthor { Name = "mifsopo", Note = "Contributor to DDS Mod Manager." },
+
+            // Publishes a mod installer and gameplay mods for BOTH games, as two separate products.
+            // Listed without a games filter, which means both - see TrustedNexusAuthor.Games.
+            new TrustedNexusAuthor { Name = "huslaa", Note = "Long-running modding tools and gameplay mods." }
         }
     };
 }

@@ -2,29 +2,52 @@ using Microsoft.Win32;
 
 namespace DDS2ModManager.Services;
 
-/// Finds the DDS2 install by scanning every Steam library folder (default + any added
+/// Finds supported game installs by scanning every Steam library folder (default + any added
 /// via Steam's "Storage Manager"). Falls back to letting the user browse manually.
 public class GameDetectionService
 {
-    private const string GameFolderName = "Drug Dealer Simulator 2";
-
-    public GameInstallation? TryAutoDetect()
+    /// Every supported game that is actually installed, in GameProfiles order.
+    ///
+    /// The profile is assigned rather than inferred: detection knows which game it went looking
+    /// for, and that is more trustworthy than guessing from a folder name afterwards.
+    public IReadOnlyList<GameInstallation> DetectAll()
     {
         var log = LoggingService.Instance;
-        log.Info("Searching Steam libraries for Drug Dealer Simulator 2...");
+        var found = new List<GameInstallation>();
 
-        foreach (var lib in GetSteamLibraryFolders())
+        // Materialised once: the library list involves a registry read and a file parse, and
+        // repeating that per game would triple the work to reach the same answer.
+        var libraries = GetSteamLibraryFolders().ToList();
+        if (libraries.Count == 0) return found;
+
+        foreach (var profile in GameProfiles.All)
         {
-            var candidate = Path.Combine(lib, "steamapps", "common", GameFolderName);
-            var install = new GameInstallation { RootPath = candidate };
-            if (install.IsValid)
+            foreach (var lib in libraries)
             {
-                log.Success($"Found game at: {candidate}");
-                return install;
+                var candidate = Path.Combine(lib, "steamapps", "common", profile.SteamFolderName);
+                var install = new GameInstallation { RootPath = candidate, Profile = profile };
+                if (!install.IsValid) continue;
+
+                log.Success($"Found {profile.DisplayName} at: {candidate}");
+                found.Add(install);
+                break; // first library holding this game wins; the same game can't be installed twice
             }
         }
 
-        log.Warn("Could not auto-detect the game. Please browse for the install folder manually.");
+        return found;
+    }
+
+    /// The install to open on startup when nothing else is remembered. DDS2 comes first in
+    /// GameProfiles, so a machine with both keeps opening on DDS2 as it always has.
+    public GameInstallation? TryAutoDetect()
+    {
+        var log = LoggingService.Instance;
+        log.Info("Searching Steam libraries for supported games...");
+
+        var all = DetectAll();
+        if (all.Count > 0) return all[0];
+
+        log.Warn("Could not auto-detect a supported game. Please browse for the install folder manually.");
         return null;
     }
 

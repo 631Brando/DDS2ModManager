@@ -5,9 +5,22 @@ namespace DDS2ModManager.Tests;
 /// This decides which of the user's mods get switched on and off, so the two things that matter
 /// are that it never touches a mod the profile didn't mention, and that it never tries to act on
 /// a mod that isn't installed.
-public class ModProfileTests
+public class ModProfileTests : IDisposable
 {
-    private readonly ModProfileService _service = new();
+    // An explicit temp folder, not the default. These tests only exercise Plan(), which touches no
+    // files - but constructing the service creates its directory, and the default is now the real
+    // per-game profiles folder under %AppData%. A test run has no business creating folders there.
+    private readonly string _dir =
+        Path.Combine(Path.GetTempPath(), "dds_profiles_" + Guid.NewGuid().ToString("N")[..8]);
+
+    private readonly ModProfileService _service;
+
+    public ModProfileTests() => _service = new ModProfileService(_dir);
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_dir, true); } catch { }
+    }
 
     private static ModInfo Mod(string name, ModType type, bool enabled) =>
         new() { Name = name, Type = type, IsEnabled = enabled, IsInstalled = true };
@@ -143,5 +156,59 @@ public class ModProfileTests
         Assert.Contains("Scooter", text);
         Assert.Contains("1.0.6", text);
         Assert.Contains("v1.0.0", text);
+    }
+
+    // ---- the exported Nexus id agrees with what the app is showing --------------------------------
+
+    /// A profile records the id the manager actually resolved, which for a linked mod is the user's
+    /// declaration and not the name match. Same precedence as NexusModMatcher.Resolve, so the
+    /// exported file cannot disagree with the row it was captured from.
+    [Fact]
+    public void A_declared_link_is_what_gets_exported()
+    {
+        var mod = new ModInfo
+        {
+            Name = "AERR",
+            Type = ModType.DllPlugin,
+            NexusLink = new NexusModLink { ModId = 79, GameDomain = "drugdealersimulator" }
+        };
+
+        var profile = _service.Capture("p", [mod], "1.2.0", "1.0.0");
+
+        Assert.Equal(79, profile.Mods.Single().NexusModId);
+    }
+
+    /// "This mod has no Nexus page" carries ModId 0, and falling through to a match there would
+    /// export the very guess the user rejected.
+    [Fact]
+    public void A_no_page_declaration_exports_nothing_even_when_a_match_exists()
+    {
+        var mod = new ModInfo
+        {
+            Name = "Bigger Packages",
+            Type = ModType.PatchMod,
+            NexusInfo = new NexusModPost { ModId = 110, Name = "Bigger Packages" },
+            NexusLink = new NexusModLink { Kind = NexusLinkKind.NoPage, GameDomain = "drugdealersimulator" }
+        };
+
+        var profile = _service.Capture("p", [mod], "1.2.0", "1.0.0");
+
+        Assert.Equal(0, profile.Mods.Single().NexusModId);
+    }
+
+    /// Unchanged for every mod that has no link, which is almost all of them.
+    [Fact]
+    public void A_name_matched_mod_still_exports_its_matched_id()
+    {
+        var mod = new ModInfo
+        {
+            Name = "Bigger Packages",
+            Type = ModType.PatchMod,
+            NexusInfo = new NexusModPost { ModId = 110, Name = "Bigger Packages" }
+        };
+
+        var profile = _service.Capture("p", [mod], "1.2.0", "1.0.0");
+
+        Assert.Equal(110, profile.Mods.Single().NexusModId);
     }
 }

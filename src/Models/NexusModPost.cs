@@ -42,7 +42,13 @@ public class NexusModPost
     /// reports it deprecated in favour of that one.
     public bool Adult { get; set; }
 
-    public string Url => $"https://www.nexusmods.com/{GameDomain}/mods/{ModId}";
+    public string Url => UrlFor(GameDomain, ModId);
+
+    /// The one place a Nexus mod-page address is composed. Two copies of this drift the moment
+    /// Nexus changes a path segment, and a declared link needs the same address a matched post
+    /// produces or the two disagree about the same mod.
+    public static string UrlFor(string gameDomain, int modId) =>
+        $"https://www.nexusmods.com/{gameDomain}/mods/{modId}";
 
     /// "3 days ago" reads better than a timestamp on a banner that is about newness.
     public string AgeDisplay

@@ -1,13 +1,34 @@
-# DDS2 Mod Manager
+# DDS Mod Manager
 
-A mod installer/manager/compatibility-checker for Drug Dealer Simulator 2, built with
-WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
+A mod installer/manager/compatibility-checker for **Drug Dealer Simulator** and **Drug Dealer
+Simulator 2**, built with WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
+
+## Two games, one manager
+
+Tabs across the top switch between them. Each game keeps its own tracked mods, disabled mods,
+profiles, history, backups, settings and Nexus catalogue — nothing is shared, so managing one can
+never disturb the other.
+
+They are not variants of each other, and the manager treats them differently where it matters:
+
+|                 | Drug Dealer Simulator                       | Drug Dealer Simulator 2                  |
+|-----------------|---------------------------------------------|------------------------------------------|
+| Engine          | UE 4.21                                     | UE 5.3                                   |
+| Mod containers  | a single `.pak`                             | `.pak` + `.ucas` + `.utoc`, together     |
+| Loose `.uasset` | **yes — how most DDS1 mods ship**           | not possible (IoStore)                   |
+| Mod loader      | UnrealModLoader + UnrealModUnlocker         | UE4SS (experimental build)               |
+| Saves           | `Saved\Serialized\`                         | `Saved\SaveGames\Cartels\`              |
+
+**A note for DDS1 users:** this manager will not install UE4SS for you. DDS1 needs a build made for
+its engine version, and the ones published as downloads crash it on startup. Whatever loader you
+already have is detected and worked with as-is.
 
 ## What it does
 
-- Auto-detects your DDS2 install by scanning Steam library folders (or lets you browse manually).
-- Detects UE4SS and warns if it isn't installed, or if it wasn't installed by this tool
-  (in which case we can't confirm it's the **experimental** build the game needs).
+- Auto-detects your installs by scanning Steam library folders (or lets you browse manually).
+- Detects the mod loaders each game actually has — UE4SS in either of its two on-disk layouts,
+  UnrealModLoader, and UnrealModUnlocker — and says when the one your mods depend on is missing.
+  On DDS1 that matters: loose-asset mods simply do nothing without the unlocker, with no error.
 - Installs UE4SS directly from the `experimental-latest` GitHub release, correctly
   filtering out `zCustomGameConfigs.zip`, `zDEV-*.zip`, `zMapGenBP.zip`, and the source
   archives — only the real `UE4SS_v*.zip` asset is downloaded.
@@ -368,6 +389,15 @@ SharpCompress and Microsoft.Bcl.Memory (MIT).
 The MIT license covers the code in this repository. It does **not** cover
 `src/Assets/mappings.usmap`, which is generated from Drug Dealer Simulator 2's own type
 information and belongs to the game's authors — see the note in the build steps above.
+(DDS1 needs no mappings file: UE 4.21 assets carry their own property tags.)
+
+## Repository name vs app name
+
+The app displays **DDS Mod Manager**, since it handles both games. The repository, the assembly, the
+`%AppData%\DDS2ModManager` folder, the release asset `DDS2ModManager.exe` and the registry keys all
+keep their original names on purpose — installed copies look for those exact names, and the updater
+matches its release asset by filename. Renaming that asset would tell every existing install
+"you're on the latest version" forever. `RebrandCompatibilityTests` pins each one.
 
 ## Project layout
 

@@ -35,7 +35,7 @@ public partial class UpdateAvailableWindow : Window
 
             case AppUpdateService.VersionChange.SupersedingPreview:
                 Title = "Update available";
-                HeaderText.Text = $"DDS2 Mod Manager {newVersion} is available";
+                HeaderText.Text = $"{AppPaths.AppDisplayName} {newVersion} is available";
                 VersionText.Text =
                     $"You're on v{currentVersionText}, an experimental preview of {newVersion}. {newVersion} is the "
                     + "finished release it was previewing, so this moves you forward — it has everything your "
@@ -43,7 +43,7 @@ public partial class UpdateAvailableWindow : Window
                 break;
 
             default:
-                HeaderText.Text = $"DDS2 Mod Manager {newVersion} is available";
+                HeaderText.Text = $"{AppPaths.AppDisplayName} {newVersion} is available";
                 VersionText.Text = $"You're currently on v{currentVersionText}. Updating downloads the new version and restarts the app.";
                 break;
         }

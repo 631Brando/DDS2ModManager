@@ -168,7 +168,7 @@
             <Button Content="Refresh" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
                     Margin="0,0,8,0" Click="Refresh_Click"
                     ToolTip="Re-fetches the author list and the mods from Nexus."/>
-            <Button Content="Browse all DDS2 mods" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
+            <Button Content="Browse all Mods" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12"
                     Margin="0,0,8,0" Click="OpenGame_Click"
                     ToolTip="Opens Nexus, where you can see everything published for the game - not only these authors."/>
             <TextBlock x:Name="CountText" VerticalAlignment="Center" FontSize="11"

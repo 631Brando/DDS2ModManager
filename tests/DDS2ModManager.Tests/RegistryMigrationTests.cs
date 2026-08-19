@@ -122,4 +122,65 @@ public class RegistryMigrationTests
         Assert.Equal(ModUpdateDeclaration.BlueprintVariable, restored.UpdateSource.Declaration);
         Assert.False(restored.UpdateUrlChanged);
     }
+
+    /// The user's declared Nexus link has to survive a restart, through a REAL ModRegistryService.
+    ///
+    /// This is the one test that catches the two silent ways to lose it: declaring NexusModLink's
+    /// members as fields (System.Text.Json ignores public fields unless IncludeFields is set, and
+    /// the registry's options do not set it, so the record would round-trip as {}), and copying a
+    /// [property: JsonIgnore] onto ModInfo.NexusLink from the runtime-only fields beside it. Both
+    /// leave the link working all session and gone next launch, with no error anywhere.
+    [Fact]
+    public void A_declared_nexus_link_survives_a_round_trip_through_the_registry()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "dds_reg_" + Guid.NewGuid().ToString("N")[..8] + ".json");
+
+        try
+        {
+            var registry = new ModRegistryService(path);
+            registry.Upsert(new ModInfo
+            {
+                Name = "AERR",
+                Type = ModType.DllPlugin,
+                NexusLink = new NexusModLink
+                {
+                    ModId = 79, GameDomain = "drugdealersimulator", Kind = NexusLinkKind.Linked
+                }
+            });
+
+            // The enum must be written by NAME. ModRegistryService passes a JsonStringEnumConverter;
+            // if that ever goes, the value becomes a pinned ordinal and appending a member remaps
+            // every link on disk - the ModType hazard, arriving somewhere new.
+            Assert.Contains("\"Linked\"", File.ReadAllText(path));
+
+            var restored = new ModRegistryService(path).Mods.Single();
+
+            Assert.NotNull(restored.NexusLink);
+            Assert.Equal(79, restored.NexusLink!.ModId);
+            Assert.Equal("drugdealersimulator", restored.NexusLink.GameDomain);
+            Assert.Equal(NexusLinkKind.Linked, restored.NexusLink.Kind);
+            Assert.True(restored.HasExplicitNexusLink);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { }
+        }
+    }
+
+    /// Every registry already on a user's disk has no such member. It must load as "no link", not
+    /// as an empty one - the registry has no schema and degrades by dropping unknown members, so a
+    /// downgrade is silent in the other direction too.
+    [Fact]
+    public void A_registry_written_before_links_existed_loads_with_no_link()
+    {
+        const string json = """
+        [ { "Id": "abc", "Name": "Old", "Type": "LogicMod", "IsEnabled": true } ]
+        """;
+
+        var restored = JsonSerializer.Deserialize<List<ModInfo>>(json, Options)!.Single();
+
+        Assert.Null(restored.NexusLink);
+        Assert.False(restored.HasExplicitNexusLink);
+        Assert.Equal("Old", restored.Name);
+    }
 }

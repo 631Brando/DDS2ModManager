@@ -15,8 +15,24 @@ namespace DDS2ModManager.Services;
 /// decision to the user - the alternative would be disabling working mods on a guess.
 public class GameVersionWatchService
 {
-    /// The game's own executable, relative to the install root.
-    private const string GameExeRelative = @"DrugDealerSimulator2\Binaries\Win64\DrugDealerSimulator2-Win64-Shipping.exe";
+    /// The game's shipping executable.
+    ///
+    /// Derived from the detected project folder rather than hardcoded. It used to be the literal
+    /// DDS2 path, which failed in the worst possible way on any other game: Read() returned null,
+    /// the caller returned early, and the "the game was patched, check your mods" warning - the
+    /// single most useful diagnostic when a mod suddenly breaks - simply never fired, with nothing
+    /// anywhere reporting that it had been switched off.
+    private static string? FindShippingExe(GameInstallation game)
+    {
+        if (!Directory.Exists(game.Win64Path)) return null;
+
+        var expected = Path.Combine(game.Win64Path, $"{game.ProjectName}-Win64-Shipping.exe");
+        if (File.Exists(expected)) return expected;
+
+        // Fall back to whatever shipping exe is present: the executable is not obliged to be named
+        // after the project folder, and finding the wrong-named one still beats finding none.
+        return Directory.EnumerateFiles(game.Win64Path, "*-Win64-Shipping.exe").FirstOrDefault();
+    }
 
     /// What the game looked like last time. A version string where one exists, otherwise the
     /// exe's size and write time - plenty of Unreal shipping builds carry no file version at all,
@@ -37,8 +53,8 @@ public class GameVersionWatchService
     {
         try
         {
-            var exe = Path.Combine(game.RootPath, GameExeRelative);
-            if (!File.Exists(exe)) return null;
+            var exe = FindShippingExe(game);
+            if (exe == null) return null;
 
             var info = new FileInfo(exe);
             var version = FileVersionInfo.GetVersionInfo(exe).FileVersion ?? "";

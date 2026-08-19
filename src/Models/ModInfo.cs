@@ -115,8 +115,10 @@ public partial class ModInfo : ObservableObject
 
     // ---- the user's own annotations ----------------------------------------------------------
     //
-    // Both persist in the registry and belong to the USER, not to the mod. Nothing here is read
-    // from a mod's files, so a reinstall or an update never overwrites them.
+    // IsFavourite, Notes, Tags and NexusLink. All four persist in the registry and belong to the
+    // USER, not to the mod. Nothing here is read from a mod's files, so a reinstall or an update
+    // never overwrites them - MainViewModel's update path carries them across explicitly, because
+    // that is the one place a ModInfo is REPLACED by a different object.
 
     /// Starred, so it sorts to the top and is easy to find in a long list.
     [ObservableProperty] private bool isFavourite;
@@ -147,6 +149,21 @@ public partial class ModInfo : ObservableObject
     [JsonIgnore]
     public IEnumerable<string> TagList =>
         (Tags ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// The Nexus page the user declared for this mod, when name matching cannot reach it.
+    ///
+    /// No [property: JsonIgnore] - that absence IS the persistence, and copying one from the
+    /// runtime-only fields further down would produce a link that works all session and is gone
+    /// next launch. Written by the link dialog and by nothing else; see the note on
+    /// MainViewModel.OnModAnnotationChanged for why nothing may ever pre-fill it from a match.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasExplicitNexusLink))]
+    [NotifyPropertyChangedFor(nameof(HasNexusPage))]
+    [NotifyPropertyChangedFor(nameof(NexusPageUrl))]
+    [NotifyPropertyChangedFor(nameof(CanEditNexusLink))]
+    private NexusModLink? nexusLink;
+
+    [JsonIgnore] public bool HasExplicitNexusLink => NexusLink is { IsUsable: true };
 
     // ---- what this mod's files looked like -----------------------------------------------------
 
@@ -196,12 +213,36 @@ public partial class ModInfo : ObservableObject
     /// Runtime only, never persisted: the Nexus catalogue is already cached by NexusIndexService,
     /// so storing a copy per mod would be a second source of truth that goes stale on its own.
     /// Null is the normal case for anything unpublished, and reads as "no card", not as an error.
+    /// The extra notifies are mandatory rather than tidy-up: matching is asynchronous, so without
+    /// them the row's Nexus button would never appear for a mod matched AFTER the row was bound.
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasNexusInfo))]
+    [NotifyPropertyChangedFor(nameof(HasNexusPage))]
+    [NotifyPropertyChangedFor(nameof(NexusPageUrl))]
+    [NotifyPropertyChangedFor(nameof(CanEditNexusLink))]
     [property: JsonIgnore]
     private NexusModPost? nexusInfo;
 
     [JsonIgnore] public bool HasNexusInfo => NexusInfo != null;
+
+    /// The picture belongs to the POST, not to the row. Row_ToolTipOpening short-circuits on a
+    /// non-null thumbnail, so without this, re-pointing a link shows the PREVIOUS mod's picture
+    /// above the new mod's title - the stranger's-picture failure, arriving through the very path
+    /// that exists to correct it.
+    ///
+    /// Changing, not Changed: the picture has to be gone before the new name lands.
+    partial void OnNexusInfoChanging(NexusModPost? oldValue, NexusModPost? newValue)
+    {
+        if (!SameNexusTarget(oldValue, newValue)) NexusThumbnail = null;
+    }
+
+    /// Id AND domain - the same reason NexusImageCache keys its files on both.
+    private static bool SameNexusTarget(NexusModPost? a, NexusModPost? b) =>
+        a is null
+            ? b is null
+            : b is not null
+              && a.ModId == b.ModId
+              && string.Equals(a.GameDomain, b.GameDomain, StringComparison.OrdinalIgnoreCase);
 
     /// This mod's Nexus picture, once it has been fetched and decoded.
     ///
@@ -231,6 +272,25 @@ public partial class ModInfo : ObservableObject
     [JsonIgnore] public string InstalledVersion => UpdateSource?.Version ?? "";
 
     [JsonIgnore] public bool HasUpdateSource => UpdateSource is { IsUsable: true };
+
+    /// True when this mod has a Nexus page at all - matched by name, or declared by the user.
+    ///
+    /// Deliberately NOT the same question as HasNexusInfo. HasNexusInfo means "we hold verified
+    /// catalogue data" and keeps driving the hover CARD, because a picture and a description we do
+    /// not have must not be faked. This drives the LINK, which needs only a domain and an id. That
+    /// split is what makes a link work for a mod published since the last catalogue refresh - the
+    /// 3-day RefreshInterval means "brand new" and "unmatchable" overlap exactly.
+    [JsonIgnore] public bool HasNexusPage => NexusInfo != null || HasExplicitNexusLink;
+
+    /// Composed from an int and a domain, never a stored string. OpenUrl is ShellExecute and a
+    /// registry is a hand-editable file - the same reasoning as re-parsing a mod's source URL.
+    [JsonIgnore]
+    public string? NexusPageUrl => NexusInfo?.Url ?? (HasExplicitNexusLink ? NexusLink!.Url : null);
+
+    /// Whether the row offers the "link" button. Absent for a mod matching cleanly by name - there
+    /// is no reason to invite re-linking a working match - and present for a mod already linked, so
+    /// a mistyped id is one click from fixed rather than only reachable by editing the registry.
+    [JsonIgnore] public bool CanEditNexusLink => !HasNexusInfo || HasExplicitNexusLink;
     [JsonIgnore] public bool HasAvailableUpdate => !string.IsNullOrEmpty(AvailableUpdateTag);
 
     /// True when the mod's declared update URL differs from the one recorded at install time.

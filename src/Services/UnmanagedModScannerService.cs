@@ -14,11 +14,18 @@ namespace DDS2ModManager.Services;
 public class UnmanagedModScannerService
 {
     /// Files Unreal/the game itself ships in Content\Paks. Anything matching these is the base
-    /// game, not a mod. Matched on the name without extension, so it covers the whole
-    /// .pak/.ucas/.utoc triple at once.
-    private static bool IsBaseGameArchive(string baseName) =>
+    /// game, not a mod. Matched on the name without extension, so it covers a whole
+    /// .pak/.ucas/.utoc set at once.
+    ///
+    /// The project-name clause is load-bearing and was missing. UE5 cooks to "pakchunkN-Windows"
+    /// and "global", which is all DDS2 ever produces - but UE4 names its single pak after the
+    /// project: DDS1 ships "DrugDealerSimulator-WindowsNoEditor.pak", matching NEITHER of the other
+    /// two rules. Without this the scanner would offer the user's entire 11.3 GB base game as an
+    /// importable "mod", and the reset path feeds that same list to an unconditional File.Delete.
+    public static bool IsBaseGameArchive(string baseName, GameInstallation game) =>
         baseName.StartsWith("pakchunk", StringComparison.OrdinalIgnoreCase) ||
-        baseName.Equals("global", StringComparison.OrdinalIgnoreCase);
+        baseName.Equals("global", StringComparison.OrdinalIgnoreCase) ||
+        baseName.StartsWith(game.ProjectName + "-", StringComparison.OrdinalIgnoreCase);
 
     /// Mod folders UE4SS itself ships inside ue4ss\Mods. These are part of UE4SS, not user mods,
     /// and adopting them would let the user "uninstall" pieces of UE4SS from the mod list.
@@ -39,8 +46,13 @@ public class UnmanagedModScannerService
     /// repository belonging to someone else entirely.
     private ModUpdateSource? ManifestNamedAfter(UnmanagedMod mod)
     {
-        var named = Path.Combine(mod.CurrentFolder, mod.Name + ModManifest.FileName);
-        return File.Exists(named) ? _updateSources.FromManifestFile(named, mod.Name) : null;
+        foreach (var ending in ModManifest.FileNames)
+        {
+            var named = Path.Combine(mod.CurrentFolder, mod.Name + ending);
+            if (File.Exists(named)) return _updateSources.FromManifestFile(named, mod.Name);
+        }
+
+        return null;
     }
 
     public List<UnmanagedMod> Scan(
@@ -57,6 +69,11 @@ public class UnmanagedModScannerService
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         results.AddRange(ScanLuaMods(game, knownPaths));
+
+        // Only where the engine can actually load them. On an IoStore game there is no loose-file
+        // path for it to prefer, so anything under Content there is not a mod.
+        if (game.Profile.SupportsLooseAssets)
+            results.AddRange(ScanLooseAssets(game, knownPaths));
 
         var pakGroups = FindUnmanagedPakGroups(game, knownPaths);
         if (pakGroups.Count > 0)
@@ -106,6 +123,80 @@ public class UnmanagedModScannerService
         return results;
     }
 
+    /// Cooked asset extensions that travel as a set. A .uasset is the header, .uexp the exports,
+    /// .ubulk the bulk data, and .umap is a level rather than an asset.
+    private static readonly string[] CookedExtensions = [".uasset", ".uexp", ".ubulk", ".umap"];
+
+    /// Loose cooked assets a person copied into the game's Content folder.
+    ///
+    /// The rule that makes this scannable: **a vanilla install has exactly one thing under Content,
+    /// and that is the Paks folder.** Everything else is something someone put there. That matters
+    /// because ownership of an individual file genuinely cannot be recovered - an overriding
+    /// .uasset at a vanilla path is byte-identical in kind to the file it shadows, and nothing on
+    /// disk records which mod supplied it - but "did the game ship this folder?" has a clean answer.
+    ///
+    /// Reported per top-level folder rather than per file. A mod shipping forty assets across three
+    /// categories is not forty mods, and with no manifest there is nothing to tell where one mod
+    /// ends and the next begins - so the row says it is a folder and says ownership is unknown,
+    /// instead of inventing a mod name and a boundary.
+    private List<UnmanagedMod> ScanLooseAssets(GameInstallation game, HashSet<string> knownPaths)
+    {
+        var results = new List<UnmanagedMod>();
+        if (!Directory.Exists(game.ContentPath)) return results;
+
+        var paks = Path.TrimEndingDirectorySeparator(Path.GetFullPath(game.PaksPath));
+
+        foreach (var folder in Directory.GetDirectories(game.ContentPath))
+        {
+            // Paks is the game's own, and its contents are covered by the pak scan above.
+            if (Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder))
+                .Equals(paks, StringComparison.OrdinalIgnoreCase)) continue;
+
+            List<string> files;
+            try
+            {
+                files = Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
+                    .Where(f => CookedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+                    .Where(f => !knownPaths.Contains(f.TrimEnd(Path.DirectorySeparatorChar)))
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                LoggingService.Instance.Warn($"Couldn't read '{Path.GetFileName(folder)}': {ex.Message}");
+                continue;
+            }
+
+            if (files.Count == 0) continue;
+
+            var name = Path.GetFileName(folder);
+
+            results.Add(new UnmanagedMod
+            {
+                Name = name,
+                DetectedType = ModType.LooseAsset,
+                TypeAssumedFromLocation = true,
+                IsLooseAssetGroup = true,
+                CurrentFolder = folder,
+                CorrectFolder = folder,
+                Files = files,
+
+                // Relative to Content, which is the namespace loose mods are compared in.
+                ContainedAssetPaths = files
+                    .Select(f => Path.GetRelativePath(game.ContentPath, f).Replace('\\', '/'))
+                    .ToList(),
+
+                Issues =
+                {
+                    $"{files.Count} loose asset file(s) in Content\\\\{name}. These override whatever the game packs " +
+                    "at the same path. Which mod they came from can't be recovered - nothing on disk records it - " +
+                    "so they're listed as one folder. Importing tracks them together; it moves nothing."
+                }
+            });
+        }
+
+        return results;
+    }
+
     private record PakGroup(string BaseName, string Folder, List<string> Files);
 
     private List<PakGroup> FindUnmanagedPakGroups(GameInstallation game, HashSet<string> knownPaths)
@@ -129,10 +220,14 @@ public class UnmanagedModScannerService
         // reported "no untracked mods found", which reads as "you're all set" rather than
         // "I didn't look in the right place".
         // Content\Paks\DisabledMods is included too. It is not a folder this manager creates -
-        // disabling through the UI parks files in %AppData% - but it is a common convention for
-        // switching a pak mod off by hand, and a mod sitting there is still installed, still the
-        // user's, and still worth tracking. Ignoring it meant those mods were invisible to
-        // conflict checking and update checks with no way to adopt them short of moving files.
+        // disabling through the UI parks files in %AppData%, outside the game entirely - but people
+        // do create it by hand believing it switches a mod off.
+        //
+        // IT DOES NOT. Unreal enumerates Content\Paks recursively, so those paks mount and load
+        // normally. Scanning the folder is still right: those mods are installed, are the user's,
+        // and were invisible to conflict checking. What changed is that we no longer repeat the
+        // claim that they are disabled. The only in-place hand-disable that actually works is
+        // renaming the file so it no longer ends in .pak.
         var disabledRoot = Path.Combine(game.PaksPath, "DisabledMods");
         var modsRoot = Path.Combine(game.PaksPath, "Mods");
 
@@ -149,12 +244,12 @@ public class UnmanagedModScannerService
             if (!Directory.Exists(folder)) continue;
 
             var byBaseName = Directory.GetFiles(folder, "*", SearchOption.TopDirectoryOnly)
-                .Where(f => new[] { ".pak", ".ucas", ".utoc" }.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+                .Where(f => game.Profile.ContainerExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
                 .GroupBy(f => Path.GetFileNameWithoutExtension(f), StringComparer.OrdinalIgnoreCase);
 
             foreach (var g in byBaseName)
             {
-                if (IsBaseGameArchive(g.Key)) continue;
+                if (IsBaseGameArchive(g.Key, game)) continue;
                 if (g.Any(f => knownPaths.Contains(f.TrimEnd(Path.DirectorySeparatorChar)))) continue;
                 groups.Add(new PakGroup(g.Key, folder, g.ToList()));
             }
@@ -208,15 +303,25 @@ public class UnmanagedModScannerService
         // gets moved.
         var underLogicMods = IsUnderLogicMods(game, group.Folder);
 
-        // A mod parked under DisabledMods is switched off, not misplaced. Reporting it as being
-        // in the wrong folder and offering to "fix" it would turn it back on, which is the exact
-        // opposite of what putting it there meant.
+        // A mod under Content\Paks\DisabledMods is NOT switched off, however much the folder name
+        // suggests it. Unreal discovers pak files under Content\Paks RECURSIVELY
+        // (FPakPlatformFile::FindPakFilesInDirectory -> IterateDirectoryRecursively), so a pak in a
+        // subfolder there mounts exactly like one at the top level. A _P mod parked there is still
+        // overriding base-game assets at +100 priority while the folder claims it is disabled.
+        //
+        // The scan still adopts them - they ARE the user's mods and tracking them is right - but the
+        // wording now says what is actually happening, and importing genuinely disables them by
+        // moving the files out of the game folder entirely (see ImportUnmanaged).
         var underDisabled = IsUnder(Path.Combine(game.PaksPath, "DisabledMods"), group.Folder);
         if (underDisabled)
         {
             mod.IsEnabled = false;
+            mod.ParkedInGameFolder = true;
             mod.CorrectFolder = group.Folder;
-            mod.Issues.Add("This mod is switched off - its files are parked in DisabledMods. Importing tracks it as disabled.");
+            mod.Issues.Add(
+                "This is in a DisabledMods folder inside the game, but the game still loads it - Unreal scans "
+                + "Content\\Paks and everything under it. Importing will move the files out of the game folder, "
+                + "which actually switches it off.");
         }
         else
         {
@@ -227,8 +332,11 @@ public class UnmanagedModScannerService
 
         if (mod.IsMisplaced)
         {
+            // Loader-neutral wording: DDS2 loads these through UE4SS's BPModLoaderMod, DDS1's scene
+            // through UnrealModLoader. Both read the same LogicMods folder, and naming the wrong one
+            // sends a DDS1 user looking for a tool they do not have.
             mod.Issues.Add(mod.DetectedType == ModType.LogicMod
-                ? "This is a LogicMod but it's in Content\\Paks - UE4SS only loads logic mods from Content\\Paks\\LogicMods, so it almost certainly isn't working."
+                ? "This is a LogicMod but it's in Content\\Paks - logic mods are only loaded from Content\\Paks\\LogicMods, so it almost certainly isn't working."
                 : "This is a regular mod but it's in Content\\Paks\\LogicMods - it should be in Content\\Paks.");
         }
 

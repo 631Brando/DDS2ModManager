@@ -11,6 +11,8 @@ public class ModTypeToBrushConverter : IValueConverter
         ModType.LogicMod => new SolidColorBrush(Color.FromRgb(0x4A, 0xDE, 0x80)),  // green
         ModType.PatchMod => new SolidColorBrush(Color.FromRgb(0x60, 0xA5, 0xFA)),  // blue
         ModType.LuaMod => new SolidColorBrush(Color.FromRgb(0xFB, 0xBF, 0x24)),    // amber
+        ModType.LooseAsset => new SolidColorBrush(Color.FromRgb(0xF4, 0x72, 0xB6)), // pink
+        ModType.DllPlugin => new SolidColorBrush(Color.FromRgb(0xA7, 0x8B, 0xFA)), // violet
         _ => new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF))                  // gray
     };
 

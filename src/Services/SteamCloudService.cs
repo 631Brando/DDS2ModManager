@@ -119,7 +119,7 @@ public class SteamCloudService
     /// remotecache.vdf lists every file Steam is syncing for the app. Counting the ones under
     /// SaveGames is what proves the cloud is actually covering the folder this app edits, rather
     /// than assuming it from the game having cloud support at all.
-    private static int CountSyncedSaveFiles(string remoteCachePath)
+    private int CountSyncedSaveFiles(string remoteCachePath)
     {
         if (!File.Exists(remoteCachePath)) return 0;
 
@@ -127,8 +127,13 @@ public class SteamCloudService
         var app = root?.Children.Values.FirstOrDefault();
         if (app == null) return 0;
 
+        // Every folder this game keeps saves in, not just SaveGames. DDS1's playthroughs are in
+        // Serialized, so matching one name would report "nothing synced" while Steam was in fact
+        // syncing - and the warning this drives exists to stop the user losing edits to a cloud
+        // overwrite, which is the one place a false negative is expensive.
+        var roots = _game.Profile.SaveSubfolders;
         return app.Children.Keys.Count(k =>
-            k.Contains("SaveGames", StringComparison.OrdinalIgnoreCase));
+            roots.Any(r => k.Contains(r, StringComparison.OrdinalIgnoreCase)));
     }
 
     /// Steam only writes "cloudenabled" when the user has turned it off for an app, so a missing

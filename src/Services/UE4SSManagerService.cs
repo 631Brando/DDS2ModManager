@@ -36,8 +36,21 @@ public class UE4SSManagerService
     public UE4SSInstallInfo GetCurrentStatus(GameInstallation game)
     {
         var info = new UE4SSInstallInfo();
-        var dwmapi = Path.Combine(game.Win64Path, "dwmapi.dll");
-        info.IsInstalled = File.Exists(dwmapi) && Directory.Exists(game.UE4SSRootPath);
+
+        // Detection covers both layouts. The old check looked only for Binaries\Win64\ue4ss, so a
+        // perfectly working UE4SS in the older layout read as "not installed" - which lit up the
+        // Install button and would have dropped a second, incompatible copy on top of it.
+        var detected = new ModLoaderService().Detect(game, ModLoaders.UE4SS);
+        info.IsInstalled = detected is { IsInstalled: true };
+        info.Layout = detected?.Layout ?? LoaderLayout.None;
+        info.DetectedVersion = detected?.Version;
+
+        info.CanInstall = game.Profile.InstallableLoaders.HasFlag(ModLoaders.UE4SS);
+        if (!info.CanInstall)
+            info.InstallBlockedReason =
+                $"{game.Profile.DisplayName} needs a UE4SS build made for its engine version, and that build " +
+                "isn't published as a download - the standard ones crash this game on startup. Install it " +
+                "yourself if you need it; this manager works with whatever is already there.";
 
         var manifestPath = GetManifestPath(game);
         if (File.Exists(manifestPath))

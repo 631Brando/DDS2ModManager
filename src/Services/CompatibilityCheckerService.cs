@@ -26,7 +26,7 @@ public class CompatibilityCheckerService
     public List<ModConflictGroup> CheckConflicts(IEnumerable<ModInfo> mods)
     {
         var enabled = mods.Where(m => m.IsEnabled && m.IsInstalled &&
-            m.Type is ModType.LogicMod or ModType.PatchMod or ModType.LuaMod).ToList();
+            m.Type is ModType.LogicMod or ModType.PatchMod or ModType.LuaMod or ModType.LooseAsset).ToList();
 
         var conflicts = BuildAllConflicts(enabled, m => m.ContainedAssetPaths);
 
@@ -39,7 +39,29 @@ public class CompatibilityCheckerService
     /// check silently can't compare their rows. The caller uses this to refresh them automatically
     /// rather than leaving the user to figure out that Deep Scan is what fixes it.
     public static bool NeedsDataTableRefresh(IEnumerable<ModInfo> mods) =>
-        mods.Any(m => m.IsInstalled && m.Type == ModType.LogicMod && m.HasModActor && !m.DataTableScanCompleted);
+        mods.Any(NeedsRefresh);
+
+    /// True when this mod's stored analysis cannot be trusted for the fast check.
+    ///
+    /// Two cases, and the second is the one that was missing. A mod installed before row-level
+    /// checking existed has no DataTable info at all - that was always covered. A mod whose FILES
+    /// have since changed on disk has info describing a previous build, which is worse: it is not
+    /// missing, it is wrong, and nothing about it looks stale. Measured on a real install, a mod
+    /// recorded 13 DataTable appends against 22 actually present, so nine merges were invisible to
+    /// conflict checking with no indication anywhere.
+    ///
+    /// Patch mods are included because DeepScan refreshes their ContainedAssetPaths too, and nothing
+    /// else was ever triggering that refresh for them.
+    private static bool NeedsRefresh(ModInfo m)
+    {
+        if (!m.IsInstalled) return false;
+        if (m.Type is not (ModType.LogicMod or ModType.PatchMod)) return false;
+
+        if (m.Type == ModType.LogicMod && m.HasModActor && !m.DataTableScanCompleted) return true;
+
+        // Files moved under us: whatever is recorded describes the old ones.
+        return m.DriftSummary != null;
+    }
 
     /// Re-reads installed paks in place. mappingsPath/egame come from Settings via the caller.
     public List<ModConflictGroup> DeepScan(GameInstallation game, IEnumerable<ModInfo> mods, string mappingsPath, EGame egame, string? aesKeyHex)
@@ -47,6 +69,13 @@ public class CompatibilityCheckerService
         var log = LoggingService.Instance;
         var enabled = mods.Where(m => m.IsEnabled && m.IsInstalled &&
             m.Type is ModType.LogicMod or ModType.PatchMod).ToList();
+
+        // Loose-asset mods are kept out of the MOUNT for the same reason lua mods are - they ship no
+        // container to re-read - but they must still reach BuildAllConflicts on their stored paths.
+        // Without this, Deep Scan (the button the UI presents as the authoritative check) cleared the
+        // panel and reported "no conflicts found" on DDS1, where nearly every mod is a loose-asset
+        // mod. Silently erasing real conflicts is worse than not checking at all.
+        var looseMods = mods.Where(m => m.IsEnabled && m.IsInstalled && m.Type == ModType.LooseAsset).ToList();
 
         // Lua mods are deliberately kept out of the mount below: they ship no container, so
         // ReadModArchivePaths would find nothing for every one of them and warn about it. Their
@@ -80,6 +109,13 @@ public class CompatibilityCheckerService
                     perMod[mod] = paths;
                     // Refresh the stored list too, so the fast check and the Files tree agree with reality.
                     mod.ContainedAssetPaths = paths;
+
+                    // The ONLY place a fingerprint may advance: this is the pass that actually
+                    // re-read the mod, so the recorded state and the analysis describing it move
+                    // together. RefreshFileState deliberately no longer re-arms on drift, precisely
+                    // so a mod cannot end up looking unchanged while its analysis is a build behind.
+                    mod.Fingerprint = ModFileStateService.Capture(mod);
+                    mod.DriftSummary = null;
                 }
                 else
                 {
@@ -107,7 +143,7 @@ public class CompatibilityCheckerService
             (provider as IDisposable)?.Dispose();
         }
 
-        var conflicts = BuildAllConflicts(perMod.Keys.Concat(luaMods),
+        var conflicts = BuildAllConflicts(perMod.Keys.Concat(luaMods).Concat(looseMods),
             m => perMod.TryGetValue(m, out var paths) ? paths : m.ContainedAssetPaths);
 
         LogResult(conflicts, "Deep scan");
@@ -177,7 +213,17 @@ public class CompatibilityCheckerService
         var pakMods = modList.Where(m => m.Type is ModType.LogicMod or ModType.PatchMod).ToList();
         var luaMods = modList.Where(m => m.Type == ModType.LuaMod).ToList();
 
+        // Loose-asset mods get their own pass, for the same reason lua mods do: their paths are in
+        // a different namespace. A pak mod's are virtual mount paths inside its container; a loose
+        // mod's are real paths relative to Content\. Comparing the two directly would miss every
+        // genuine clash and invent others, so they are only compared against each other - which is
+        // the common case anyway, two mods both shipping DataTables\ItemDatabase.uasset, where
+        // whichever was copied last simply wins and the other's edits are gone.
+        var looseMods = modList.Where(m => m.Type == ModType.LooseAsset).ToList();
+
         var conflicts = BuildFileConflicts(pakMods, pathSelector);
+        conflicts.AddRange(BuildFileConflicts(looseMods, pathSelector));
+        conflicts.AddRange(BuildLooseVsPakConflicts(looseMods, pakMods, pathSelector));
         conflicts.AddRange(BuildDataTableConflicts(pakMods));
         conflicts.AddRange(BuildPatchReplacesTableConflicts(pakMods, pathSelector));
         conflicts.AddRange(BuildLuaConflicts(luaMods));
@@ -210,6 +256,67 @@ public class CompatibilityCheckerService
     /// Two mods shipping the same asset path. Grouped by the exact set of mods involved, so two
     /// mods sharing several files produce a single card naming both mods once rather than dozens
     /// of near-identical cards.
+    /// Reduces a path from EITHER namespace to something the two can be compared on.
+    ///
+    /// A pak mod's paths are CUE4Parse virtual mount paths - "&lt;Project&gt;/Content/DataTables/Foo.uasset".
+    /// A loose mod's are relative to the game's Content folder - "DataTables/Foo.uasset". They can name
+    /// the very same asset and genuinely contend for it, but compared directly they never match.
+    ///
+    /// Normalising on the tail after "/Content/", rather than rebuilding the prefix from ProjectName,
+    /// is deliberate: GameInstallation resolves the project folder FROM DISK, so it can legitimately
+    /// differ from the prefix baked into the cooked pak. A reconstruction that assumed those agreed
+    /// would compare nothing at all and report a clean bill of health - the failure mode this whole
+    /// checker exists to avoid.
+    private static string CrossNamespaceKey(string path)
+    {
+        var p = path.Replace('\\', '/');
+        var i = p.IndexOf("/Content/", StringComparison.OrdinalIgnoreCase);
+        if (i >= 0) p = p[(i + "/Content/".Length)..];
+        return p.TrimStart('/');
+    }
+
+    /// Loose files versus pak mods - the one pair that lives in two different path namespaces.
+    ///
+    /// Only possible on a game that can load loose assets at all, so this is silent on DDS2. No
+    /// winner is named: which one the engine serves depends on a filesystem hook versus chunk
+    /// priority, and that has to be observed rather than deduced.
+    private List<ModConflictGroup> BuildLooseVsPakConflicts(
+        List<ModInfo> looseMods, List<ModInfo> pakMods, Func<ModInfo, List<string>> pathSelector)
+    {
+        var groups = new List<ModConflictGroup>();
+        if (looseMods.Count == 0 || pakMods.Count == 0) return groups;
+
+        var pakKeys = pakMods
+            .Select(m => (Mod: m, Keys: pathSelector(m).Select(CrossNamespaceKey)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)))
+            .ToList();
+
+        foreach (var loose in looseMods)
+        {
+            var looseKeys = pathSelector(loose).Select(CrossNamespaceKey)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (looseKeys.Count == 0) continue;
+
+            foreach (var (pak, keys) in pakKeys)
+            {
+                var shared = looseKeys.Where(keys.Contains)
+                    .OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
+                if (shared.Count == 0) continue;
+
+                groups.Add(new ModConflictGroup
+                {
+                    ModNames = new[] { loose.Name, pak.Name }
+                        .OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList(),
+                    Kind = ConflictKind.LooseOverridesPak,
+                    Severity = ConflictSeverity.Warning,
+                    AssetPaths = shared
+                });
+            }
+        }
+
+        return groups;
+    }
+
     private List<ModConflictGroup> BuildFileConflicts(List<ModInfo> mods, Func<ModInfo, List<string>> pathSelector)
     {
         var pathToMods = BuildPathMap(mods, pathSelector);
@@ -589,7 +696,7 @@ public class CompatibilityCheckerService
             // invalid character rather than returning something a later Where could reject.
             // RunCompatibilityCheck is synchronous on the UI thread, so that throw leaves as
             // an unhandled-exception dialog with the panel never updating. The registry is
-            // JSON on disk and JSON can encode  , which is the same reason the check
+            // JSON on disk and JSON can encode , which is the same reason the check
             // below exists: distrust a stored path for its whole journey, not just the last
             // step of it.
             .Where(p => p.IndexOfAny(Path.GetInvalidPathChars()) < 0)

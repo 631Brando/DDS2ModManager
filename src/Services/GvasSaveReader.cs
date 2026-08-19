@@ -48,9 +48,13 @@ public class GvasSaveReader
                 DecompressedBytes = d.Length   // GVAS isn't compressed
             };
 
-            pos += 4;                                   // save game file version
+            // Save game file version. Version 3 is where Unreal added PackageVersionUE5; a version 2
+            // file - which is every UE4 title, DDS1 included - simply has no such field. Reading one
+            // anyway consumes the engine version instead, and every field after it desynchronises,
+            // so the engine reads as garbage and the branch string comes out empty.
+            var saveGameFileVersion = ReadInt32(d, ref pos);
             result.PackageVersionUE4 = ReadInt32(d, ref pos);
-            result.PackageVersionUE5 = ReadInt32(d, ref pos);
+            result.PackageVersionUE5 = saveGameFileVersion >= 3 ? ReadInt32(d, ref pos) : 0;
 
             result.EngineVersion = $"{BitConverter.ToUInt16(d, pos)}.{BitConverter.ToUInt16(d, pos + 2)}.{BitConverter.ToUInt16(d, pos + 4)}";
             pos += 6;

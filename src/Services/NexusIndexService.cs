@@ -58,14 +58,22 @@ query GameMods($filter: ModsFilter, $sort: [ModsSort!], $offset: Int, $count: In
   }
 }";
 
-    private readonly string _cachePath;
+    private readonly string _root;
+
+    /// One cache FILE PER GAME. A single shared file was discarded and re-fetched in full on every
+    /// game switch, because ReadCache rejects a cache whose stored domain doesn't match - so two
+    /// games meant paging the whole catalogue over the network again each time the user moved
+    /// between them.
+    private string CachePathFor(string gameDomain)
+    {
+        var safe = new string(gameDomain
+            .Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray());
+        return Path.Combine(_root, $"nexus-index.{safe}.cache.json");
+    }
 
     public NexusIndexService()
     {
-        var dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DDS2ModManager");
-        Directory.CreateDirectory(dir);
-        _cachePath = Path.Combine(dir, "nexus-index.cache.json");
+        _root = AppPaths.EnsureRoot();
     }
 
     private sealed class CacheFile
@@ -211,9 +219,10 @@ query GameMods($filter: ModsFilter, $sort: [ModsSort!], $offset: Int, $count: In
     {
         try
         {
-            if (!File.Exists(_cachePath)) return null;
+            var path = CachePathFor(gameDomain);
+            if (!File.Exists(path)) return null;
 
-            var parsed = JsonSerializer.Deserialize<CacheFile>(File.ReadAllText(_cachePath));
+            var parsed = JsonSerializer.Deserialize<CacheFile>(File.ReadAllText(path));
             if (parsed == null) return null;
 
             // A cache written by a newer build may mean fields this one misreads, and a cache for
@@ -234,7 +243,7 @@ query GameMods($filter: ModsFilter, $sort: [ModsSort!], $offset: Int, $count: In
     {
         try
         {
-            File.WriteAllText(_cachePath,
+            File.WriteAllText(CachePathFor(cache.GameDomain),
                 JsonSerializer.Serialize(cache, new JsonSerializerOptions { WriteIndented = false }));
         }
         catch (Exception ex)

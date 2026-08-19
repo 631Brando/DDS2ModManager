@@ -22,6 +22,15 @@ public partial class SaveEntry : ObservableObject
     /// in the UI so two saves with the same name in different containers stay distinguishable.
     public string? GroupName { get; set; }
 
+    /// The Saved-relative folder this save lives in, when it is NOT the game's primary save root.
+    ///
+    /// Empty for the ordinary case, which keeps every save written before multi-root support
+    /// resolving exactly as it did. It is non-empty only for a game that keeps saves in more than
+    /// one place - DDS1 puts a slot index in Saved\SaveGames but the actual playthroughs in
+    /// Saved\Serialized - and it is what makes re-enabling put a save back where it came from
+    /// rather than into the primary root, where the game would never look for it.
+    public string RootName { get; set; } = "";
+
     public string SizeDisplay => SizeBytes switch
     {
         < 1024 => $"{SizeBytes} B",
@@ -33,5 +42,9 @@ public partial class SaveEntry : ObservableObject
 
     public string KindDisplay => IsFolder ? $"{FileCount} file(s)" : "single file";
 
-    public string GroupDisplay => string.IsNullOrEmpty(GroupName) ? "" : GroupName;
+    /// Falls back to the root for a save that has no container, so DDS1's two save roots are
+    /// distinguishable in the list - "Serialized" holds the playthroughs and "SaveGames" only a
+    /// slot index, and a user needs to see which is which before deleting one.
+    public string GroupDisplay =>
+        !string.IsNullOrEmpty(GroupName) ? GroupName : RootName;
 }

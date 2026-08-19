@@ -20,6 +20,14 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool updateAvailable;
     [ObservableProperty] private string gamePathDisplay = "Not detected";
 
+    /// Follows the active game, so the taskbar and Alt-Tab say which one is open. Keeps the version
+    /// in it either way: a screenshot is usually all a bug report gives you to work from.
+    [ObservableProperty] private string windowTitle = $"{AppPaths.AppDisplayName}  {AppVersionDisplay}";
+
+    /// The big heading. Names the game being managed rather than the app, so a screenshot of the
+    /// window says which game it was taken on - the mod list alone does not.
+    [ObservableProperty] private string headerTitle = AppPaths.AppDisplayName;
+
     /// Shown next to the title, not just in Settings.
     ///
     /// A bug report that names a version is worth several that don't, and nobody thinks to go
@@ -73,9 +81,10 @@ public partial class MainViewModel : ObservableObject
     private readonly NexusFeedService _nexus = new();
     private readonly NexusIndexService _nexusIndex = new();
 
-    /// The game's Nexus domain. Not a setting: this manager is for one game, and an unrecognised
-    /// domain silently returns nothing rather than failing in a way anyone could diagnose.
-    private const string NexusGameDomain = "drugdealersimulator2";
+    /// The active game's Nexus domain. Not a setting: an unrecognised domain silently returns
+    /// nothing rather than failing in a way anyone could diagnose, so it comes from the profile.
+    /// Falls back to the default profile's before a game has been detected.
+    private string NexusGameDomain => (Game?.Profile ?? GameProfiles.Default).NexusDomain;
 
     private ModRegistryService? _registry;
     private ModAnalyzerService? _analyzer;
@@ -142,6 +151,8 @@ public partial class MainViewModel : ObservableObject
         BrowseTrustedModsCommand = new RelayCommand(BrowseTrustedMods);
         OpenCreditsCommand = new RelayCommand(OpenCredits);
 
+        InitializeGameTabs();
+
         // Trust is stored per GitHub ACCOUNT in ModTrustService, not per mod, so ticking one row
         // changes the answer for every other row by that author. Without this those rows would go
         // on showing the old state until the next full refresh, which reads as the tick not
@@ -186,12 +197,18 @@ public partial class MainViewModel : ObservableObject
 
     /// Persists the user's own annotations the moment they change.
     ///
-    /// Only these two properties. Everything else on a ModInfo is written by the code that owns
-    /// it and saved deliberately; saving the registry on every property change would rewrite the
-    /// file dozens of times during a scan.
+    /// Only these four properties. Everything else on a ModInfo is written by the code that owns
+    /// it and saved deliberately; Upsert calls Save, which rewrites the WHOLE registry file, so
+    /// saving on every property change would rewrite it dozens of times during a scan.
+    ///
+    /// NexusLink is on this list on the same terms as the other three: the user writes it, through
+    /// the link dialog, and nothing else does. Nothing may ever pre-fill it from a name match -
+    /// that would both storm this file on startup AND persist a guess as the user's own
+    /// declaration, which is the one thing NexusModMatcher exists to refuse.
     private void OnModAnnotationChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is not (nameof(ModInfo.IsFavourite) or nameof(ModInfo.Notes) or nameof(ModInfo.Tags)))
+        if (e.PropertyName is not (nameof(ModInfo.IsFavourite) or nameof(ModInfo.Notes)
+                                   or nameof(ModInfo.Tags) or nameof(ModInfo.NexusLink)))
             return;
         if (sender is not ModInfo mod) return;
 
@@ -398,8 +415,13 @@ public partial class MainViewModel : ObservableObject
             // 1. Download first. Nothing about the installed mod has changed yet, so a failure
             //    here costs the user nothing.
             StatusMessage = $"Downloading {mod.Name} {release.TagName}...";
-            var temp = Path.Combine(Path.GetTempPath(),
-                $"DDS2MM_modupdate_{Guid.NewGuid():N}_{asset.Name}");
+            // The GUID goes on the DIRECTORY, not the filename. An update is uninstall-then-reinstall,
+            // and the reinstall names the mod from what it finds - so prefixing the file itself meant
+            // every update renamed the mod to a fresh GUID, taking its profile entry and its history
+            // with it. ModUpdateService.DownloadAsync already does it this way.
+            var tempDir = Path.Combine(Path.GetTempPath(), $"DDS2MM_modupdate_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDir);
+            var temp = Path.Combine(tempDir, asset.Name);
             await _github.DownloadAssetAsync(asset.BrowserDownloadUrl, temp,
                 new Progress<double>(p => ProgressValue = p));
 
@@ -414,7 +436,7 @@ public partial class MainViewModel : ObservableObject
             // The download-before-uninstall order above protects against a failed download. This
             // protects against the commoner case it cannot: the update installed fine and the new
             // version is worse. Authors delete old releases, so without this there is no way back.
-            ModBackupService.Instance.Capture(mod, $"before updating to {release.TagName}");
+            _backups?.Capture(mod, $"before updating to {release.TagName}");
 
             // 3. Only now remove the old version.
             StatusMessage = $"Replacing {mod.Name}...";
@@ -438,6 +460,19 @@ public partial class MainViewModel : ObservableObject
             // undetectable from the very update that moved it.
             installed.InstalledUpdateUrl = previousUrl;
 
+            // The user's own annotations survive an update. ModInfo's own comment promises they do,
+            // and this is the only place a ModInfo is REPLACED by a different object: Uninstall
+            // removes the old registry row by Id and InstallAsync builds a fresh ModInfo with a
+            // fresh Guid, so no merge-on-load could ever have rescued them. Until now all four were
+            // silently discarded - a starred mod with a note lost both on every update.
+            //
+            // Assigned BEFORE Mods.Add below, so the annotation handler is not yet attached and
+            // this does not fire four whole-file registry writes in a row.
+            installed.IsFavourite = mod.IsFavourite;
+            installed.Notes       = mod.Notes;
+            installed.Tags        = mod.Tags;
+            installed.NexusLink   = mod.NexusLink;
+
             if (installed.UpdateUrlChanged)
             {
                 log.Warn($"'{installed.Name}' now publishes updates at a different address " +
@@ -447,7 +482,7 @@ public partial class MainViewModel : ObservableObject
             // Recorded before the notes are cleared below - this is the only place they are ever
             // kept, and "what did that update actually change?" is unanswerable a month later
             // without it.
-            ModHistoryService.Instance.Record(
+            _history?.Record(
                 installed.Name, "Updated",
                 from: mod.InstalledVersion,
                 to: ModUpdateService.NormalizeVersion(release.TagName),
@@ -468,7 +503,10 @@ public partial class MainViewModel : ObservableObject
 
             Mods.Add(installed);
             _registry.Upsert(installed);
-            RunCompatibilityCheck();
+            ResolveNexusFor(installed);
+            ReportModsOnlyPretendingToBeDisabled();
+
+        RunCompatibilityCheck();
             RefreshModUpdateBanner();
 
             log.Success($"'{installed.Name}' updated to {release.TagName}.");
@@ -488,6 +526,11 @@ public partial class MainViewModel : ObservableObject
 
     private async Task InitializeAsync()
     {
+        // Before anything reads per-game state: move the old flat %AppData% layout into per-game
+        // folders. Runs once, ahead of game detection, because the services built for a game expect
+        // to find their files already in the new places.
+        LegacyStateMigrationService.RunOnce();
+
         // Independent of game detection below - the manager itself may have an update even if
         // the game isn't found yet. Fire-and-forget so a slow/unreachable GitHub never blocks
         // startup; failures are logged and otherwise silent (see AppUpdateService).
@@ -503,29 +546,17 @@ public partial class MainViewModel : ObservableObject
         StatusMessage = "Detecting game installation...";
         try
         {
-            var settings = AppSettingsService.Instance.Current;
+            Game = ResolveStartupGame();
+            RefreshGameTabs();
 
-            if (!string.IsNullOrWhiteSpace(settings.GamePathOverride))
-            {
-                var manual = new GameInstallation { RootPath = settings.GamePathOverride };
-                if (manual.IsValid)
-                {
-                    Game = manual;
-                    await SetupForGameAsync(manual);
-                    StatusMessage = "Ready.";
-                    return;
-                }
-                LoggingService.Instance.Warn("Saved game path override is no longer valid - falling back to auto-detect.");
-            }
-
-            Game = _gameDetection.TryAutoDetect();
             if (Game == null)
             {
-                StatusMessage = "Game not found automatically - click \"Browse\" or set a path in Settings.";
+                StatusMessage = "No supported game found - pick one from the tabs above, or set a path in Settings.";
                 return;
             }
 
             await SetupForGameAsync(Game);
+            RefreshGameTabs();
             StatusMessage = "Ready.";
         }
         finally
@@ -534,54 +565,95 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    /// Which game to open on startup.
+    ///
+    /// A remembered folder is tried before auto-detection because it can point at an install
+    /// detection will never find - a non-Steam copy, or a library Steam has forgotten. The game
+    /// that was last open is tried first, so the app reopens where it was left.
+    ///
+    /// Reads the settings dictionary directly rather than through ForGame(), which would create an
+    /// empty section for every supported game as a side effect of merely asking.
+    private GameInstallation? ResolveStartupGame()
+    {
+        var settings = AppSettingsService.Instance.Current;
+
+        var order = GameProfiles.All.OrderByDescending(
+            p => string.Equals(p.Id, settings.ActiveGameId, StringComparison.OrdinalIgnoreCase));
+
+        foreach (var profile in order)
+        {
+            if (!settings.Games.TryGetValue(profile.Id, out var forGame)) continue;
+            if (string.IsNullOrWhiteSpace(forGame.GamePathOverride)) continue;
+
+            var candidate = new GameInstallation { RootPath = forGame.GamePathOverride, Profile = profile };
+            if (candidate.IsValid) return candidate;
+
+            LoggingService.Instance.Warn(
+                $"The saved folder for {profile.DisplayName} is no longer valid - falling back to auto-detect.");
+        }
+
+        return _gameDetection.TryAutoDetect();
+    }
+
     private async Task SetupForGameAsync(GameInstallation game)
     {
-        GamePathDisplay = game.RootPath;
+        // Everything started below belongs to THIS game. Background work compares against this
+        // token before writing anything, so a slow fetch that finishes after a switch is dropped
+        // rather than landing in the other game's list.
+        var context = ++_gameContextVersion;
 
-        // May download the Oodle DLL on first run, so keep it off the UI thread.
-        await Task.Run(() => OodleHelper.EnsureOodleAvailable(game));
+        GamePathDisplay = game.RootPath;
+        WindowTitle = $"{game.Profile.DisplayName} Mod Manager  {AppVersionDisplay}";
+        HeaderTitle = $"{game.Profile.DisplayName} Mod Manager";
+
+        // Only for games that can actually contain Oodle-compressed chunks. IoStore titles do; a UE4
+        // pak of this era is zlib. Ungated, a DDS1-only user pays a recursive walk of an 11 GB
+        // install plus a network download for a native DLL, at every first launch, for a codec their
+        // game never uses. May download on first run, so keep it off the UI thread either way.
+        if (game.Profile.PakLayout == PakLayout.IoStoreTriple)
+            await Task.Run(() => OodleHelper.EnsureOodleAvailable(game));
 
         _analyzer = CreateAnalyzer();
         _registry = new ModRegistryService(game);
         _installer = new ModInstallerService(game, _analyzer, _registry);
 
+        // Per-install state: tracked mods, history, rollback copies and profiles all belong to one
+        // game and must be rebuilt alongside the registry, not resolved from a singleton.
+        _history = new ModHistoryService(game);
+        _backups = new ModBackupService(game);
+        _profiles = new ModProfileService(game);
+
+        DetachModSubscriptions();
         Mods.Clear();
         foreach (var m in _registry.Mods) Mods.Add(m);
 
         Ue4ssStatus = _ue4ss.GetCurrentStatus(game);
-        if (!Ue4ssStatus.IsInstalled)
-        {
-            LoggingService.Instance.Warn("UE4SS is not installed. Logic mods and lua mods will not load until it is.");
-        }
-        else if (!Ue4ssStatus.IsManagedByUs)
-        {
-            LoggingService.Instance.Warn(
-                "UE4SS was detected but wasn't installed by this manager, so we can't confirm it's the " +
-                "experimental build. If mods don't load, reinstall UE4SS from the button above.");
-        }
+        ReportLoaderState(game);
 
         RunCompatibilityCheck();
 
-        // Remember this folder so we don't need to re-detect (or re-prompt) next launch.
-        AppSettingsService.Instance.Current.GamePathOverride = game.RootPath;
+        // Remember this folder, and that this was the game we were on, so we don't need to
+        // re-detect (or re-prompt) next launch. The only writer of both.
+        AppSettingsService.Instance.ForGame(game.Profile).GamePathOverride = game.RootPath;
+        AppSettingsService.Instance.SetActiveGame(game.Profile);
         AppSettingsService.Instance.Save();
 
         if (AppSettingsService.Instance.Current.AutoCheckUE4SSUpdatesOnStartup)
-            _ = CheckUE4SSUpdateAsync();
+            _ = RunForGameAsync(context, CheckUE4SSUpdateAsync);
 
         // Fire-and-forget, like the app and UE4SS checks above: a slow or unreachable GitHub
         // must never hold up startup. Not forced, so the six-hour cache applies and relaunching
         // repeatedly doesn't burn the unauthenticated rate limit.
         if (AppSettingsService.Instance.Current.CheckForModUpdatesOnStartup)
-            _ = CheckModUpdatesAsync();
+            _ = RunForGameAsync(context, () => CheckModUpdatesAsync());
 
         // Same treatment: fire-and-forget, failures logged as warnings. A banner about what's
         // new on Nexus is the last thing that should be allowed to hold up the window.
-        _ = CheckNexusFeedAsync();
+        _ = RunForGameAsync(context, CheckNexusFeedAsync);
 
         // Hover-card details, from the locally cached catalogue. Refreshed on a slow cadence, so
         // this is usually a file read and a dictionary build rather than any network work.
-        _ = RefreshNexusDetailsAsync();
+        _ = RunForGameAsync(context, () => RefreshNexusDetailsAsync(context));
 
         // Cheap, local, and worth knowing before anything else is diagnosed today.
         CheckGameVersionChanged();
@@ -605,18 +677,121 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    /// Says what the game's mod loaders look like, in terms that match what the user can act on.
+    ///
+    /// Kept separate from the UE4SS status itself because the right thing to say depends on the
+    /// game: telling a DDS1 player to "reinstall UE4SS from the button above" would be advice to
+    /// press a button that is deliberately not there, for a build that would crash their game.
+    private void ReportLoaderState(GameInstallation game)
+    {
+        var log = LoggingService.Instance;
+        var loaders = new ModLoaderService().DetectAll(game);
+
+        foreach (var loader in loaders.Where(l => l.IsInstalled))
+        {
+            var where = loader.Layout == LoaderLayout.Legacy ? " (older layout, in Binaries\\Win64)" : "";
+            log.Info($"Found {loader.DisplayName}{where}{(loader.Version == null ? "" : $" - {loader.Version}")}.");
+        }
+
+        // Most DDS1 mods are loose .uasset files, which simply do not load without the unlocker -
+        // and the symptom is "the mod does nothing", with no error anywhere to explain it.
+        if (game.Profile.SupportsLooseAssets
+            && loaders.Any(l => l.Loader == ModLoaders.UnrealModUnlocker && !l.IsInstalled))
+        {
+            log.Warn(
+                "UnrealModUnlocker wasn't found. Mods that ship loose .uasset files - which is most of them for " +
+                "this game - won't load without it, and they fail silently rather than reporting anything.");
+        }
+
+        var ue4ss = Ue4ssStatus;
+        if (ue4ss == null) return;
+
+        if (!ue4ss.IsInstalled)
+        {
+            log.Warn(ue4ss.CanInstall
+                ? "UE4SS is not installed. Logic mods and lua mods will not load until it is."
+                : $"UE4SS is not installed. {ue4ss.InstallBlockedReason}");
+        }
+        else if (ue4ss.Layout == LoaderLayout.Legacy)
+        {
+            log.Info(
+                "UE4SS is installed in its older layout. That's what this game's mods expect - it's read and " +
+                "managed as-is, and deliberately never replaced or removed automatically.");
+        }
+        else if (!ue4ss.IsManagedByUs && ue4ss.CanInstall)
+        {
+            log.Warn(
+                "UE4SS was detected but wasn't installed by this manager, so we can't confirm it's the " +
+                "experimental build. If mods don't load, reinstall UE4SS from the button above.");
+        }
+    }
+
+    /// Runs background work for one game and swallows whatever it produced if the user has since
+    /// switched away.
+    ///
+    /// These tasks are deliberately fire-and-forget so a slow GitHub or Nexus never holds up the
+    /// window, which also means any of them can still be running when the active game changes. The
+    /// token check is what stops a result arriving for one game and being applied to another.
+    private async Task RunForGameAsync(int context, Func<Task> work)
+    {
+        try
+        {
+            await work();
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Instance.Warn($"A background check failed: {ex.Message}");
+            return;
+        }
+
+        if (IsStaleGameContext(context))
+            LoggingService.Instance.Info("Discarded a background result for the game that was open before.");
+    }
+
+    /// Names tracked mods that are marked disabled while their files are still inside the game.
+    ///
+    /// Deliberately a REPORT, not a repair. Fixing it means moving real mod containers out of the
+    /// game folder, and doing that automatically across every row on startup - before the user has
+    /// asked for anything - is a large, silent, file-moving operation on someone's install. The
+    /// honest move is to say exactly what is wrong and let them press Disable, which does the same
+    /// thing deliberately and one mod at a time.
+    ///
+    /// These rows come from adopting a Content\Paks\DisabledMods folder, which never disabled
+    /// anything: Unreal enumerates Content\Paks recursively, so the game has been loading them.
+    private void ReportModsOnlyPretendingToBeDisabled()
+    {
+        if (Game == null) return;
+
+        var paks = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Game.PaksPath));
+
+        var pretending = Mods
+            .Where(m => !m.IsEnabled && m.Type is ModType.LogicMod or ModType.PatchMod)
+            .Where(m => m.InstallFiles.Any(f =>
+            {
+                try
+                {
+                    var full = Path.GetFullPath(f);
+                    return full.StartsWith(paks + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                           && File.Exists(full);
+                }
+                catch { return false; }
+            }))
+            .ToList();
+
+        if (pretending.Count == 0) return;
+
+        LoggingService.Instance.Warn(
+            $"{pretending.Count} mod(s) are listed as disabled but their files are still inside the game, so it " +
+            $"is still loading them: {string.Join(", ", pretending.Select(m => m.Name))}. Unreal reads everything " +
+            "under Content\\Paks, including subfolders like DisabledMods. Press Disable on each to move the files " +
+            "out of the game folder, which actually switches them off.");
+    }
+
     private ModAnalyzerService CreateAnalyzer()
     {
-        var settings = AppSettingsService.Instance.Current;
-
-        var mappingsPath = !string.IsNullOrWhiteSpace(settings.MappingsOverridePath) && File.Exists(settings.MappingsOverridePath)
-            ? settings.MappingsOverridePath!
-            : MappingsProviderService.EnsureExtracted();
-
-        var egame = Enum.TryParse<EGame>(settings.EGameVersion, out var parsed) ? parsed : EGame.GAME_UE5_3;
-
         // Game is guaranteed set here (CreateAnalyzer is only called from SetupForGameAsync / ReapplySettings after detection).
-        return new ModAnalyzerService(Game!, mappingsPath, egame, settings.AesKeyHex);
+        var opts = GameMountService.OptionsFor(Game!);
+        return new ModAnalyzerService(Game!, opts.MappingsPath, opts.EGame, opts.AesKeyHex);
     }
 
     /// Called by SettingsWindow after Save so changes (mappings override, EGame, AES key)
@@ -638,16 +813,24 @@ public partial class MainViewModel : ObservableObject
         window.ShowDialog();
     }
 
-    private async Task BrowseGameFolderAsync()
+    private Task BrowseGameFolderAsync() => BrowseGameFolderAsync(null);
+
+    /// Locates a game folder by hand.
+    ///
+    /// <paramref name="wanted"/> names the game being looked for when the user clicked its tab, so
+    /// the prompt says which folder to pick and the result is attributed to that game even if the
+    /// folder is named something unexpected. Null means "whatever this folder turns out to be".
+    private async Task BrowseGameFolderAsync(GameProfile? wanted)
     {
         var dialog = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = "Select the 'Drug Dealer Simulator 2' folder"
+            Title = $"Select the '{(wanted ?? GameProfiles.Default).SteamFolderName}' folder"
         };
 
         if (dialog.ShowDialog() != true) return;
 
         var candidate = new GameInstallation { RootPath = dialog.FolderName };
+        if (wanted != null) candidate.Profile = wanted;
         if (!candidate.IsValid)
         {
             var trimmed = dialog.FolderName.TrimEnd('\\');
@@ -660,16 +843,22 @@ public partial class MainViewModel : ObservableObject
             };
 
             candidate = guesses.Where(g => g != null)
-                .Select(g => new GameInstallation { RootPath = g! })
+                .Select(g => wanted == null
+                    ? new GameInstallation { RootPath = g! }
+                    : new GameInstallation { RootPath = g!, Profile = wanted })
                 .FirstOrDefault(g => g.IsValid) ?? candidate;
         }
 
         if (!candidate.IsValid)
         {
-            StatusMessage = "That doesn't look like a valid DDS2 install (no Binaries\\Win64 found).";
+            StatusMessage = $"That doesn't look like a valid {(wanted ?? GameProfiles.Default).DisplayName} " +
+                            "install (no Binaries\\Win64 found).";
             LoggingService.Instance.Error($"Invalid game folder selected: {dialog.FolderName}");
             return;
         }
+
+        // Same teardown as a tab switch: whatever was open before must not leak into this game.
+        ClearPerGameState();
 
         Game = candidate;
         IsBusy = true;
@@ -681,6 +870,7 @@ public partial class MainViewModel : ObservableObject
         finally
         {
             IsBusy = false;
+            RefreshGameTabs();
         }
     }
 
@@ -764,6 +954,10 @@ public partial class MainViewModel : ObservableObject
                         if (partMod == null) continue;
 
                         Mods.Add(partMod);
+
+                        // Nothing installed mid-session got a card until a restart, because the
+                        // Nexus pass runs once per game load. Network-free, so safe in a loop.
+                        ResolveNexusFor(partMod);
                         installedParts++;
                     }
                 }
@@ -794,6 +988,7 @@ public partial class MainViewModel : ObservableObject
             if (mod != null)
             {
                 Mods.Add(mod);
+                ResolveNexusFor(mod);
                 RunCompatibilityCheck();
                 StatusMessage = $"Installed '{mod.Name}'.";
             }
@@ -853,15 +1048,11 @@ public partial class MainViewModel : ObservableObject
         StatusMessage = "Running deep scan (reading installed paks in place)...";
         try
         {
-            var settings = AppSettingsService.Instance.Current;
-            var mappingsPath = !string.IsNullOrWhiteSpace(settings.MappingsOverridePath) && File.Exists(settings.MappingsOverridePath)
-                ? settings.MappingsOverridePath!
-                : MappingsProviderService.EnsureExtracted();
-            var egame = Enum.TryParse<EGame>(settings.EGameVersion, out var parsed) ? parsed : EGame.GAME_UE5_3;
+            var opts = GameMountService.OptionsFor(Game!);
 
             var game = Game;
             var mods = Mods.ToList();
-            var results = await Task.Run(() => _compat.DeepScan(game, mods, mappingsPath, egame, settings.AesKeyHex));
+            var results = await Task.Run(() => _compat.DeepScan(game, mods, opts.MappingsPath, opts.EGame, opts.AesKeyHex));
 
             ApplyConflicts(results);
 
@@ -916,15 +1107,11 @@ public partial class MainViewModel : ObservableObject
         var needMount = Mods.Any(m => m.UpdateSource == null && m.HasModActor);
         if (!needMount) return found;
 
-        var settings = AppSettingsService.Instance.Current;
-        var mappingsPath = !string.IsNullOrWhiteSpace(settings.MappingsOverridePath) && File.Exists(settings.MappingsOverridePath)
-            ? settings.MappingsOverridePath!
-            : MappingsProviderService.EnsureExtracted();
-        var egame = Enum.TryParse<EGame>(settings.EGameVersion, out var parsed) ? parsed : EGame.GAME_UE5_3;
+        var opts = GameMountService.OptionsFor(game);
 
         try
         {
-            using var provider = GameMountService.Mount(game.PaksPath, mappingsPath, egame, settings.AesKeyHex);
+            using var provider = GameMountService.Mount(opts);
             DataTableAppendScanner.EnableScriptReading(provider);
 
             foreach (var mod in Mods.Where(m => m.UpdateSource == null && m.HasModActor))
@@ -1010,7 +1197,7 @@ public partial class MainViewModel : ObservableObject
                     + $"(v{AppUpdateService.Describe(AppUpdateService.GetCurrentVersion())}) was previewing. Moving to it goes forwards, even "
                     + "though the version number gets shorter.",
                 _ =>
-                    $"DDS2 Mod Manager {release.TagName} is available (you have v{AppUpdateService.Describe(AppUpdateService.GetCurrentVersion())})."
+                    $"{AppPaths.AppDisplayName} {release.TagName} is available (you have v{AppUpdateService.Describe(AppUpdateService.GetCurrentVersion())})."
             });
 
             var prompt = new UpdateAvailableWindow(
@@ -1050,11 +1237,7 @@ public partial class MainViewModel : ObservableObject
         if (Game == null || _installer == null || _registry == null) return;
 
         var log = LoggingService.Instance;
-        var settings = AppSettingsService.Instance.Current;
-        var mappingsPath = !string.IsNullOrWhiteSpace(settings.MappingsOverridePath) && File.Exists(settings.MappingsOverridePath)
-            ? settings.MappingsOverridePath!
-            : MappingsProviderService.EnsureExtracted();
-        var egame = Enum.TryParse<EGame>(settings.EGameVersion, out var parsed) ? parsed : EGame.GAME_UE5_3;
+        var opts = GameMountService.OptionsFor(Game);
 
         List<UnmanagedMod> found;
         try
@@ -1062,7 +1245,7 @@ public partial class MainViewModel : ObservableObject
             var game = Game;
             var known = _registry.Mods.ToList();
             // Mounts and reads every pak in the game folder, so keep it off the UI thread.
-            found = await Task.Run(() => _unmanagedScanner.Scan(game, known, mappingsPath, egame, settings.AesKeyHex));
+            found = await Task.Run(() => _unmanagedScanner.Scan(game, known, opts.MappingsPath, opts.EGame, opts.AesKeyHex));
         }
         catch (Exception ex)
         {
@@ -1107,6 +1290,15 @@ public partial class MainViewModel : ObservableObject
     private async Task CheckUE4SSUpdateAsync()
     {
         if (Game == null) return;
+
+        // Nothing to check when installing is not allowed for this game. Reporting "an update is
+        // available" for a build that crashes it would be an invitation to break the install.
+        if (Ue4ssStatus is { CanInstall: false })
+        {
+            UpdateAvailable = false;
+            return;
+        }
+
         StatusMessage = "Checking for UE4SS updates...";
         _latestRelease = await _ue4ss.GetLatestExperimentalReleaseAsync();
         if (_latestRelease == null)
@@ -1138,6 +1330,16 @@ public partial class MainViewModel : ObservableObject
     private async Task InstallOrUpdateUE4SSAsync()
     {
         if (Game == null) return;
+
+        // Enforced here as well as in the UI. The button is hidden for a game we must not install
+        // into, but a hidden button is a presentation detail and this is the one that would break a
+        // working game - the only UE4SS build we can fetch crashes on some engine versions.
+        if (Ue4ssStatus is { CanInstall: false } blocked)
+        {
+            LoggingService.Instance.Warn(blocked.InstallBlockedReason ??
+                "Installing UE4SS isn't supported for this game.");
+            return;
+        }
 
         // Always let the user (re)confirm which build before installing/updating, not just once -
         // switching later should be just as visible and just as clearly explained as the first time.
@@ -1213,6 +1415,7 @@ public partial class MainViewModel : ObservableObject
 
         // The registry drives this list, and Uninstall already emptied it - resync rather than
         // trying to mirror each individual removal.
+        DetachModSubscriptions();
         Mods.Clear();
         foreach (var m in _registry.Mods) Mods.Add(m);
 

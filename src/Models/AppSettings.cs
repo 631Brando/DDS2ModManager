@@ -18,18 +18,72 @@ public static class UpdateChannels
     public static string Normalize(string? channel) => IsExperimental(channel) ? Experimental : Stable;
 }
 
-public class AppSettings
+/// Settings that describe ONE game install rather than the app as a whole.
+///
+/// Property names are deliberately identical to the flat ones these replace: a settings.json written
+/// before multi-game existed can then be turned into a GameSettings by a single deserialize of the
+/// same text, with no hand-written field mapping to get subtly wrong. Losing this silently would
+/// present as "the app forgot my game path, AES key and mod-update history", not as an error.
+public class GameSettings
 {
     /// If set, used instead of the embedded mappings.usmap - handy for testing an
     /// updated mappings file without rebuilding the exe.
     public string? MappingsOverridePath { get; set; }
 
-    /// Name of the CUE4Parse EGame enum member used to parse packages.
-    /// Bump this if the game updates to a newer engine version than this build targets.
-    public string EGameVersion { get; set; } = "GAME_UE5_3";
+    /// Name of the CUE4Parse EGame enum member used to parse this game's packages.
+    ///
+    /// Null means "whatever the game's profile says", which is the normal state. Only a deliberate
+    /// override is stored - see AppSettingsService's migration for why that matters: the old
+    /// SettingsWindow wrote "GAME_UE5_3" on every save, so every existing settings.json contains it,
+    /// and carrying that across faithfully would permanently pin those users to UE 5.3 even after a
+    /// profile bump. The failure would be silent, because a wrong EGame still lists every path in a
+    /// pak and only fails on deserialize.
+    public string? EGameVersion { get; set; }
 
     /// Manually pinned game folder. When set, startup skips Steam auto-detection.
     public string? GamePathOverride { get; set; }
+
+    /// Newest mod publish time already shown in the banner. Everything after this is "new".
+    /// Per game, because the two games have separate Nexus catalogues.
+    public DateTime? NexusFeedLastSeenUtc { get; set; }
+
+    /// When this game's cached Nexus mod list was last refreshed.
+    public DateTime? NexusIndexRefreshedUtc { get; set; }
+
+    /// What the game's executable looked like last run, so a patch can be noticed. See
+    /// GameVersionWatchService for why size and timestamp are kept alongside the version.
+    public string? LastSeenGameVersion { get; set; }
+    public long LastSeenGameSize { get; set; }
+    public DateTime? LastSeenGameWrittenUtc { get; set; }
+
+    /// Optional AES-256 key (hex), only needed if CUE4Parse reports it can't decrypt a pak.
+    public string? AesKeyHex { get; set; }
+
+    /// Whether this section holds anything worth keeping, used to decide if a legacy settings file
+    /// had per-game state at all.
+    public bool HasAnything =>
+        !string.IsNullOrWhiteSpace(GamePathOverride)
+        || !string.IsNullOrWhiteSpace(MappingsOverridePath)
+        || !string.IsNullOrWhiteSpace(EGameVersion)
+        || !string.IsNullOrWhiteSpace(AesKeyHex)
+        || !string.IsNullOrWhiteSpace(LastSeenGameVersion)
+        || LastSeenGameSize != 0
+        || LastSeenGameWrittenUtc != null
+        || NexusFeedLastSeenUtc != null
+        || NexusIndexRefreshedUtc != null;
+}
+
+public class AppSettings
+{
+    /// Per-game settings, keyed by GameProfile.Id. Everything else on this class is genuinely
+    /// app-wide and stays shared.
+    public Dictionary<string, GameSettings> Games { get; set; } = new();
+
+    /// Which game the app was last looking at, so it reopens where it was left.
+    ///
+    /// Derived state, never a second source of truth: what a GameInstallation actually IS comes from
+    /// the project folder detected on disk. This only decides which one to open first.
+    public string? ActiveGameId { get; set; }
 
     public bool AutoCheckUE4SSUpdatesOnStartup { get; set; } = true;
 
@@ -47,27 +101,22 @@ public class AppSettings
     /// and nothing is ever downloaded without asking - see ModUpdateService.
     public bool CheckForModUpdatesOnStartup { get; set; } = true;
 
-    /// Shows a banner when new DDS2 mods have been published on Nexus since you last looked.
+    /// Shows a banner when new mods have been published on Nexus since you last looked.
     ///
     /// Read-only discovery - it lists what exists and links to the page. Nothing is downloaded,
     /// and no Nexus account or API key is involved.
     public bool ShowNexusNewModBanner { get; set; } = true;
-
-    /// Newest mod publish time already shown in the banner. Everything after this is "new".
-    /// Null on first run, which starts the window at two weeks back rather than dumping the
-    /// entire history of the game's mod list into a banner.
-    public DateTime? NexusFeedLastSeenUtc { get; set; }
 
     /// Shows a mod's Nexus picture and description when you hover its row.
     ///
     /// The details come from a list of the game's mods fetched from Nexus and cached locally, so
     /// hovering does no network work of its own and the cards keep working offline. Turning this
     /// off stops the manager contacting Nexus for mod details at all.
+    ///
+    /// A link the user declared for a mod is unaffected: it is stored in the registry, so with this
+    /// off the row's Nexus button still shows and still opens the page. There is just no card and
+    /// no picture behind it, because both come from the list this setting governs.
     public bool ShowNexusModDetails { get; set; } = true;
-
-    /// When the cached Nexus mod list was last refreshed. The list is small and changes slowly,
-    /// so it is re-fetched on a slow cadence rather than on every launch.
-    public DateTime? NexusIndexRefreshedUtc { get; set; }
 
     /// How the mod list was last sorted, so it comes back the way it was left.
     ///
@@ -76,12 +125,6 @@ public class AppSettings
     /// ignored and the default (starred first, then name) applies.
     public string? ModListSortColumn { get; set; }
     public bool ModListSortDescending { get; set; }
-
-    /// What the game's executable looked like last run, so a patch can be noticed. See
-    /// GameVersionWatchService for why size and timestamp are kept alongside the version.
-    public string? LastSeenGameVersion { get; set; }
-    public long LastSeenGameSize { get; set; }
-    public DateTime? LastSeenGameWrittenUtc { get; set; }
 
     // There is deliberately NO "install trusted updates automatically" setting.
     //
@@ -101,12 +144,16 @@ public class AppSettings
     /// degrades to the stable channel instead of throwing while loading settings.
     public string UpdateChannel { get; set; } = UpdateChannels.Stable;
 
-    /// Optional AES-256 key (hex), only needed if CUE4Parse reports it can't decrypt a pak.
-    public string? AesKeyHex { get; set; }
-
     /// Last window size and whether it was maximized, so the app reopens the way it was left
     /// instead of resetting to a small default every launch. Null until the first close.
     public double? WindowWidth { get; set; }
     public double? WindowHeight { get; set; }
     public bool WindowMaximized { get; set; }
+
+    /// How this app's own %AppData% storage is laid out. 0 is the original flat layout, where mod
+    /// history, profiles, backups and disabled mods were shared across every game.
+    ///
+    /// Deliberately global rather than per-game: it describes the shape of the folder, not anything
+    /// about a game, and the migration that reads it has to run before any game is chosen.
+    public int StateLayoutVersion { get; set; }
 }

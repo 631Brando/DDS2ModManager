@@ -49,11 +49,15 @@ public class GameConfigService
     /// The backup-on-save protection is the same as for the game's files.
     private IEnumerable<GameConfigFile> GetModLoaderConfigFiles()
     {
-        if (!Directory.Exists(_game.UE4SSRootPath)) return Enumerable.Empty<GameConfigFile>();
+        // Driven by detection rather than a fixed path: UE4SS's older layout keeps its settings
+        // directly in Binaries\Win64, and looking only in ue4ss\ meant a DDS1 user was shown no
+        // loader settings at all while the file sat there being read by the loader every launch.
+        var folder = new ModLoaderService().Detect(_game, ModLoaders.UE4SS)?.ConfigFolder;
+        if (folder == null || !Directory.Exists(folder)) return Enumerable.Empty<GameConfigFile>();
 
         try
         {
-            return Directory.GetFiles(_game.UE4SSRootPath, "*.ini", SearchOption.TopDirectoryOnly)
+            return Directory.GetFiles(folder, "*.ini", SearchOption.TopDirectoryOnly)
                 .Select(f => new FileInfo(f))
                 .Where(f => !IsGeneratedState(f.Name))
                 .Select(f => Describe(f, isGameConfig: false))

@@ -41,6 +41,50 @@ public class ModUpdateSourceResolver
         return null;
     }
 
+    /// What a manifest inside this folder says the mod is CALLED, or null.
+    ///
+    /// Separate from FromManifestFolder because Build refuses a manifest with no updateUrl - it has
+    /// nothing to offer the updater - and a manifest that names the mod but declares no updates is
+    /// still telling the truth about its name. Routing the name through ModUpdateSource instead
+    /// would mean handing the trust and update code a source with no repository behind it.
+    ///
+    /// The schema refusal still applies: ReadManifest rejects a manifest declaring a schema this
+    /// build doesn't understand, and a manifest refused whole must not name the mod either.
+    ///
+    /// Sanitised, because this becomes a folder name for some mod types: a manifest is author-
+    /// supplied text, and a "name" containing a path separator would write outside the destination.
+    public string? NameFromManifestFolder(string modFolderPath, string fallbackName)
+    {
+        var path = FindManifest(modFolderPath);
+        if (path == null) return null;
+
+        var declared = ReadManifest(path, fallbackName)?.Name?.Trim();
+        if (string.IsNullOrWhiteSpace(declared)) return null;
+
+        if (declared.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return null;
+
+        return declared;
+    }
+
+    /// The one manifest inside a folder the mod owns outright, or null. See the warning below about
+    /// which folders may be searched.
+    private static string? FindManifest(string modFolderPath)
+    {
+        try
+        {
+            if (!Directory.Exists(modFolderPath)) return null;
+
+            return Directory
+                .EnumerateFiles(modFolderPath, "*", SearchOption.AllDirectories)
+                .FirstOrDefault(f => ModManifest.IsManifestFile(f));
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Instance.Warn($"Couldn't read a manifest from '{modFolderPath}': {ex.Message}");
+            return null;
+        }
+    }
+
     /// Finds a .dds2mod.json anywhere inside a folder the mod owns outright.
     ///
     /// A recursive search is only safe for a folder the mod owns - an extracted archive, or a lua
@@ -50,21 +94,8 @@ public class ModUpdateSourceResolver
     /// overload above, which draws that distinction.
     public ModUpdateSource? FromManifestFolder(string modFolderPath, string modName)
     {
-        try
-        {
-            if (!Directory.Exists(modFolderPath)) return null;
-
-            var path = Directory
-                .EnumerateFiles(modFolderPath, "*" + ModManifest.FileName, SearchOption.AllDirectories)
-                .FirstOrDefault();
-
-            return path == null ? null : Build(ReadManifest(path, modName), modName);
-        }
-        catch (Exception ex)
-        {
-            LoggingService.Instance.Warn($"Couldn't read a manifest from '{modFolderPath}': {ex.Message}");
-            return null;
-        }
+        var path = FindManifest(modFolderPath);
+        return path == null ? null : Build(ReadManifest(path, modName), modName);
     }
 
     /// Reads one specific manifest file. For callers that have already worked out WHICH manifest
@@ -183,7 +214,8 @@ public class ModUpdateSourceResolver
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         if (!string.IsNullOrWhiteSpace(mod.InstallPath) && seen.Add(mod.InstallPath))
-            yield return Path.Combine(mod.InstallPath, ModManifest.FileName);
+            foreach (var ending in ModManifest.FileNames)
+                yield return Path.Combine(mod.InstallPath, ending);
 
         foreach (var file in mod.InstallFiles)
         {
@@ -193,11 +225,13 @@ public class ModUpdateSourceResolver
             // A pak's own folder is shared with every other pak, so only a manifest named after
             // this specific mod counts there - a bare .dds2mod.json would be ambiguous.
             var baseName = Path.GetFileNameWithoutExtension(file);
-            yield return Path.Combine(dir, baseName + ModManifest.FileName);
+            foreach (var ending in ModManifest.FileNames)
+                yield return Path.Combine(dir, baseName + ending);
         }
 
         if (!string.IsNullOrWhiteSpace(mod.InstallPath))
-            yield return Path.Combine(mod.InstallPath, mod.Name + ModManifest.FileName);
+            foreach (var ending in ModManifest.FileNames)
+                yield return Path.Combine(mod.InstallPath, mod.Name + ending);
     }
 
     /// Case-insensitive on purpose. A manifest is hand-written by a mod author in a text editor,

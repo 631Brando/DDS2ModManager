@@ -62,5 +62,23 @@ public class ModManifest
 
     /// The filename authors ship. Leading dot keeps it out of the way alphabetically and marks it
     /// as metadata rather than mod content.
+    ///
+    /// Stays ".dds2mod.json" and is what the documentation names. It predates this app managing a
+    /// second game, and renaming it would make every mod that already ships one stop declaring an
+    /// update source - silently, because the only symptom is that updates stop appearing.
     public const string FileName = ".dds2mod.json";
+
+    /// A game-neutral alternative, accepted everywhere the original is.
+    ///
+    /// Purely a convenience for DDS1 authors, who otherwise have to ship a file with "dds2" in the
+    /// name. Nothing needs to migrate: the original stays first in every lookup, so an existing mod
+    /// behaves exactly as before, and an author may use either.
+    public const string NeutralFileName = ".ddsmod.json";
+
+    /// Both accepted endings, original first so it always wins a tie.
+    public static readonly string[] FileNames = [FileName, NeutralFileName];
+
+    /// True when a filename ends with either accepted manifest ending.
+    public static bool IsManifestFile(string path) =>
+        FileNames.Any(n => path.EndsWith(n, StringComparison.OrdinalIgnoreCase));
 }

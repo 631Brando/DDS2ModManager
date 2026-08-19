@@ -30,23 +30,21 @@ public class ModHistoryEntry
 /// Separate from LoggingService on purpose: that is a diagnostic trace of one session, rotated
 /// away after twenty runs. This is a small permanent record of what happened to the user's
 /// mods, which is a different question and outlives any single log file.
+/// Per game install, not global: "what happened to my mods" is a different answer for each game,
+/// and interleaving two games' entries in one list makes the record harder to read than no record.
 public class ModHistoryService
 {
-    private static readonly Lazy<ModHistoryService> _instance = new(() => new ModHistoryService());
-    public static ModHistoryService Instance => _instance.Value;
-
     /// Enough to answer "what changed recently" without the file growing without limit.
+    /// Per game now, so managing a second game no longer halves the useful depth of the first.
     private const int MaxEntries = 400;
 
     private readonly string _path;
     private List<ModHistoryEntry> _entries = new();
 
-    private ModHistoryService()
+    public ModHistoryService(GameInstallation game)
     {
-        var dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DDS2ModManager");
-        Directory.CreateDirectory(dir);
-        _path = Path.Combine(dir, "mod-history.json");
+        AppPaths.EnsureRoot();
+        _path = AppPaths.ModHistoryFor(game.RootPath);
         Load();
     }
 

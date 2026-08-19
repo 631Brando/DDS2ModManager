@@ -31,6 +31,7 @@ public class ModInstallerService
     private readonly ModAnalyzerService _analyzer;
     private readonly ModRegistryService _registry;
     private readonly LuaModConfigService _lua = new();
+    private readonly ModUpdateSourceResolver _updateSources = new();
     private readonly string _disabledCacheDir;
 
     public ModInstallerService(GameInstallation game, ModAnalyzerService analyzer, ModRegistryService registry)
@@ -38,9 +39,11 @@ public class ModInstallerService
         _game = game;
         _analyzer = analyzer;
         _registry = registry;
-        _disabledCacheDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "DDS2ModManager", "DisabledMods");
+        // Scoped per install, like the mod registry and disabled saves. Flat, this was an
+        // unattributed pool: mod ids are GUIDs so folders don't collide, but nothing recorded which
+        // game owned each one, so "Open Disabled Mods" showed an undifferentiated pile and two
+        // installs' disabled mods could never be told apart.
+        _disabledCacheDir = AppPaths.DisabledModsFor(game.RootPath);
         Directory.CreateDirectory(_disabledCacheDir);
     }
 
@@ -120,7 +123,18 @@ public class ModInstallerService
                 return null;
             }
 
-            var name = InferModName(chosenRoot, analysis.Type);
+            var isTempRoot = prepared.IsTempExtraction && SamePath(chosenRoot, prepared.ExtractedRoot);
+            var name = InferModName(chosenRoot, analysis.Type, isTempRoot);
+
+            if (name == null)
+            {
+                log.Error(
+                    $"Installation blocked: nothing in this archive names the mod. It has no .pak, no Scripts " +
+                    "folder, and no single file this manager can name it after - so it would be listed under the " +
+                    "temporary folder it was unpacked into. Extract the archive into a folder named after the mod " +
+                    "and install that folder instead.");
+                return null;
+            }
 
             // Same reasoning as ImportUnmanaged: a name clash across DIFFERENT types is the two
             // halves of one mod, not a duplicate. Refusing on name alone made the second half of
@@ -174,7 +188,15 @@ public class ModInstallerService
                     break;
 
                 case ModType.LuaMod:
-                    InstallLuaMod(chosenRoot, mod);
+                    if (!InstallLuaMod(chosenRoot, mod, isTempRoot)) return null;
+                    break;
+
+                case ModType.LooseAsset:
+                    InstallLooseAssets(chosenRoot, mod);
+                    break;
+
+                case ModType.DllPlugin:
+                    if (!InstallDllPlugin(chosenRoot, mod)) return null;
                     break;
             }
 
@@ -280,8 +302,24 @@ public class ModInstallerService
                 log.Success($"Moved '{mod.Name}' to {found.CorrectFolder} so the game will actually load it.");
             }
 
+            // Recorded FIRST, deliberately. If the move below throws, the registry still holds the
+            // pre-move file list, so the mod is tracked and recoverable rather than half-adopted
+            // with paths pointing nowhere.
             _registry.Upsert(mod);
             log.Success($"Imported existing mod '{mod.Name}' as {mod.Type}.");
+
+            // The mod was sitting in a DisabledMods folder INSIDE the game, which disables nothing -
+            // Unreal enumerates Content\Paks recursively and loads it anyway. Adopting it as
+            // "disabled" while the game still loads it would carry the same lie forward, so put the
+            // files where being disabled is actually true: out of the game folder entirely.
+            if (found.ParkedInGameFolder && mod.Type is ModType.LogicMod or ModType.PatchMod)
+            {
+                log.Info(
+                    $"'{mod.Name}' was in a DisabledMods folder inside the game, where it was still being " +
+                    "loaded. Moving its files out so it really is switched off.");
+                Disable(mod);
+            }
+
             return mod;
         }
         catch (Exception ex)
@@ -306,19 +344,87 @@ public class ModInstallerService
         mod.InstallPath = destFolder;
     }
 
-    private string InferModName(string workingDir, ModType type)
+    /// The name a mod is listed under, or NULL when nothing in the archive names it.
+    ///
+    /// Null matters. The name is not a label: it is the duplicate-install key, the profile match
+    /// key, the Nexus match key and the mod-list group key, and there is no rename anywhere in the
+    /// UI. So a name that cannot be resolved has to stop the install, not be filled in.
+    ///
+    /// It used to fall back to the working directory's own name. For an ARCHIVE install that
+    /// directory is the temp folder PrepareInstall mints - "DDS2MM_Install_<guid>" - so every mod
+    /// shape with no .pak and no Scripts folder was listed, keyed and stored under a GUID.
+    /// DllPlugin and LooseAsset hit that unconditionally: the analyzer only assigns those two types
+    /// when there is no pak and no main.lua, which is exactly the negation of both earlier rules.
+    ///
+    /// workingDirIsTempRoot is passed rather than sniffed for. Deciding it here would mean matching
+    /// on the "DDS2MM_Install_" prefix, which is a guess about our own temp names; the caller
+    /// already knows the answer for certain.
+    private string? InferModName(string workingDir, ModType type, bool workingDirIsTempRoot)
     {
+        // What the author called it beats anything inferred from the packaging. It is the only
+        // source here that is a STATEMENT rather than a deduction - everything below reads a
+        // filename or a folder and reasons about what it probably means.
+        var declared = _updateSources.NameFromManifestFolder(workingDir, Path.GetFileName(workingDir));
+        if (declared != null) return declared;
+
         if (type == ModType.LuaMod)
         {
             var scriptsDir = Directory.GetDirectories(workingDir, "Scripts", SearchOption.AllDirectories).FirstOrDefault();
-            if (scriptsDir != null) return Path.GetFileName(Path.GetDirectoryName(scriptsDir)!);
+            if (scriptsDir != null)
+            {
+                var luaRoot = Path.GetDirectoryName(scriptsDir)!;
+                if (!(workingDirIsTempRoot && SamePath(luaRoot, workingDir)))
+                    return Path.GetFileName(luaRoot.TrimEnd(Path.DirectorySeparatorChar));
+            }
         }
 
         var pak = Directory.GetFiles(workingDir, "*.pak", SearchOption.AllDirectories).FirstOrDefault();
         if (pak != null) return Path.GetFileNameWithoutExtension(pak);
 
+        // A DLL plugin IS its DLL: InstallDllPlugin copies it by filename into a flat folder the
+        // loader keys on filename, so the basename is already this mod's identity on disk - the
+        // same reasoning that makes the pak rule right, and stable across versions in a way a
+        // download filename is not.
+        //
+        // Exactly one, never the first of several. Two DLLs is a framework plus its dependency, or
+        // two mods in one archive, and picking either one names the mod after a coin flip.
+        if (type == ModType.DllPlugin)
+        {
+            var dlls = Directory.GetFiles(workingDir, "*.dll", SearchOption.AllDirectories);
+            if (dlls.Length == 1) return Path.GetFileNameWithoutExtension(dlls[0]);
+        }
+
+        // Loose assets are named after the folder wrapping Content\, mirroring the lua rule.
+        // Refused when that folder is the archive root (nothing named it) or the project folder -
+        // authors routinely ship "DrugDealerSimulator\Content\...", and listing a mod under the
+        // game's own project name is a wrong name, not a fallback.
+        if (type == ModType.LooseAsset)
+        {
+            var contentDir = ModAnalyzerService.FindLooseAssetRoot(workingDir);
+            var wrapper = contentDir != null && !SamePath(contentDir, workingDir)
+                ? Path.GetDirectoryName(contentDir.TrimEnd(Path.DirectorySeparatorChar))
+                : null;
+
+            if (wrapper != null && !SamePath(wrapper, workingDir))
+            {
+                var candidate = Path.GetFileName(wrapper.TrimEnd(Path.DirectorySeparatorChar));
+                if (!string.Equals(candidate, _game.ProjectName, StringComparison.OrdinalIgnoreCase))
+                    return candidate;
+            }
+        }
+
+        // Correct for a dropped folder and for a chosen sub-root - both are folders a person named.
+        // Only the temp extraction root is nameless.
+        if (workingDirIsTempRoot) return null;
+
         return Path.GetFileName(workingDir.TrimEnd(Path.DirectorySeparatorChar));
     }
+
+    private static bool SamePath(string a, string b) =>
+        string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)),
+            StringComparison.OrdinalIgnoreCase);
 
     private void InstallPakTriple(string workingDir, string destFolder, ModInfo mod)
     {
@@ -326,7 +432,10 @@ public class ModInstallerService
         // BPModLoaderMod expects, what every deploy script produces, and what Enable() restores
         // to - installing flat into LogicMods put a fresh install in a different shape from the
         // same mod after one disable/enable cycle.
-        if (mod.Type == ModType.LogicMod)
+        // Only where the game's loader actually reads subfolders. On DDS1 it does not: UnrealModLoader
+        // scans LogicMods flat, so a nested pak mounts but its ModActor never spawns - the mod appears
+        // to install fine and then does nothing, with no error anywhere to explain it.
+        if (mod.Type == ModType.LogicMod && _game.Profile.LogicModsUseSubfolders)
         {
             var pakName = Directory.GetFiles(workingDir, "*.pak", SearchOption.AllDirectories)
                 .Select(Path.GetFileNameWithoutExtension)
@@ -338,7 +447,10 @@ public class ModInstallerService
         Directory.CreateDirectory(destFolder);
         var moved = new List<string>();
 
-        foreach (var ext in new[] { ".pak", ".ucas", ".utoc" })
+        // Driven by the game's layout. On an IoStore title the three files are one container and a
+        // missing member is a real defect worth warning about; on UE4 a mod IS a single .pak, and
+        // looking for the other two would warn about their absence on every single install.
+        foreach (var ext in _game.Profile.ContainerExtensions)
         {
             var src = Directory.GetFiles(workingDir, "*" + ext, SearchOption.AllDirectories).FirstOrDefault();
             if (src == null)
@@ -365,7 +477,8 @@ public class ModInstallerService
             ? Path.GetFileName(mod.InstallPath.TrimEnd(Path.DirectorySeparatorChar))
             : mod.Name;
 
-    private void InstallLuaMod(string workingDir, ModInfo mod)
+    /// Copies a lua mod into UE4SS's Mods folder. False means the install was refused.
+    private bool InstallLuaMod(string workingDir, ModInfo mod, bool workingDirIsTempRoot)
     {
         Directory.CreateDirectory(_game.UE4SSModsPath);
         var scriptsDir = Directory.GetDirectories(workingDir, "Scripts", SearchOption.AllDirectories).FirstOrDefault();
@@ -377,6 +490,20 @@ public class ModInstallerService
         // a two-part mod are installed - "SpecialClientMarker (LuaMod)". UE4SS loads the folder
         // named in mods.txt, so writing that suffix to disk produces a folder the loader has no
         // reason to recognise, and an entry in mods.txt that does not name the mod.
+        //
+        // Which is also why an archive shipping Scripts\ with no folder around it has to be refused
+        // rather than named from anywhere else. modRoot is then the temp extraction root, and its
+        // name is a GUID that would be created under ue4ss\Mods AND written into mods.txt - a
+        // wrong name in the one place it is load-bearing rather than cosmetic.
+        if (workingDirIsTempRoot && SamePath(modRoot, workingDir))
+        {
+            LoggingService.Instance.Error(
+                "Installation blocked: this archive ships its Scripts folder with no mod folder around it, so " +
+                "there is no name for the folder UE4SS keys on in mods.txt. Put Scripts\\ inside a folder named " +
+                "after the mod and install that folder instead.");
+            return false;
+        }
+
         var folderName = Path.GetFileName(modRoot.TrimEnd(Path.DirectorySeparatorChar));
         if (string.IsNullOrWhiteSpace(folderName)) folderName = mod.Name;
 
@@ -386,6 +513,7 @@ public class ModInstallerService
         mod.InstallPath = destDir;
         mod.InstallFiles = new List<string> { destDir };
         _lua.SetEnabled(_game, folderName, true);
+        return true;
     }
 
     private void CopyDirectoryRecursive(string source, string dest)
@@ -401,15 +529,257 @@ public class ModInstallerService
         }
     }
 
+    /// Installs a native DLL plugin into whichever loader on this install can load one.
+    ///
+    /// The destination is NOT fixed: UnrealModUnlocker reads Binaries\Win64\UnrealModPlugins,
+    /// UnrealModLoader reads coremods, and there is no shared convention between them. So it is
+    /// resolved from what is actually installed, and refused outright when nothing present can load
+    /// a DLL - dropping a native DLL somewhere the game never reads is indistinguishable, from the
+    /// user's side, from the mod being broken.
+    ///
+    /// Only the DLLs are placed. A framework's data folder has its own layout, described by its own
+    /// documentation - guessing where "Custom Example Pack (CEP)/CustomDrugs" belongs would as
+    /// likely put it one level off as get it right, so the remaining contents are reported instead.
+    private bool InstallDllPlugin(string sourceRoot, ModInfo mod)
+    {
+        var log = LoggingService.Instance;
+
+        var loader = new ModLoaderService().DetectAll(_game)
+            .FirstOrDefault(l => l.IsInstalled && l.PluginFolder != null);
+
+        if (loader?.PluginFolder == null)
+        {
+            log.Error(
+                $"'{mod.Name}' is a DLL plugin, and nothing installed here can load one. Install a loader that " +
+                "takes DLL plugins first (UnrealModUnlocker reads Binaries\\Win64\\UnrealModPlugins; " +
+                "UnrealModLoader reads coremods), launch the game once so it creates that folder, then install " +
+                "this again.");
+            return false;
+        }
+
+        var dlls = Directory.GetFiles(sourceRoot, "*.dll", SearchOption.AllDirectories);
+
+        // These folders are normally created BY the loader, on the first launch after it patches the
+        // game. Its absence usually means that launch has not happened yet - so create it and say so,
+        // rather than installing into a folder nothing is watching and calling it done.
+        var loaderMadeIt = Directory.Exists(loader.PluginFolder);
+        Directory.CreateDirectory(loader.PluginFolder);
+
+        // A loader's plugin folder is flat and keyed by filename, so a second copy of the same
+        // framework - or a hand-installed one - is overwritten with no trace. Note it before copying,
+        // because afterwards there is nothing left to tell the user about.
+        var overwritten = new List<string>();
+
+        var placed = new List<string>();
+        foreach (var src in dlls)
+        {
+            var dest = Path.Combine(loader.PluginFolder, Path.GetFileName(src));
+            if (File.Exists(dest)) overwritten.Add(Path.GetFileName(src));
+            File.Copy(src, dest, true);
+            placed.Add(dest);
+        }
+
+        mod.InstallPath = loader.PluginFolder;
+        mod.InstallFiles = placed;
+
+        log.Success(
+            $"Installed {placed.Count} DLL(s) into {loader.PluginFolder} for {loader.DisplayName}.");
+
+        if (overwritten.Count > 0)
+        {
+            log.Warn(
+                $"Replaced an existing {string.Join(", ", overwritten)} in {loader.PluginFolder}. If that was " +
+                "another copy of this framework - installed by hand or by another mod - it is gone now, and " +
+                "removing this mod will not bring it back.");
+        }
+
+        if (!loaderMadeIt)
+        {
+            log.Warn(
+                $"{loader.DisplayName} had not created its plugin folder yet, so this manager made it. That folder " +
+                "normally appears the first time the game runs after the loader patches it - if the mod does not " +
+                "load, launch the game once and check the loader is actually installed.");
+        }
+
+        // Anything else in the archive is the framework's own content, whose layout only its docs
+        // describe. Name it rather than place it.
+        var extras = Directory.GetFiles(sourceRoot, "*", SearchOption.AllDirectories)
+            .Where(f => !f.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            .Select(f => Path.GetRelativePath(sourceRoot, f).Split(Path.DirectorySeparatorChar)[0])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (extras.Count > 0)
+        {
+            log.Warn(
+                $"The archive also contains {string.Join(", ", extras.Take(4))}" +
+                (extras.Count > 4 ? ", ..." : "") +
+                ". Those are the mod's own content and this manager hasn't placed them - most frameworks " +
+                "read them from a folder they create next to their DLL on first launch. Check the mod's " +
+                "instructions for where they go.");
+        }
+
+        return true;
+    }
+
+    /// Copies a loose-asset mod into the game's Content folder, preserving its directory tree.
+    ///
+    /// The tree IS the mod: a loose asset only overrides the packed original when it sits at the
+    /// exact same relative path, so flattening or re-rooting the files produces an install where
+    /// nothing loads and nothing explains why.
+    private void InstallLooseAssets(string sourceRoot, ModInfo mod)
+    {
+        var looseRoot = ModAnalyzerService.FindLooseAssetRoot(sourceRoot) ?? sourceRoot;
+        var copied = new List<string>();
+
+        foreach (var src in Directory.GetFiles(looseRoot, "*", SearchOption.AllDirectories))
+        {
+            var target = Path.Combine(_game.ContentPath, Path.GetRelativePath(looseRoot, src));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(src, target, true);
+            copied.Add(target);
+        }
+
+        mod.InstallPath = _game.ContentPath;
+        mod.InstallFiles = copied;
+
+        WarnAboutMissingCompanions(copied);
+    }
+
+    /// A cooked asset is more than one file: .uasset carries the header, .uexp the exports, .ubulk
+    /// the bulk data. Shipping one without the others crashes the game or loses the asset silently,
+    /// and it is a packaging mistake worth naming at install time rather than leaving the user to
+    /// discover as a crash later.
+    private static void WarnAboutMissingCompanions(IEnumerable<string> files)
+    {
+        var groups = files.GroupBy(
+            f => Path.Combine(Path.GetDirectoryName(f) ?? "", Path.GetFileNameWithoutExtension(f)),
+            StringComparer.OrdinalIgnoreCase);
+
+        // Only when the mod ships a MIX of shapes.
+        //
+        // A .uasset with no .uexp is normal and correct for plenty of cooked assets - measured across
+        // real DDS1 mods, the single-file ModActor.uasset shape is the most common logic mod there is.
+        // Warning per file meant every one of those installs produced a wall of warnings about a
+        // problem that did not exist, which is how a real warning stops being read.
+        var lone = groups.Where(g =>
+        {
+            var ext = g.Select(f => Path.GetExtension(f).ToLowerInvariant()).ToHashSet();
+            return ext.Contains(".uasset") && !ext.Contains(".uexp");
+        }).ToList();
+
+        var paired = groups.Any(g =>
+            g.Any(f => f.EndsWith(".uexp", StringComparison.OrdinalIgnoreCase)));
+
+        if (paired && lone.Count > 0)
+        {
+            LoggingService.Instance.Warn(
+                $"{lone.Count} asset(s) in this mod have no .uexp beside them while others do " +
+                $"({string.Join(", ", lone.Take(3).Select(g => Path.GetFileName(g.Key) + ".uasset"))}" +
+                (lone.Count > 3 ? ", ..." : "") + "). Cooked assets usually ship as a set - worth checking " +
+                "the archive is complete.");
+        }
+    }
+
+    /// Removes folders left empty after a loose-asset uninstall, stopping at (and never deleting)
+    /// the game's own Content folder.
+    private static void PruneEmptyFolders(IEnumerable<string> removedFiles, string stopAt)
+    {
+        var stop = Path.TrimEndingDirectorySeparator(Path.GetFullPath(stopAt));
+
+        foreach (var dir in removedFiles.Select(Path.GetDirectoryName)
+                     .Where(d => !string.IsNullOrEmpty(d))
+                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                     .OrderByDescending(d => d!.Length))
+        {
+            var current = dir!;
+            while (true)
+            {
+                var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(current));
+
+                // Never the Content folder itself, and never anything outside it.
+                if (full.Equals(stop, StringComparison.OrdinalIgnoreCase)) break;
+                if (!full.StartsWith(stop + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) break;
+                if (!Directory.Exists(full)) break;
+                if (Directory.EnumerateFileSystemEntries(full).Any()) break;
+
+                try { Directory.Delete(full); } catch { break; }
+                current = Path.GetDirectoryName(full) ?? "";
+                if (string.IsNullOrEmpty(current)) break;
+            }
+        }
+    }
+
+    /// A file's path relative to wherever the mod's files currently live, so moving them preserves
+    /// the tree instead of flattening it.
+    ///
+    /// For a pak mod every file sits directly in InstallPath, so this returns the bare filename and
+    /// behaviour is byte-identical to what it always was. It matters for loose assets, whose files
+    /// span Content\&lt;Category&gt;\ subfolders where the same filename appearing under two categories
+    /// is completely normal - flattening those into one folder would have one silently overwrite the
+    /// other, destroying a file with no way to get it back.
+    private static string RelativeToInstallRoot(ModInfo mod, string file)
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(mod.InstallPath))
+            {
+                var rel = Path.GetRelativePath(mod.InstallPath, file);
+                if (!rel.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(rel)) return rel;
+            }
+        }
+        catch { /* unrelated roots, different drives - fall through */ }
+
+        return Path.GetFileName(file);
+    }
+
     public void Uninstall(ModInfo mod)
     {
         var log = LoggingService.Instance;
         try
         {
-            if (mod.Type is ModType.LogicMod or ModType.PatchMod)
+            // Files another row still claims are NOT ours to delete, whatever this row recorded.
+            //
+            // Two rows can genuinely list the same file: install a mod, then install it again from a
+            // differently-named archive, and the second row overwrites the first's file in place -
+            // most visibly for a DLL plugin, whose destination folder is flat and keyed by filename.
+            // Removing either row then deleted a file the other one is still relying on, leaving a
+            // mod listed as installed with nothing behind it.
+            //
+            // Same test ImportUnmanaged already uses, for the same reason: files are unambiguous
+            // where names are not.
+            var claimedByOthers = _registry.Mods
+                .Where(m => m.Id != mod.Id)
+                .SelectMany(m => m.InstallFiles)
+                .Select(p => p.TrimEnd(Path.DirectorySeparatorChar))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var shared = new List<string>();
+
+            bool Ours(string f)
             {
-                foreach (var f in mod.InstallFiles.Where(File.Exists))
+                if (!claimedByOthers.Contains(f.TrimEnd(Path.DirectorySeparatorChar))) return true;
+                shared.Add(Path.GetFileName(f));
+                return false;
+            }
+
+            if (mod.Type is ModType.LogicMod or ModType.PatchMod or ModType.DllPlugin)
+            {
+                // Only the DLLs this manager placed. A framework's data folder holds the user's own
+                // settings and content and was never installed from the archive, so it is left alone.
+                foreach (var f in mod.InstallFiles.Where(File.Exists).Where(Ours))
                     File.Delete(f);
+            }
+            else if (mod.Type == ModType.LooseAsset)
+            {
+                // Only the files this mod recorded at install time. Ownership of a loose asset
+                // cannot be inferred from where it sits - an overriding .uasset at a vanilla path is
+                // indistinguishable from a vanilla one - so the install manifest is the only thing
+                // that makes removing it safe, and anything not on that list is left alone.
+                foreach (var f in mod.InstallFiles.Where(File.Exists).Where(Ours))
+                    File.Delete(f);
+
+                PruneEmptyFolders(mod.InstallFiles, stopAt: _game.ContentPath);
             }
             else if (mod.Type == ModType.LuaMod)
             {
@@ -419,6 +789,14 @@ public class ModInstallerService
 
             var cachePath = Path.Combine(_disabledCacheDir, mod.Id);
             if (Directory.Exists(cachePath)) Directory.Delete(cachePath, true);
+
+            if (shared.Count > 0)
+            {
+                log.Warn(
+                    $"Left {string.Join(", ", shared.Take(4))}" + (shared.Count > 4 ? ", ..." : "") +
+                    " in place - another installed mod lists the same file(s). Uninstall that one too if you " +
+                    "meant to remove them.");
+            }
 
             _registry.Remove(mod.Id);
             log.Success($"Uninstalled '{mod.Name}'.");
@@ -464,9 +842,23 @@ public class ModInstallerService
             var newFiles = new List<string>();
             foreach (var f in mod.InstallFiles.Where(File.Exists))
             {
-                var dest = Path.Combine(cacheDir, Path.GetFileName(f));
+                var dest = Path.Combine(cacheDir, RelativeToInstallRoot(mod, f));
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
                 File.Move(f, dest, true);
                 newFiles.Add(dest);
+            }
+
+            // Refuse to record an empty file list for a mod that had files. Nothing moved means the
+            // recorded paths are all gone (deleted by hand, or a game verify), and writing the empty
+            // result back would destroy the only record of what this mod owns - permanently, and
+            // while reporting success. Leaving the stale list alone keeps the mod recoverable.
+            if (newFiles.Count == 0)
+            {
+                log.Error(
+                    $"Couldn't disable '{mod.Name}': none of its {mod.InstallFiles.Count} recorded file(s) are on " +
+                    "disk. Leaving it tracked as-is rather than forgetting what it owns - use Re-scan Mod Files if " +
+                    "the mod was changed outside the manager.");
+                return;
             }
 
             mod.InstallFiles = newFiles;
@@ -516,17 +908,40 @@ public class ModInstallerService
                 .Select(Path.GetFileNameWithoutExtension)
                 .FirstOrDefault(n => !string.IsNullOrWhiteSpace(n)) ?? mod.Name;
 
-            var destFolder = mod.Type == ModType.LogicMod
-                ? Path.Combine(_game.LogicModsPath, pakBaseName)
-                : _game.PaksPath;
+            var destFolder = mod.Type switch
+            {
+                // Must match the install rule exactly. This reconstructs the destination
+                // independently, so gating only the install would leave a working flat DDS1 mod
+                // re-nested - and re-broken - by the next disable/enable cycle.
+                ModType.LogicMod => _game.Profile.LogicModsUseSubfolders
+                    ? Path.Combine(_game.LogicModsPath, pakBaseName)
+                    : _game.LogicModsPath,
+                // Loose assets go back where they override from, at their original relative paths.
+                ModType.LooseAsset => _game.ContentPath,
+                _ => _game.PaksPath
+            };
             Directory.CreateDirectory(destFolder);
 
             var newFiles = new List<string>();
             foreach (var f in mod.InstallFiles.Where(File.Exists))
             {
-                var dest = Path.Combine(destFolder, Path.GetFileName(f));
+                var dest = Path.Combine(destFolder, RelativeToInstallRoot(mod, f));
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
                 File.Move(f, dest, true);
                 newFiles.Add(dest);
+            }
+
+            // Same guard as Disable, and the more dangerous direction: the files being restored live
+            // in this app's own DisabledMods cache, so an empty result means the cache was cleared
+            // or moved. Writing it back would mark the mod enabled with no files at all - it would
+            // vanish from the game and from its own record, while the log said "Enabled".
+            if (newFiles.Count == 0)
+            {
+                log.Error(
+                    $"Couldn't enable '{mod.Name}': none of its {mod.InstallFiles.Count} disabled file(s) are where " +
+                    "they were parked. Leaving it tracked as disabled rather than forgetting what it owns - the " +
+                    "files may still be recoverable from the DisabledMods folder (Settings > Open Disabled Mods).");
+                return;
             }
 
             mod.InstallFiles = newFiles;

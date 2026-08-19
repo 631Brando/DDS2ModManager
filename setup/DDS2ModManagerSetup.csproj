@@ -31,6 +31,7 @@
       project would drag in CUE4Parse and the rest of its dependency graph just to reuse a few
       small, dependency-free helper files.
     -->
+    <Compile Include="..\src\Services\AppPaths.cs" Link="Shared\AppPaths.cs" />
     <Compile Include="..\src\Services\LoggingService.cs" Link="Shared\LoggingService.cs" />
     <Compile Include="..\src\Services\GitHubReleaseService.cs" Link="Shared\GitHubReleaseService.cs" />
     <Compile Include="..\src\Services\ShortcutCreator.cs" Link="Shared\ShortcutCreator.cs" />

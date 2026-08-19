@@ -55,13 +55,23 @@ public partial class CatalogRow : CommunityToolkit.Mvvm.ComponentModel.Observabl
 /// file these authors will publish in future. The page shows what exists and opens the page.
 public partial class TrustedModsWindow : Window
 {
-    private const string GameDomain = "drugdealersimulator2";
+    /// The active game's Nexus domain. Was a constant, which meant a DDS1 user opening "Browse
+    /// trusted mods" was shown DDS2's catalogue with no indication anything was wrong.
+    private string GameDomain => (_mainViewModel.Game?.Profile ?? GameProfiles.Default).NexusDomain;
 
-    /// This application's own Nexus page. Matched on the mod id rather than the name: an id never
-    /// changes, whereas a title can be reworded at any time and would silently stop matching.
-    private const int ThisAppModId = 118;
+    /// This application's own Nexus page, for the game currently open.
+    ///
+    /// Matched on the mod id rather than the name: an id never changes, whereas a title can be
+    /// reworded at any time and would silently stop matching. Per game because **Nexus mod ids
+    /// restart per game** - id 118 on one game is an unrelated mod on the other, so a hardcoded id
+    /// would badge some stranger's mod as "this app".
+    private int? ThisAppModId => (_mainViewModel.Game?.Profile ?? GameProfiles.Default).ManagerNexusModId;
 
     private const string AllAuthors = "All authors";
+
+    /// How many mods the catalogue itself returned, before the curated-author filter. Kept so the
+    /// empty state can tell "Nexus gave us nothing" apart from "nobody is curated for this game".
+    private int _catalogueCount;
 
     /// How the list can be ordered. Downloads leads because this page exists to help someone find
     /// a mod they don't know about yet, and on that question "what is everyone already using" is a
@@ -149,13 +159,19 @@ public partial class TrustedModsWindow : Window
 
         // Unordered here on purpose - ApplyFilter is the single place that decides the order, so
         // the dropdown and the list can never disagree about what is being shown.
+        // Scoped to the game that is open. Without the gameId these two calls would put a DDS2-only
+        // author's name in front of a DDS1 player as though they had been recommended for it.
+        var gameId = (_mainViewModel.Game?.Profile ?? GameProfiles.Default).Id;
+
+        _catalogueCount = all.Count;
+
         _rows = all
-            .Where(m => _authors.Contains(m.Uploader))
+            .Where(m => _authors.Contains(m.Uploader, gameId))
             .Select(m => new CatalogRow
             {
                 Post = m,
-                IsThisApp = m.ModId == ThisAppModId,
-                AuthorNote = _authors.Find(m.Uploader)?.Note
+                IsThisApp = ThisAppModId != null && m.ModId == ThisAppModId,
+                AuthorNote = _authors.Find(m.Uploader, gameId)?.Note
             })
             .ToList();
 
@@ -207,7 +223,8 @@ public partial class TrustedModsWindow : Window
 
             try
             {
-                row.Thumbnail = await NexusImageCache.Instance.GetAsync(row.Post.ModId, url);
+                row.Thumbnail = await NexusImageCache.Instance.GetAsync(
+                    row.Post.ModId, row.Post.GameDomain, url);
             }
             catch
             {
@@ -229,15 +246,24 @@ public partial class TrustedModsWindow : Window
 
         // Says what the list is and, just as importantly, what it isn't. "Trusted" on a page of
         // downloadable-looking things reads as a safety claim unless it's spelled out otherwise.
-        SubtitleText.Text = $"DDS2 mods published by {who}. Authors the maintainers rate and think are worth "
+        var gameName = (_mainViewModel.Game?.Profile ?? GameProfiles.Default).ShortName;
+
+        SubtitleText.Text = $"{gameName} mods published by {who}. Authors the maintainers rate and think are worth "
                             + "finding - not a check of any individual file. Opens each mod's page; nothing is "
                             + "downloaded from here.";
 
-        // An empty list after a successful fetch means Nexus returned nothing for these authors,
-        // which is a different situation from the fetch having failed. Say which.
+        // Three different situations, and they had all been reported as "check your connection":
+        //   - the catalogue itself came back empty  -> genuinely a fetch problem
+        //   - the catalogue loaded but no author here is curated for THIS game -> nothing is wrong
+        //   - rows exist -> no banner
+        // The middle case is the normal state for a game nobody has curated yet, and telling that
+        // user their connection is broken sends them to debug something that works.
         NoticeBanner.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        NoticeText.Text = "Couldn't reach Nexus, and there's no saved copy of the mod list yet. "
-                          + "Check your connection and press Refresh.";
+        NoticeText.Text = _catalogueCount == 0
+            ? "Couldn't reach Nexus, and there's no saved copy of the mod list yet. "
+              + "Check your connection and press Refresh."
+            : $"Nexus loaded fine ({_catalogueCount} mods), but no curated authors are listed for {gameName} yet. "
+              + "This page only shows mods by authors the maintainers have added to the list.";
 
         ApplyFilter();
     }

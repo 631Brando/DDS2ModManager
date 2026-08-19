@@ -27,7 +27,7 @@ public partial class VariantSelectionWindow : Window
     {
         if (VariantList.SelectedItem is not string display)
         {
-            MessageBox.Show("Select a version first.", "DDS2 Mod Manager", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("Select a version first.", AppPaths.AppDisplayName, MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 

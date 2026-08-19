@@ -1,7 +1,7 @@
 <Window x:Class="DDS2ModManager.Views.PromptWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="DDS2 Mod Manager" SizeToContent="Height" Width="440"
+        Title="DDS Mod Manager" SizeToContent="Height" Width="440"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         Background="{StaticResource BgBrush}"
         Foreground="{StaticResource TextPrimaryBrush}"

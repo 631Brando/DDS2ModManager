@@ -49,8 +49,7 @@ public class LoggingService
 
     private LoggingService()
     {
-        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "DDS2ModManager", "Logs");
+        var dir = AppPaths.Logs;
         Directory.CreateDirectory(dir);
         _logFilePath = Path.Combine(dir, $"{LogFilePrefix}{DateTime.Now.ToString(LogFileTimestampFormat)}{LogFileExtension}");
 

@@ -30,7 +30,15 @@ public enum ConflictKind
 
     /// Two lua mods call RegisterKeyBind with the same key + modifier combination. As above:
     /// only the key is contested, not the mod.
-    LuaKeybindClash
+    LuaKeybindClash,
+
+    /// A loose .uasset on disk and a pak mod both target the same game asset.
+    ///
+    /// Which one the game actually uses is NOT something this tool can predict: a loose file wins
+    /// through UnrealModUnlocker's filesystem hook, a _P pak wins through chunk priority, and which
+    /// beats which has to be observed in-game rather than reasoned about. So this is reported as a
+    /// contest without naming a winner - see ShowsWinner.
+    LooseOverridesPak
 }
 
 public enum ConflictSeverity
@@ -108,6 +116,8 @@ public class ModConflictGroup
         ConflictKind.PatchReplacesAppendedTable =>
             $"One replaces {Plural(TableInteractions.Count, "table")} outright that the other adds rows to",
         ConflictKind.LuaConsoleCommandClash or ConflictKind.LuaKeybindClash => LuaSummary,
+        ConflictKind.LooseOverridesPak =>
+            $"A loose file and a pak mod both target the same {Plural(AssetPaths.Count, "asset")}",
         _ => "Overlapping content"
     };
 
@@ -149,6 +159,9 @@ public class ModConflictGroup
         // Same merge problem as the summary: a card carrying both kinds must explain both, or
         // the half that lost the Kind coin-toss is silently unexplained.
         ConflictKind.LuaConsoleCommandClash or ConflictKind.LuaKeybindClash => LuaExplanation,
+        ConflictKind.LooseOverridesPak =>
+            "One of them will be ignored for these assets, but which one can't be predicted from here - a loose "
+            + "file and a pak reach the engine by different routes. Test in game, or disable one to be certain.",
         _ => "No action needed."
     };
 
@@ -177,7 +190,13 @@ public class ModConflictGroup
     /// a duplicate keybind the other way round - its own Keybinds mod skips any bind that
     /// IsKeyBindRegistered already reports, so there the FIRST registration keeps the key. Rather
     /// than print a confident answer that is backwards half the time, print none.
-    public bool ShowsWinner => Severity != ConflictSeverity.Info && !IsLuaRegistrationClash;
+    /// Loose-vs-pak deliberately shows no winner. A loose file loads through a filesystem hook and
+    /// a _P pak through chunk priority; which one the engine actually serves has to be seen in-game.
+    /// Printing a confident guess would be worse than printing nothing.
+    public bool ShowsWinner =>
+        Severity != ConflictSeverity.Info
+        && !IsLuaRegistrationClash
+        && Kind != ConflictKind.LooseOverridesPak;
     public bool HasOverlappingTables => OverlappingTables.Count > 0;
     public bool HasCompatibleTables => CompatibleTables.Count > 0;
     public bool HasAssetPaths => AssetPaths.Count > 0;

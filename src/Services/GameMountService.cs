@@ -12,6 +12,39 @@ namespace DDS2ModManager.Services;
 /// step here silently changes what those features can read.
 public static class GameMountService
 {
+    /// Everything needed to read a game's paks, resolved from that game's profile and its settings.
+    ///
+    /// This exists because the same four values were assembled from settings in five separate places
+    /// (three in MainViewModel, plus the asset search and GameResetService), each restating the
+    /// DDS2 defaults inline. A game whose profile said UE4 could be read as UE5 by whichever copy
+    /// somebody forgot to update - and that failure is silent, because a wrong engine version still
+    /// lists every path in a pak and only fails when an asset is actually deserialized.
+    public readonly record struct MountOptions(string PaksPath, string MappingsPath, EGame EGame, string? AesKeyHex);
+
+    /// The mount settings for a game: profile first, per-game overrides on top.
+    public static MountOptions OptionsFor(GameInstallation game)
+    {
+        var settings = AppSettingsService.Instance.ForGame(game.Profile);
+
+        // Mappings are only fetched for a game that needs them. DDS1 is UE 4.21, which carries its
+        // own property tags, so extracting a usmap for it would be work done to be ignored - and
+        // handing it DDS2's mappings would be worse than none.
+        var mappings = !string.IsNullOrWhiteSpace(settings.MappingsOverridePath)
+                       && File.Exists(settings.MappingsOverridePath)
+            ? settings.MappingsOverridePath!
+            : game.Profile.NeedsMappings ? MappingsProviderService.EnsureExtracted() : "";
+
+        // The profile is the default; the setting is only ever a deliberate override.
+        var egame = Enum.TryParse<EGame>(settings.EGameVersion, out var parsed)
+            ? parsed
+            : game.Profile.EngineVersion;
+
+        return new MountOptions(game.PaksPath, mappings, egame, settings.AesKeyHex);
+    }
+
+    public static DefaultFileProvider Mount(MountOptions options, bool warnOnMappingsFailure = false) =>
+        Mount(options.PaksPath, options.MappingsPath, options.EGame, options.AesKeyHex, warnOnMappingsFailure);
+
     /// Mounts Content\Paks (recursively, so LogicMods is included) and returns the provider with
     /// every unencrypted archive already mounted into Files. Caller owns disposal.
     ///
@@ -30,12 +63,17 @@ public static class GameMountService
         var provider = new DefaultFileProvider(paksPath, SearchOption.AllDirectories, true, new VersionContainer(egame));
 #pragma warning restore CS0618
 
-        try { provider.MappingsContainer = new FileUsmapTypeMappingsProvider(mappingsPath); }
-        catch (Exception mex)
+        // An empty path means this game needs no mappings at all (UE4 titles carry their own
+        // property tags), which is a normal state rather than a failure worth reporting.
+        if (!string.IsNullOrWhiteSpace(mappingsPath))
         {
-            if (warnOnMappingsFailure)
-                LoggingService.Instance.Warn($"Mappings file couldn't be loaded ({mex.Message}) - continuing without it. " +
-                    "This only affects deep property parsing, not mod type detection or conflict checking.");
+            try { provider.MappingsContainer = new FileUsmapTypeMappingsProvider(mappingsPath); }
+            catch (Exception mex)
+            {
+                if (warnOnMappingsFailure)
+                    LoggingService.Instance.Warn($"Mappings file couldn't be loaded ({mex.Message}) - continuing without it. " +
+                        "This only affects deep property parsing, not mod type detection or conflict checking.");
+            }
         }
 
         provider.Initialize();
