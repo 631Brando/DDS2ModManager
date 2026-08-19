@@ -90,6 +90,16 @@ public static class IniSettingsMerger
             carried.Add(Describe(slot, entries));
         }
 
+        // Follow the new file's line endings rather than the ones SplitLines normalised away.
+        //
+        // This is a settings file for a Windows game and ships CRLF, so emitting a bare \n
+        // rewrote every line in the file on any update that carried a value across - a whole-file
+        // diff for a one-line change. It also made the merge disagree with itself: the early
+        // return above hands back newDefault verbatim, so the same input came back CRLF when
+        // there was nothing to carry and LF when there was, and merging twice did not land in
+        // the same place.
+        var newline = newDefault.Contains("\r\n") ? "\r\n" : "\n";
+
         var output = new StringBuilder();
         for (var i = 0; i < newLines.Count; i++)
         {
@@ -99,16 +109,16 @@ public static class IniSettingsMerger
             {
                 var name = NameOf(newLines[i]);
                 foreach (var e in entries)
-                    output.Append(e.Prefix).Append(name).Append(" = ").Append(e.Value).Append('\n');
+                    output.Append(e.Prefix).Append(name).Append(" = ").Append(e.Value).Append(newline);
                 continue;
             }
 
-            output.Append(newLines[i]).Append('\n');
+            output.Append(newLines[i]).Append(newline);
         }
 
         // Follow the new file's trailing-newline habit rather than inventing one.
         var text = output.ToString();
-        if (!newDefault.EndsWith("\n") && text.EndsWith("\n")) text = text[..^1];
+        if (!newDefault.EndsWith("\n") && text.EndsWith(newline)) text = text[..^newline.Length];
 
         return new Result(text, carried, dropped);
     }

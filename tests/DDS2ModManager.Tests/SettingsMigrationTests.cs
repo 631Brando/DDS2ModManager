@@ -132,4 +132,43 @@ public class SettingsMigrationTests
         Assert.Equal("ab", back.Games[GameProfiles.Dds1.Id].AesKeyHex);
         Assert.Equal(@"C:\g", back.Games[GameProfiles.Dds2.Id].GamePathOverride);
     }
+
+    // ---- app-level settings must NOT be swept into a game section --------------------------------
+
+    /// The update channel is app-level, and losing it is silent in the worst direction: a user who
+    /// chose Experimental is quietly moved back to Stable, stops being offered the builds they
+    /// signed up to test, and has no way to tell that happened.
+    ///
+    /// It is worth pinning separately from the per-game fields because the risk runs the other way -
+    /// those are asserted present in the Games section, while this one has to be asserted STILL AT
+    /// THE TOP LEVEL after a migration that rewrites the same file.
+    [Fact]
+    public void The_update_channel_stays_app_level_across_the_fold()
+    {
+        var settings = JsonSerializer.Deserialize<AppSettings>(LegacyJson)!;
+
+        Assert.Equal(UpdateChannels.Stable, settings.UpdateChannel);
+
+        // And a user who had chosen Experimental keeps it.
+        var experimental = JsonSerializer.Deserialize<AppSettings>(
+            LegacyJson.Replace("\"UpdateChannel\": \"Stable\"", "\"UpdateChannel\": \"Experimental\""))!;
+
+        Assert.Equal(UpdateChannels.Experimental, experimental.UpdateChannel);
+        Assert.True(UpdateChannels.IsExperimental(experimental.UpdateChannel));
+    }
+
+    /// Nothing app-level belongs to one game. If any of these ever moved into GameSettings, the
+    /// value would be per-install and a second game would silently reset it.
+    [Fact]
+    public void App_level_settings_are_not_duplicated_per_game()
+    {
+        var game = JsonSerializer.Deserialize<GameSettings>(LegacyJson)!;
+
+        Assert.Null(typeof(GameSettings).GetProperty(nameof(AppSettings.UpdateChannel)));
+        Assert.Null(typeof(GameSettings).GetProperty(nameof(AppSettings.WindowWidth)));
+        Assert.Null(typeof(GameSettings).GetProperty(nameof(AppSettings.ModListSortColumn)));
+
+        // The per-game half is still whole, so this is a boundary check and not just an absence.
+        Assert.Equal("0xDEADBEEF", game.AesKeyHex);
+    }
 }
