@@ -72,9 +72,22 @@ public class ModInstallerService
     /// Otherwise the two halves of one mod look like two variants of it, and the user is asked
     /// to choose between "UE4SSMods" and "LogicMods" as though they were x2/x5 multipliers -
     /// then gets half a mod whichever they pick.
-    private static PreparedInstall Describe(string root, bool isTemp)
+    /// Public because it is a pure function of a path and is the one place the three readings of
+    /// an archive are decided between - the test project has no InternalsVisibleTo.
+    public static PreparedInstall Describe(string root, bool isTemp)
     {
         var parts = ModArchiveLayoutService.DetectParts(root);
+
+        // Marker folders are an explicit statement of destination and win. A same-named pak/lua
+        // sibling pair is the same statement made by naming the folders after the mod instead -
+        // "EddieWiki" beside "EddieWiki_P" - which a real user hit as "pick one", and either
+        // answer gave them half a mod.
+        //
+        // These go into DestinationParts, never VariantCandidates: each part needs its OWN
+        // chosenRoot. One root spanning both trees reaches InstallPakTriple, which takes the first
+        // file it finds per extension across every subdirectory, and that is the file mixing this
+        // whole area exists to prevent.
+        if (parts.Count == 0) parts = ModVariantDetectionService.DetectTwoPartSiblings(root);
 
         if (parts.Count > 0)
         {
@@ -105,7 +118,8 @@ public class ModInstallerService
     /// it - "Could not find a part of the path ...\UE4SSMods\MyMod", after which only half the
     /// mod is installed and the run still reports success for the half that made it.
     public async Task<ModInfo?> InstallFromRootAsync(
-        string originalSourcePath, PreparedInstall prepared, string chosenRoot, bool keepExtraction = false)
+        string originalSourcePath, PreparedInstall prepared, string chosenRoot,
+        bool keepExtraction = false, string? partSetName = null)
     {
         var log = LoggingService.Instance;
 
@@ -124,7 +138,12 @@ public class ModInstallerService
             }
 
             var isTempRoot = prepared.IsTempExtraction && SamePath(chosenRoot, prepared.ExtractedRoot);
-            var name = InferModName(chosenRoot, analysis.Type, isTempRoot);
+
+            // A part set names itself once, so both halves reduce to the same grouping key and the
+            // list links them. The existing cross-type clash branch below then renames the second
+            // to "<name> (LogicMod)", and that suffix is one the grouping key already strips - so
+            // this needs no new field, no migration, and no change to how grouping works.
+            var name = partSetName ?? InferModName(chosenRoot, analysis.Type, isTempRoot);
 
             if (name == null)
             {
@@ -218,10 +237,81 @@ public class ModInstallerService
         }
     }
 
+    /// The one name an archive's parts share, or null.
+    ///
+    /// A manifest names the MOD, and both halves ARE that mod - but only one half carries the file.
+    /// The archive that prompted this ships .dds2mod.json declaring "DDS2 In-Game Wiki" in its lua
+    /// half and nothing beside its pak, so without this the two rows install as "DDS2 In-Game Wiki"
+    /// and "EddieWiki_P", whose grouping keys do not match. They would then never link, and
+    /// enabling one would toggle half a mod - which is a worse outcome than the bug being fixed.
+    ///
+    /// Null when nothing declares a name - both halves then fall to folder and pak names, which
+    /// already reduce to the same key - or when two parts declare DIFFERENT names, which is an
+    /// archive telling us they are not one mod.
+    ///
+    /// Used only to PROPAGATE a name across an already-decided part set. A declared name is
+    /// deliberately not a matching signal: a copy-pasted manifest across two genuine alternatives
+    /// would silence the check that correctly refuses them.
+    public string? SharedPartName(IEnumerable<string> parts)
+    {
+        var declared = parts
+            .Select(p => _updateSources.NameFromManifestFolder(p, Path.GetFileName(p)))
+            .Where(n => n != null)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return declared.Count == 1 ? declared[0]! : null;
+    }
+
     /// Convenience wrapper for the common case (no variants to choose between).
-    public async Task<ModInfo?> InstallAsync(string sourcePath)
+    public async Task<ModInfo?> InstallAsync(string sourcePath, ModType? preferType = null)
     {
         var prepared = PrepareInstall(sourcePath);
+
+        // A two-part archive has to install BOTH parts here too, not just the first thing the
+        // analyzer happens to type.
+        //
+        // This is the update path. Without the branch, the whole archive root went in as one
+        // chosenRoot: the analyzer sees a pak, calls the whole thing a LogicMod, and the lua half
+        // is never copied - so updating a two-part mod quietly replaced it with half of itself.
+        // The caller says which half it is replacing, so the returned row is the matching one and
+        // the annotations it carries across land on the right mod.
+        if (prepared.DestinationParts.Count > 0)
+        {
+            var partSetName = SharedPartName(prepared.DestinationParts);
+            var installed = new List<ModInfo>();
+
+            try
+            {
+                foreach (var part in prepared.DestinationParts)
+                {
+                    // Every part comes out of the same temp folder, so it has to survive until
+                    // the last one is done.
+                    var partMod = await InstallFromRootAsync(
+                        sourcePath, prepared, part, keepExtraction: true, partSetName: partSetName);
+
+                    if (partMod != null) installed.Add(partMod);
+                }
+            }
+            finally
+            {
+                if (prepared.IsTempExtraction)
+                    try { Directory.Delete(prepared.ExtractedRoot, true); } catch { }
+            }
+
+            if (installed.Count < prepared.DestinationParts.Count)
+            {
+                LoggingService.Instance.Warn(
+                    $"Only {installed.Count} of {prepared.DestinationParts.Count} part(s) of this mod updated. " +
+                    "The rest is still on its previous version - see the lines above.");
+            }
+
+            // The half the caller asked about, so annotations and the registry row line up. Falls
+            // back to the first installed part when the type is unknown or did not come back.
+            return installed.FirstOrDefault(m => preferType == null || m.Type == preferType)
+                   ?? installed.FirstOrDefault();
+        }
+
         var chosenRoot = prepared.VariantCandidates.Count == 1 ? prepared.VariantCandidates[0] : prepared.ExtractedRoot;
         return await InstallFromRootAsync(sourcePath, prepared, chosenRoot);
     }
@@ -813,7 +903,6 @@ public class ModInstallerService
 
         if (mod.Type == ModType.LuaMod)
         {
-            _lua.SetEnabled(_game, LuaFolderName(mod), false);
             // Guarded exactly like the pak path below. mods.txt is an ordinary file that can be
             // read-only or held open, and without this an unwritable one throws straight out
             // through the command that called us and takes the app down. Worse for a two-part mod:

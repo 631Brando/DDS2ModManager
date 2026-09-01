@@ -446,7 +446,9 @@ public partial class MainViewModel : ObservableObject
 
             // 3. Install the downloaded copy through the normal path, so it gets analyzed,
             //    type-checked and conflict-scanned exactly like any other install.
-            var installed = await _installer.InstallAsync(temp);
+            // The type says which half of a two-part mod this row is, so the replacement row that
+            // comes back is the matching one rather than whichever part installed first.
+            var installed = await _installer.InstallAsync(temp, mod.Type);
             if (installed == null)
             {
                 log.Error($"'{mod.Name}' was removed but the new version could not be installed. " +
@@ -946,12 +948,25 @@ public partial class MainViewModel : ObservableObject
                 var installedParts = 0;
                 try
                 {
+                    // Computed once for the whole set, not per part: only one half carries the
+                    // manifest that names the mod.
+                    var partSetName = _installer.SharedPartName(prepared.DestinationParts);
+
                     foreach (var part in prepared.DestinationParts)
                     {
                         // keepExtraction: every part comes out of the same temp folder, so it
                         // has to survive until the last one is done.
-                        var partMod = await _installer.InstallFromRootAsync(path, prepared, part, keepExtraction: true);
-                        if (partMod == null) continue;
+                        var partMod = await _installer.InstallFromRootAsync(
+                            path, prepared, part, keepExtraction: true, partSetName: partSetName);
+
+                        // Named, not skipped. A part that fails is half a mod on disk, and the
+                        // success line below used to scroll straight over the warning saying so.
+                        if (partMod == null)
+                        {
+                            LoggingService.Instance.Warn(
+                                $"The '{Path.GetFileName(part)}' part of '{Path.GetFileName(path)}' did not install.");
+                            continue;
+                        }
 
                         Mods.Add(partMod);
 
@@ -967,19 +982,34 @@ public partial class MainViewModel : ObservableObject
                         try { Directory.Delete(prepared.ExtractedRoot, true); } catch { }
                 }
 
-                if (installedParts > 0)
+                var wanted = prepared.DestinationParts.Count;
+
+                if (installedParts == wanted)
                 {
                     RunCompatibilityCheck();
                     RefreshModUpdateBanner();
                     LoggingService.Instance.Success(
                         $"Installed {installedParts} part(s) from '{Path.GetFileName(path)}'.");
                 }
+                else if (installedParts > 0)
+                {
+                    // Deliberately NOT rolled back. On a reinstall the already-present half fails
+                    // the same-type clash check precisely BECAUSE it is correctly installed, while
+                    // the other half succeeds as a genuine update - undoing that would delete the
+                    // freshly updated half.
+                    RunCompatibilityCheck();
+                    RefreshModUpdateBanner();
+                    LoggingService.Instance.Warn(
+                        $"Installed {installedParts} of {wanted} part(s) from '{Path.GetFileName(path)}' - " +
+                        "this mod is incomplete, see the lines above.");
+                }
                 else
                 {
                     LoggingService.Instance.Warn($"Nothing from '{Path.GetFileName(path)}' could be installed.");
                 }
 
-                StatusMessage = installedParts > 0 ? "Ready" : "Install failed.";
+                StatusMessage = installedParts == wanted ? "Ready"
+                    : installedParts > 0 ? "Installed incomplete." : "Install failed.";
                 return;
             }
 

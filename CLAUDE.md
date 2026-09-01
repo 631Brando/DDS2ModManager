@@ -61,6 +61,15 @@ it from what is installed; refuse outright when nothing present can load a DLL. 
 placed — a framework's data folder has a layout only its own docs describe, so it is reported, not
 guessed at.
 
+**Two halves of one mod are not two versions of it.** An archive with several installable
+sibling folders is a part set only when BOTH hold: every folder name reduces to the same key
+under `NexusModMatcher.KeyForInstalled`, AND every folder classifies as a different kind
+(pak-bearing vs lua-bearing). Neither alone is safe — `MyMod` + `MyMod_P` where both carry a
+pak passes the name test and is two alternatives, not two halves. Never use the COUNT: a
+two-folder variant set is ordinary. Parts go in `DestinationParts`, never `VariantCandidates`,
+because each needs its own root — one root spanning both trees hands `InstallPakTriple` a `.pak`
+and a `.ucas` from different halves. See `docs/two-part-vs-variant-archives.md`.
+
 **`Content\Paks\DisabledMods` does not disable anything.** Unreal enumerates `Content\Paks`
 recursively. Never tell a user a mod parked there is switched off — the game is loading it.
 
@@ -115,3 +124,4 @@ original `DDS2ModManager` names — those are identifiers existing installs depe
 - `docs/dds1-implementation-plan.md` — the reconciled 12-step sequencing and its risk ranking.
 - `MODDING.md` — author-facing: how a mod opts into update checking.
 - `docs/nexus-identification.md` — the two routes to a Nexus page, and why the matcher stays strict.
+- `docs/two-part-vs-variant-archives.md` — halves vs variants, and why the rule needs both halves.

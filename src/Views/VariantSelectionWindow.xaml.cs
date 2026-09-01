@@ -14,7 +14,13 @@ public partial class VariantSelectionWindow : Window
 
         foreach (var path in candidatePaths)
         {
-            var display = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar));
+            // Say what each one IS, not just what it is called. On the shapes this dialog still
+            // reaches, a bare folder name gives the user nothing to decide on.
+            var kind = Directory.EnumerateFiles(path, "*.pak", SearchOption.AllDirectories).Any()
+                ? "pak"
+                : "script mod";
+
+            var display = $"{Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar))}  -  {kind}";
             _displayToPath[display] = path;
             VariantList.Items.Add(display);
         }

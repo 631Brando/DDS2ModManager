@@ -15,10 +15,12 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="This mod contains multiple versions" FontSize="18" FontWeight="Bold" Margin="0,0,0,6"/>
+        <TextBlock Grid.Row="0" Text="Pick which version to install" FontSize="18" FontWeight="Bold" Margin="0,0,0,6"/>
         <TextBlock Grid.Row="1" TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,14">
-            The archive has several self-contained copies of this mod (likely different variants,
-            such as different multiplier strengths). Only one can be installed at a time - pick which one you want.
+            This archive contains more than one self-contained copy of this mod. Usually these are
+            alternatives - different multiplier strengths, for example - and only one should be installed.
+            If they instead look like two halves of one mod (a script folder and a pak), install the
+            archive a second time and pick the other one.
         </TextBlock>
 
         <Border Grid.Row="2" Style="{StaticResource CardBorder}" Padding="4">
@@ -43,8 +45,8 @@
         </Border>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-            <Button Content="Cancel" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Cancel_Click"/>
-            <Button Content="Install Selected" Style="{StaticResource AccentButton}" Click="Install_Click"/>
+            <Button Content="Cancel" Style="{StaticResource GhostButton}" Margin="0,0,8,0" IsCancel="True" Click="Cancel_Click"/>
+            <Button Content="Install Selected" Style="{StaticResource AccentButton}" IsDefault="True" Click="Install_Click"/>
         </StackPanel>
     </Grid>
 </Window>

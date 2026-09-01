@@ -65,4 +65,36 @@ public class ModGroupingTests
     [InlineData("---")]
     public void A_nameless_row_produces_no_key(string name) =>
         Assert.Equal("", Key(name));
+
+    // ---- this key now also decides what gets written into the game folder ---------------------
+
+    // ModVariantDetectionService.DetectTwoPartSiblings reduces FOLDER names with this same key to
+    // decide whether an archive holds two halves of one mod or two alternatives. These three are
+    // therefore install-correctness assertions, not just grouping ones.
+
+    [Fact]
+    public void The_two_halves_of_the_reported_mod_share_a_key()
+    {
+        Assert.Equal(NexusModMatcher.KeyForInstalled("EddieWiki"),
+                     NexusModMatcher.KeyForInstalled("EddieWiki_P"));
+    }
+
+    // Digits survive normalisation, which is what keeps a multiplier set apart. There was no digit
+    // case in this file at all before.
+    [Fact]
+    public void Multiplier_names_do_not_collapse_onto_each_other()
+    {
+        Assert.NotEqual(NexusModMatcher.KeyForInstalled("Mod_x2"),
+                        NexusModMatcher.KeyForInstalled("Mod_x5"));
+    }
+
+    // Only ONE trailing suffix is stripped, so the discriminator stays inside the retained stem.
+    // If suffix stripping ever became greedy, both of these would reduce to "mod" and an archive
+    // of two multipliers would install both.
+    [Fact]
+    public void A_multiplier_set_carrying_the_pak_suffix_still_does_not_collapse()
+    {
+        Assert.NotEqual(NexusModMatcher.KeyForInstalled("Mod_x2_P"),
+                        NexusModMatcher.KeyForInstalled("Mod_x5_P"));
+    }
 }
