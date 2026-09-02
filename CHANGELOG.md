@@ -87,6 +87,25 @@ Updating UE4SS used to overwrite `UE4SS-settings.ini`, quietly resetting everyth
 settings are now carried across — but the new file is still the one you end up with, so options a
 newer UE4SS adds arrive too, along with the comments that explain them.
 
+### Fixed: a UE4SS update could pin a setting UE4SS had deliberately changed
+
+This one broke people's entire mod list, so it's worth explaining.
+
+When UE4SS updates, the manager keeps the values you changed and takes everything else from the new
+version. To know which values are yours, it compares your file against the one UE4SS shipped. If it
+had no record of that original — which was the case the first time it updated UE4SS for you — it
+assumed anything differing from the new defaults was your choice.
+
+That assumption is wrong in a way that matters. Between two UE4SS builds, `SecondsToScanBeforeGivingUp`
+went from 30 to 120, because 30 wasn't long enough and scans were failing. The old 30 was read as your
+preference and carried onto the new file. UE4SS then gave up scanning before it finished, couldn't
+hook the game, and **every** mod stopped loading — with nothing on screen connecting it to the update.
+
+The manager now assumes a settings file it has no record of you editing is untouched, and takes the
+new version's values. If the file did differ, every line that wasn't carried is listed in the log so
+you can set it back. Settings you edited through Saves & Config are unaffected — those have always
+been recorded, and they're still kept.
+
 ### A UE4SS update can be undone
 
 UE4SS comes from a single rolling release whose files are replaced in place, so the build you were

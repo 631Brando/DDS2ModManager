@@ -26,6 +26,26 @@ public static class IniSettingsMerger
         public bool ChangedAnything => Carried.Count > 0;
     }
 
+    /// The "key = value" lines where two .ini files disagree, as the FIRST file writes them.
+    ///
+    /// Used to report what a merge did not carry across, so a value that gets replaced by a new
+    /// default is named rather than silently gone. Reads the left file's own text, so what is
+    /// reported is exactly what the user would have to type back.
+    public static List<string> DifferingLines(string left, string right)
+    {
+        var a = Parse(left, out _);
+        var b = Parse(right, out _);
+        var lines = new List<string>();
+
+        foreach (var (slot, entries) in a)
+        {
+            if (SameValues(entries, b.GetValueOrDefault(slot))) continue;
+            lines.Add(Describe(slot, entries));
+        }
+
+        return lines;
+    }
+
     /// One "key = value" line, remembered with any +/- prefix UE4SS uses for list-style options so
     /// a repeated key round-trips as the set of lines the user actually wrote.
     private sealed record Entry(string Prefix, string Value, int LineIndex);

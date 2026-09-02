@@ -9,10 +9,57 @@ public class UE4SSManagerService
     private const string Repo = "RE-UE4SS";
     private const string Tag = "experimental-latest";
 
+    /// The archive of every experimental build ever published, as opposed to the rolling
+    /// "experimental-latest" tag whose four assets are replaced in place.
+    ///
+    /// Nearly 900 assets, ~300 builds per channel for the 3.0.1 line alone. This is what makes
+    /// going back to a specific build possible at all: a user broken by an update can be returned
+    /// to the exact build they were on, by name, even if they never kept a copy of it.
+    private const string ArchiveTag = "experimental";
+
     private readonly GitHubReleaseService _github = new();
 
     public Task<GitHubReleaseInfo?> GetLatestExperimentalReleaseAsync() =>
         _github.GetReleaseByTagAsync(Owner, Repo, Tag);
+
+    /// Every experimental build that can actually be installed, newest first.
+    ///
+    /// Filtered rather than listed wholesale: the archive also carries much older asset shapes from
+    /// an era with a different layout, and this installer expects dwmapi.dll beside a ue4ss\ folder.
+    /// A build that cannot install is worse than one that is absent - it fails after the download.
+    public async Task<IReadOnlyList<UE4SSBuild>> GetArchivedBuildsAsync()
+    {
+        var release = await _github.GetReleaseByTagAsync(Owner, Repo, ArchiveTag);
+        if (release == null) return [];
+
+        var builds = release.Assets
+            .Select(a => UE4SSBuild.FromAssetName(a.Name, a.BrowserDownloadUrl, a.Size))
+            .Where(b => b != null)
+            .Select(b => b!)
+            .ToList();
+
+        builds.Sort(UE4SSBuild.Newest);
+        return builds;
+    }
+
+    /// Installs one specific build from the archive.
+    ///
+    /// Goes through exactly the same path as an ordinary update - same preserve list, same settings
+    /// merge, same copy-aside of what it replaces - so going back is as recoverable as going
+    /// forward, and a rollback that turns out to be wrong can itself be undone.
+    public Task<bool> InstallSpecificBuildAsync(GameInstallation game, UE4SSBuild build,
+        IProgress<double>? progress = null)
+    {
+        var release = new GitHubReleaseInfo { TagName = ArchiveTag, Name = build.AssetName };
+        var asset = new GitHubAsset
+        {
+            Name = build.AssetName,
+            BrowserDownloadUrl = build.DownloadUrl,
+            Size = build.Size
+        };
+
+        return InstallOrUpdateAsync(game, release, asset, progress);
+    }
 
     /// The release always ships 6 assets: the real UE4SS_v*.zip, zCustomGameConfigs.zip,
     /// zDEV-UE4SS_v*.zip, zMapGenBP.zip, and two source archives. This is the standard build -
@@ -332,14 +379,55 @@ public class UE4SSManagerService
                 }
 
                 var baseline = File.Exists(snapshotPath) ? File.ReadAllText(snapshotPath) : null;
+                var basis = "the snapshot taken when UE4SS was last installed";
 
                 // Older builds of this manager kept no snapshot, but did back a file up the first
                 // time it was edited here. That backup is the file as it was before their edits,
                 // which is exactly the baseline wanted.
                 if (baseline == null && File.Exists(path + GameConfigService.BackupSuffix))
+                {
                     baseline = File.ReadAllText(path + GameConfigService.BackupSuffix);
+                    basis = "the backup taken the first time you edited it here";
+                }
+
+                // No snapshot and no backup means this manager has no record of the file ever being
+                // edited through it, so the most likely truth is that it is untouched. Treating it
+                // as the baseline carries nothing and takes the new version wholesale.
+                //
+                // The alternative - assume every value differing from the new defaults was chosen
+                // deliberately - is what used to happen here, and it is how a user's mods all broke:
+                // UE4SS raised SecondsToScanBeforeGivingUp from 30 to 120 between two builds because
+                // 30 was timing out, the old 30 was read as their preference and pinned, and UE4SS
+                // then gave up scanning and loaded nothing. An old DEFAULT is not a choice.
+                //
+                // The two ways to be wrong are not equal. Assume-untouched can drop an edit made
+                // outside this manager, which is visible, reported below, and one line to put back.
+                // Assume-deliberate silently pins a value upstream changed on purpose, and presents
+                // as every mod breaking at once with nothing on screen to connect it.
+                var assumedUntouched = baseline == null;
+                if (assumedUntouched)
+                {
+                    baseline = current;
+                    basis = "the assumption that you had not edited it";
+                }
 
                 var merged = IniSettingsMerger.Merge(newDefault, current, baseline);
+
+                // Nothing is dropped silently. When the file was assumed untouched but was not, this
+                // is the only record of what was in it - so it names the lines rather than counting
+                // them, and points at the copy that still has them.
+                if (assumedUntouched)
+                {
+                    var changedByHand = IniSettingsMerger.DifferingLines(current, newDefault);
+                    if (changedByHand.Count > 0)
+                    {
+                        log.Warn($"{name} differed from what UE4SS shipped in {changedByHand.Count} place(s), and this "
+                                 + "manager has no record of you editing it - so the new version's values were used. "
+                                 + "If any of these were yours, set them again:");
+                        foreach (var line in changedByHand.Take(12)) log.Info($"    was: {line}");
+                        if (changedByHand.Count > 12) log.Info($"    ...and {changedByHand.Count - 12} more");
+                    }
+                }
 
                 // The snapshot always records what UE4SS shipped, never the merged result - it is
                 // the reference for the NEXT update, so it has to stay free of the user's values.
@@ -366,9 +454,7 @@ public class UE4SSManagerService
                 foreach (var line in merged.Dropped)
                     log.Warn($"{name}: '{line}' no longer exists in this version of UE4SS, so it wasn't carried over.");
 
-                if (baseline == null)
-                    log.Info($"There was no record of {name}'s original defaults, so anything differing from the new "
-                             + "version's was treated as yours. Future updates will be exact.");
+                log.Info($"{name} was merged against {basis}.");
             }
             catch (Exception ex)
             {
