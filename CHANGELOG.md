@@ -3,6 +3,100 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
+## v1.3.0-exp.2
+
+Fixes for two things that broke real installs: mods shipped in two halves, and a UE4SS update
+quietly keeping a setting that UE4SS had deliberately changed. Plus a way back to any previous
+UE4SS build, because until now there wasn't one.
+
+### Fixed: being asked to choose between the two halves of one mod
+
+Installing a mod whose archive holds a script half and a pak half — named after the mod rather than
+after where they go, like `EddieWiki` beside `EddieWiki_P` — opened the "this mod contains multiple
+versions" prompt and asked you to pick one. Either answer left you with half a mod: a script calling
+into a pak that was never installed, with nothing on screen saying so.
+
+Both halves are now installed, without asking. Archives that really do contain alternatives — x2,
+x5, x10 multiplier folders and the like — still prompt, and still install exactly one. Telling those
+apart needs two things to agree: the folder names have to reduce to the same mod name, **and** each
+folder has to be bound for a different place. Two folders that both hold a pak are alternatives no
+matter what they are called.
+
+The two halves are also named consistently now, so they group as one mod in the list and enabling or
+disabling one applies to both. Before, only the half carrying a `.dds2mod.json` picked up the mod's
+real name and the two rows never linked.
+
+Two things were found while fixing it. Updating a two-part mod was replacing it with half of itself,
+because the update path never looked for the second half. And disabling a Lua mod could throw before
+reaching the guard meant to catch exactly that, because the write to `mods.txt` happened twice — once
+unguarded, immediately before the guarded one.
+
+The prompt's wording is also corrected: it used to assert the copies were "likely different variants,
+such as different multiplier strengths", which it cannot know, and each row now says whether it is a
+pak or a script mod.
+
+### Fixed: a UE4SS update could pin a setting UE4SS had deliberately changed
+
+This one broke people's entire mod list, so it's worth explaining.
+
+When UE4SS updates, the manager keeps the values you changed and takes everything else from the new
+version. To know which values are yours, it compares your file against the one UE4SS shipped. If it
+had no record of that original — which was the case the first time it updated UE4SS for you — it
+assumed anything differing from the new defaults was your choice.
+
+That assumption is wrong in a way that matters. Between two UE4SS builds, `SecondsToScanBeforeGivingUp`
+went from 30 to 120, because 30 wasn't long enough and scans were failing. The old 30 was read as your
+preference and carried onto the new file. UE4SS then gave up scanning before it finished, couldn't
+hook the game, and **every** mod stopped loading — with nothing on screen connecting it to the update.
+
+The manager now assumes a settings file it has no record of you editing is untouched, and takes the
+new version's values. If the file did differ, every line that wasn't carried is listed in the log so
+you can set it back. Settings you edited through Saves & Config are unaffected — those have always
+been recorded, and they're still kept.
+
+### You can install a specific UE4SS build
+
+Every experimental UE4SS build ever published is kept, so **Choose build** next to the UE4SS card now
+lists them and installs whichever you pick — including an older one. That matters because the
+ordinary Update button only ever moves forward, and if a new build breaks your mods, forward is the
+wrong direction.
+
+They all call themselves "v3.0.1", so the list is built around the build number and the commit
+instead — which are the two things a bug report will ask you for. You can search by either. The
+build you already have is marked, console builds can be filtered to on their own, and switching
+between a console and a non-console build is called out before you commit to it, because that
+difference is invisible in the version and is easy to change without noticing.
+
+Installing an older build goes through the same path as any other update, so it keeps your mods,
+`mods.txt` and settings, sets the build it replaces aside, and can itself be undone.
+
+### A UE4SS update can be undone
+
+UE4SS comes from a single rolling release whose files are replaced in place, so the build you were
+on can't be downloaded again once a newer one lands. Until now an update overwrote it and deleted
+the download, which meant an update that broke your mods left you with no way back.
+
+The build being replaced is now set aside first, and an **Undo update** button appears next to the
+UE4SS card. It puts back exactly what you had, proxy DLL included, and leaves your mods, `mods.txt`
+and settings folders alone. One copy is kept, and it survives being restored, so if going back
+turns out not to have been the problem you can update again.
+
+The log now also names both ends of the change — *"Replacing X with Y"* — because UE4SS's own version
+string doesn't identify a build. Several different ones all report themselves as `v3.0.1 Beta`, and
+only the release filename tells them apart. For the same reason, a diagnostics bundle now records
+the build you actually have; it used to record the release tag, which is always the same words.
+
+`Mods\BPModLoaderMod\load_order.txt` is now kept across an update too. Only a person ever writes
+that file, and losing it drops the Blueprint loader back to loading mods in an arbitrary order.
+
+### Fixed: the Standard/Dev build picker forgot which one you had
+
+The picker shown before every UE4SS update was pre-selected from a saved preference that defaults to
+**Standard**, not from what's actually installed. If you were running the Dev build — the one that
+opens a live console window — and had never opened that dialog, accepting an update silently moved
+you to Standard and your console disappeared, while your mods still loaded normally. It now reflects
+the build you have.
+
 ## v1.3.0-exp.1
 
 Drug Dealer Simulator 1 is now supported, alongside DDS2, in the same app. A tab at the top of the
@@ -86,68 +180,6 @@ it belongs to and is refused if it turns up under the other one.
 Updating UE4SS used to overwrite `UE4SS-settings.ini`, quietly resetting everything you'd set. Your
 settings are now carried across — but the new file is still the one you end up with, so options a
 newer UE4SS adds arrive too, along with the comments that explain them.
-
-### Fixed: a UE4SS update could pin a setting UE4SS had deliberately changed
-
-This one broke people's entire mod list, so it's worth explaining.
-
-When UE4SS updates, the manager keeps the values you changed and takes everything else from the new
-version. To know which values are yours, it compares your file against the one UE4SS shipped. If it
-had no record of that original — which was the case the first time it updated UE4SS for you — it
-assumed anything differing from the new defaults was your choice.
-
-That assumption is wrong in a way that matters. Between two UE4SS builds, `SecondsToScanBeforeGivingUp`
-went from 30 to 120, because 30 wasn't long enough and scans were failing. The old 30 was read as your
-preference and carried onto the new file. UE4SS then gave up scanning before it finished, couldn't
-hook the game, and **every** mod stopped loading — with nothing on screen connecting it to the update.
-
-The manager now assumes a settings file it has no record of you editing is untouched, and takes the
-new version's values. If the file did differ, every line that wasn't carried is listed in the log so
-you can set it back. Settings you edited through Saves & Config are unaffected — those have always
-been recorded, and they're still kept.
-
-### You can install a specific UE4SS build
-
-Every experimental UE4SS build ever published is kept, so **Choose build** next to the UE4SS card now
-lists them and installs whichever you pick — including an older one. That matters because the
-ordinary Update button only ever moves forward, and if a new build breaks your mods, forward is the
-wrong direction.
-
-They all call themselves "v3.0.1", so the list is built around the build number and the commit
-instead — which are the two things a bug report will ask you for. You can search by either. The
-build you already have is marked, console builds can be filtered to on their own, and switching
-between a console and a non-console build is called out before you commit to it, because that
-difference is invisible in the version and is easy to change without noticing.
-
-Installing an older build goes through the same path as any other update, so it keeps your mods,
-`mods.txt` and settings, sets the build it replaces aside, and can itself be undone.
-
-### A UE4SS update can be undone
-
-UE4SS comes from a single rolling release whose files are replaced in place, so the build you were
-on can't be downloaded again once a newer one lands. Until now an update overwrote it and deleted
-the download, which meant an update that broke your mods left you with no way back.
-
-The build being replaced is now set aside first, and an **Undo update** button appears next to the
-UE4SS card. It puts back exactly what you had, proxy DLL included, and leaves your mods, `mods.txt`
-and settings folders alone. One copy is kept, and it survives being restored, so if going back
-turns out not to have been the problem you can update again.
-
-The log now also names both ends of the change — *"Replacing X with Y"* — because UE4SS's own version
-string doesn't identify a build. Several different ones all report themselves as `v3.0.1 Beta`, and
-only the release filename tells them apart. For the same reason, a diagnostics bundle now records
-the build you actually have; it used to record the release tag, which is always the same words.
-
-`Mods\BPModLoaderMod\load_order.txt` is now kept across an update too. Only a person ever writes
-that file, and losing it drops the Blueprint loader back to loading mods in an arbitrary order.
-
-### Fixed: the Standard/Dev build picker forgot which one you had
-
-The picker shown before every UE4SS update was pre-selected from a saved preference that defaults to
-**Standard**, not from what's actually installed. If you were running the Dev build — the one that
-opens a live console window — and had never opened that dialog, accepting an update silently moved
-you to Standard and your console disappeared, while your mods still loaded normally. It now reflects
-the build you have.
 
 ### Fixed: mods installed from an archive could be named after a temporary folder
 
