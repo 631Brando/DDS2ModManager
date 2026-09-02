@@ -64,3 +64,22 @@ public class UE4SSManifest
     public string InstalledAssetName { get; set; } = "";
     public DateTime InstalledAt { get; set; }
 }
+
+/// A UE4SS build set aside before an update replaced it.
+///
+/// Exists because the release channel is one rolling tag whose assets are replaced in place: the
+/// build someone was running cannot be fetched again once it is superseded, so a local copy taken
+/// before the overwrite is the only route back.
+public class PreviousUE4SSBuild
+{
+    /// Where the copy lives, under this app's own storage rather than in the game folder.
+    public required string RootPath { get; init; }
+
+    /// The release asset it came from - the only string that actually identifies a build, since
+    /// several different ones all report themselves as "v3.0.1 Beta".
+    public required string AssetName { get; init; }
+
+    public DateTime TakenAt { get; init; }
+
+    public string Display => $"{AssetName}  ·  kept {TakenAt:d MMM yyyy, HH:mm}";
+}

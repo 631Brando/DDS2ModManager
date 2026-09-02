@@ -106,12 +106,33 @@ public class UE4SSManagerService
             Directory.CreateDirectory(game.Win64Path);
             File.Copy(dwmapiSrc, Path.Combine(game.Win64Path, "dwmapi.dll"), true);
 
-            // Never clobber the user's existing mods.txt / mods.json when updating.
-            var preserve = new List<string> { Path.Combine("Mods", "mods.txt"), Path.Combine("Mods", "mods.json") };
+            // Files inside the UE4SS payload that belong to the USER, not to the release. Every
+            // other file in the archive is overwritten, which is what updating UE4SS means.
+            //
+            // load_order.txt is here because only a person ever writes it - BPModLoaderMod's own Lua
+            // just reads it - and losing it silently drops that loader back to loading Blueprint mods
+            // in an arbitrary order, which presents as a mod that "sometimes" works.
+            var preserve = new List<string>
+            {
+                Path.Combine("Mods", "mods.txt"),
+                Path.Combine("Mods", "mods.json"),
+                Path.Combine("Mods", "BPModLoaderMod", "load_order.txt")
+            };
 
             // Settings files are not preserved wholesale - they are merged below. Read them first,
             // because the copy is about to overwrite them with the incoming defaults.
             var settingsBefore = ReadExistingSettings(game);
+
+            // Name both ends of the change BEFORE making it. The build string does not identify a
+            // UE4SS build - a stock release and an experimental nightly both report "v3.0.1 Beta" -
+            // so the asset name is the only thing in the log that says what someone was actually
+            // running, and it is the first thing wanted when a mod stops working after an update.
+            var outgoing = GetCurrentStatus(game).InstalledAssetName;
+            log.Info(outgoing == null
+                ? $"Installing {asset.Name}."
+                : $"Replacing {outgoing} with {asset.Name}.");
+
+            ArchivePreviousBuild(game, outgoing);
 
             CopyDirectoryPreserving(ue4ssSrc, game.UE4SSRootPath, preserve.ToArray());
 
@@ -137,6 +158,120 @@ public class UE4SSManagerService
         {
             try { Directory.Delete(tempDir, true); } catch { }
         }
+    }
+
+    /// Sets the installed UE4SS aside before the incoming one lands on top of it.
+    ///
+    /// The reason this has to exist: the release tag is "experimental-latest", one rolling release
+    /// whose assets are REPLACED IN PLACE. So the build a user was on cannot be re-downloaded once
+    /// it is superseded - recovery is only ever possible from a copy taken before the overwrite, and
+    /// until now the only copy was overwritten and the downloaded zip was deleted in a finally.
+    /// A user broken by an update had no way back at all.
+    ///
+    /// Copied, never moved. A move that fails halfway leaves no working UE4SS at all, which is a
+    /// worse position than the one this is insuring against. Costs about 40 MB, and only one is
+    /// kept - this is an undo for the update that just happened, not a build library.
+    ///
+    /// Failure is logged and swallowed: not being able to take a safety copy is not a reason to
+    /// refuse an update the user asked for.
+    private static void ArchivePreviousBuild(GameInstallation game, string? outgoingAssetName)
+    {
+        var log = LoggingService.Instance;
+
+        if (!Directory.Exists(game.UE4SSRootPath)) return;
+
+        try
+        {
+            var dest = AppPaths.PreviousUE4SSFor(game.RootPath);
+            if (Directory.Exists(dest)) Directory.Delete(dest, true);
+            Directory.CreateDirectory(dest);
+
+            CopyDirectoryPlain(game.UE4SSRootPath, Path.Combine(dest, "ue4ss"));
+
+            // The proxy DLL is half the install and lives outside the ue4ss folder, so a restore
+            // without it would put back the loader's files and none of what loads them.
+            var proxy = Path.Combine(game.Win64Path, "dwmapi.dll");
+            if (File.Exists(proxy)) File.Copy(proxy, Path.Combine(dest, "dwmapi.dll"), true);
+
+            File.WriteAllText(Path.Combine(dest, "asset.txt"), outgoingAssetName ?? "unknown");
+
+            log.Info($"Kept a copy of the UE4SS you had ({outgoingAssetName ?? "unknown build"}), so this update "
+                     + "can be undone from Saves & Config if it breaks a mod.");
+        }
+        catch (Exception ex)
+        {
+            log.Warn($"Couldn't keep a copy of your current UE4SS first: {ex.Message}. The update will still "
+                     + "proceed, but it won't be undoable.");
+        }
+    }
+
+    /// The UE4SS build set aside by the last update, or null when there is none to go back to.
+    public static PreviousUE4SSBuild? FindPreviousBuild(GameInstallation game)
+    {
+        var dest = AppPaths.PreviousUE4SSFor(game.RootPath);
+        var payload = Path.Combine(dest, "ue4ss");
+        if (!Directory.Exists(payload)) return null;
+
+        var assetFile = Path.Combine(dest, "asset.txt");
+
+        return new PreviousUE4SSBuild
+        {
+            RootPath = dest,
+            AssetName = File.Exists(assetFile) ? File.ReadAllText(assetFile).Trim() : "unknown",
+            TakenAt = Directory.GetCreationTime(dest)
+        };
+    }
+
+    /// Puts the previous UE4SS back.
+    ///
+    /// Deliberately NOT a merge. This is "undo the update", so the whole payload goes back exactly
+    /// as it was, settings included - the point is to return to a state the user knows worked, and
+    /// carrying anything forward from the build being removed would make that state something they
+    /// have never actually run.
+    ///
+    /// The copy is left in place afterwards rather than consumed, so a restore that turns out not to
+    /// have been the problem can be repeated.
+    public static bool RestorePreviousBuild(GameInstallation game)
+    {
+        var log = LoggingService.Instance;
+        var previous = FindPreviousBuild(game);
+
+        if (previous == null)
+        {
+            log.Error("There's no previous UE4SS to go back to - one is only kept from the next update onwards.");
+            return false;
+        }
+
+        try
+        {
+            if (Directory.Exists(game.UE4SSRootPath)) Directory.Delete(game.UE4SSRootPath, true);
+            CopyDirectoryPlain(Path.Combine(previous.RootPath, "ue4ss"), game.UE4SSRootPath);
+
+            var proxy = Path.Combine(previous.RootPath, "dwmapi.dll");
+            if (File.Exists(proxy)) File.Copy(proxy, Path.Combine(game.Win64Path, "dwmapi.dll"), true);
+
+            log.Success($"Put {previous.AssetName} back. Your mods.txt and mod folders were not touched - "
+                        + "only UE4SS itself.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            log.Error($"Couldn't restore the previous UE4SS: {ex.Message}. The copy is still at {previous.RootPath}.");
+            return false;
+        }
+    }
+
+    /// A straight recursive copy. Separate from CopyDirectoryPreserving because that one exists to
+    /// skip the user's files, and this one must not skip anything.
+    private static void CopyDirectoryPlain(string source, string dest)
+    {
+        Directory.CreateDirectory(dest);
+
+        foreach (var dir in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(Path.Combine(dest, Path.GetRelativePath(source, dir)));
+
+        foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
+            File.Copy(file, Path.Combine(dest, Path.GetRelativePath(source, file)), true);
     }
 
     /// The suffix on the snapshot of a settings file as UE4SS shipped it.

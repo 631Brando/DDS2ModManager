@@ -486,6 +486,14 @@
                     <Button Content="Update" Style="{StaticResource SmallActionButton}" Margin="12,0,0,0"
                             Command="{Binding InstallOrUpdateUE4SSCommand}"
                             Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVisibility}}"/>
+
+                    <!-- Only once an update has actually replaced something. The release channel is a
+                         single rolling tag whose assets are replaced in place, so the build someone
+                         was on cannot be downloaded again - this copy is the only way back. -->
+                    <Button Content="Undo update" Style="{StaticResource SmallActionButton}" Margin="8,0,0,0"
+                            Command="{Binding RestorePreviousUE4SSCommand}"
+                            Visibility="{Binding CanRestoreUE4SS, Converter={StaticResource BoolToVisibility}}"
+                            ToolTip="{Binding PreviousUE4SS.Display, StringFormat='Go back to {0}'}"/>
                     <!-- Shown only when UE4SS is absent AND this game is one we may install it into.
                          Some games need a build that isn't published as a download, and installing the
                          one we can fetch would crash them - so the button is removed, not just likely

@@ -182,6 +182,39 @@ public partial class MainViewModel
         OpenUrl(url);
     }
 
+    /// Puts back the UE4SS build the last update replaced.
+    ///
+    /// Asks first, and says exactly which build in both directions, because the version strings do
+    /// not distinguish them - several builds all report "v3.0.1 Beta" and only the asset name
+    /// differs. Without naming them the prompt would read "go back to UE4SS" with no way to tell
+    /// what that means.
+    [RelayCommand]
+    private void RestorePreviousUE4SS()
+    {
+        if (Game == null || PreviousUE4SS is not { } previous) return;
+
+        var current = Ue4ssStatus?.InstalledAssetName ?? "the build you have now";
+
+        var answer = System.Windows.MessageBox.Show(
+            $"Put back {previous.AssetName}?\n\n" +
+            $"This replaces {current} with the copy kept when you last updated.\n\n" +
+            "Your mods, mods.txt and settings folders are not touched - only UE4SS itself.",
+            AppPaths.AppDisplayName,
+            System.Windows.MessageBoxButton.YesNo,
+            System.Windows.MessageBoxImage.Question);
+
+        if (answer != System.Windows.MessageBoxResult.Yes) return;
+
+        if (!UE4SSManagerService.RestorePreviousBuild(Game)) return;
+
+        Ue4ssStatus = _ue4ss.GetCurrentStatus(Game);
+
+        // The copy is deliberately left in place, so a restore that turns out not to have been the
+        // problem can be repeated - which means the button stays.
+        PreviousUE4SS = UE4SSManagerService.FindPreviousBuild(Game);
+        StatusMessage = $"Restored {previous.AssetName}.";
+    }
+
     private static void RevealInExplorer(string path)
     {
         try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{path}\"")); }

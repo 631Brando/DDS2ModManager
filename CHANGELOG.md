@@ -81,6 +81,39 @@ There is also **Not on Nexus**, for a mod you know has no page, which stops the 
 Nexus mod ids restart per game — mod 79 is a different mod on each — so a link records which game
 it belongs to and is refused if it turns up under the other one.
 
+### Your UE4SS settings survive a UE4SS update
+
+Updating UE4SS used to overwrite `UE4SS-settings.ini`, quietly resetting everything you'd set. Your
+settings are now carried across — but the new file is still the one you end up with, so options a
+newer UE4SS adds arrive too, along with the comments that explain them.
+
+### A UE4SS update can be undone
+
+UE4SS comes from a single rolling release whose files are replaced in place, so the build you were
+on can't be downloaded again once a newer one lands. Until now an update overwrote it and deleted
+the download, which meant an update that broke your mods left you with no way back.
+
+The build being replaced is now set aside first, and an **Undo update** button appears next to the
+UE4SS card. It puts back exactly what you had, proxy DLL included, and leaves your mods, `mods.txt`
+and settings folders alone. One copy is kept, and it survives being restored, so if going back
+turns out not to have been the problem you can update again.
+
+The log now also names both ends of the change — *"Replacing X with Y"* — because UE4SS's own version
+string doesn't identify a build. Several different ones all report themselves as `v3.0.1 Beta`, and
+only the release filename tells them apart. For the same reason, a diagnostics bundle now records
+the build you actually have; it used to record the release tag, which is always the same words.
+
+`Mods\BPModLoaderMod\load_order.txt` is now kept across an update too. Only a person ever writes
+that file, and losing it drops the Blueprint loader back to loading mods in an arbitrary order.
+
+### Fixed: the Standard/Dev build picker forgot which one you had
+
+The picker shown before every UE4SS update was pre-selected from a saved preference that defaults to
+**Standard**, not from what's actually installed. If you were running the Dev build — the one that
+opens a live console window — and had never opened that dialog, accepting an update silently moved
+you to Standard and your console disappeared, while your mods still loaded normally. It now reflects
+the build you have.
+
 ### Fixed: mods installed from an archive could be named after a temporary folder
 
 A mod with no `.pak` and no `Scripts` folder — which means every loose-asset and DLL mod — was
@@ -155,11 +188,6 @@ nothing on screen used to say so. It sits under its own **Mod loader (UE4SS)** h
 selecting it shows a notice saying what it actually configures, where it lives, and that changing
 it won't alter anything in the game itself.
 
-### Your UE4SS settings survive a UE4SS update
-
-Updating UE4SS used to overwrite `UE4SS-settings.ini`, quietly resetting everything you'd set. Your
-settings are now carried across — but the new file is still the one you end up with, so options a
-newer UE4SS adds arrive too, along with the comments that explain them.
 
 Only the values you actually changed are moved over. Everything else follows the new version, so a
 default that UE4SS deliberately changed still reaches you instead of being pinned to whatever it

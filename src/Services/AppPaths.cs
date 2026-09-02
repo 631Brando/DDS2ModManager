@@ -71,6 +71,17 @@ public static class AppPaths
     // The same locations addressed by an already-computed key. The migration works from the key it
     // recovers out of a registry_<key>.json filename, where the install path is not available.
 
+    /// Where the UE4SS build being replaced is set aside, so an update that breaks a user's mods
+    /// can be undone.
+    ///
+    /// Per game, because two installs update independently. Kept out of the game folder on purpose:
+    /// Unreal enumerates Content\Paks recursively and UE4SS scans its own Mods folder, so a spare
+    /// copy parked beside either would be read as live content.
+    public static string PreviousUE4SSFor(string gameRootPath) => PreviousUE4SSForKey(GameKey(gameRootPath));
+
+    public static string PreviousUE4SSForKey(string gameKey) =>
+        Path.Combine(Root, "PreviousUE4SS", gameKey);
+
     public static string DisabledModsForKey(string gameKey) => Path.Combine(DisabledMods, gameKey);
     public static string DisabledSavesForKey(string gameKey) => Path.Combine(DisabledSaves, gameKey);
     public static string ProfilesForKey(string gameKey) => Path.Combine(Profiles, gameKey);

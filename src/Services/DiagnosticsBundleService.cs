@@ -87,7 +87,13 @@ public class DiagnosticsBundleService
         sb.AppendLine(r.Ue4ss == null
             ? "UE4SS              unknown"
             : $"UE4SS              installed={r.Ue4ss.IsInstalled}  managedByUs={r.Ue4ss.IsManagedByUs}  " +
-              $"version={r.Ue4ss.InstalledVersionTag ?? "unknown"}  experimental={r.Ue4ss.IsConfirmedExperimental}");
+              // The ASSET name, not the tag. For a by-tag fetch the tag is always the literal
+              // "experimental-latest", so every bundle ever generated said version=experimental-latest
+              // and the build a user was actually running was nowhere in it - which is exactly what
+              // you need when someone reports a regression after an update.
+              $"asset={r.Ue4ss.InstalledAssetName ?? "unknown"}  " +
+              $"reported={r.Ue4ss.DetectedVersion ?? "unknown"}  " +
+              $"tag={r.Ue4ss.InstalledVersionTag ?? "unknown"}  experimental={r.Ue4ss.IsConfirmedExperimental}");
 
         sb.AppendLine();
         sb.AppendLine($"Mods               {r.Mods.Count} tracked, {r.Mods.Count(m => m.IsEnabled)} enabled");

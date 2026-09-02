@@ -153,6 +153,7 @@ public partial class MainViewModel
         HasConflicts = false;
         UpdateAvailable = false;
         Ue4ssStatus = null;
+        PreviousUE4SS = null;
         CompatibilitySummary = "No mods to check yet.";
     }
 

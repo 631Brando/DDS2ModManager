@@ -103,6 +103,16 @@ public partial class MainViewModel : ObservableObject
     public IAsyncRelayCommand RunDeepScanCommand { get; }
     public IAsyncRelayCommand CheckUE4SSUpdateCommand { get; }
     public IAsyncRelayCommand InstallOrUpdateUE4SSCommand { get; }
+
+    /// The UE4SS build the last update replaced, when there is one to go back to.
+    ///
+    /// Null until an update has actually happened, so the button is absent rather than disabled -
+    /// there is nothing useful to say to someone who has never updated.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanRestoreUE4SS))]
+    private PreviousUE4SSBuild? previousUE4SS;
+
+    public bool CanRestoreUE4SS => PreviousUE4SS != null;
     public IRelayCommand ToggleLogCommand { get; }
     public IRelayCommand SaveLogCommand { get; }
     public IRelayCommand OpenSettingsCommand { get; }
@@ -630,6 +640,7 @@ public partial class MainViewModel : ObservableObject
         foreach (var m in _registry.Mods) Mods.Add(m);
 
         Ue4ssStatus = _ue4ss.GetCurrentStatus(game);
+        PreviousUE4SS = UE4SSManagerService.FindPreviousBuild(game);
         ReportLoaderState(game);
 
         RunCompatibilityCheck();
@@ -1373,7 +1384,18 @@ public partial class MainViewModel : ObservableObject
 
         // Always let the user (re)confirm which build before installing/updating, not just once -
         // switching later should be just as visible and just as clearly explained as the first time.
-        var dialog = new UE4SSBuildSelectionWindow(AppSettingsService.Instance.Current.PreferredUE4SSBuild == "Dev")
+        //
+        // Pre-selected from what is ACTUALLY INSTALLED, falling back to the stored preference only
+        // when we did not install it and cannot tell. The setting defaults to Standard, so someone
+        // running the Dev build who had never opened this dialog was offered an "update" that came
+        // pre-selected on Standard - and accepting it silently took away their live console while
+        // the mod still loaded and its actor still spawned. That is indistinguishable from a mod
+        // regression from the outside, and the build SHAs do not mention it.
+        var installedIsDev = Ue4ssStatus is { IsManagedByUs: true, InstalledAssetName: { } asset }
+            ? asset.StartsWith("zDEV-", StringComparison.OrdinalIgnoreCase)
+            : AppSettingsService.Instance.Current.PreferredUE4SSBuild == "Dev";
+
+        var dialog = new UE4SSBuildSelectionWindow(installedIsDev)
         {
             Owner = System.Windows.Application.Current.MainWindow
         };
@@ -1404,6 +1426,7 @@ public partial class MainViewModel : ObservableObject
             if (ok)
             {
                 Ue4ssStatus = _ue4ss.GetCurrentStatus(Game!);
+                PreviousUE4SS = UE4SSManagerService.FindPreviousBuild(Game!);
                 UpdateAvailable = false;
                 StatusMessage = "UE4SS installed successfully.";
             }
