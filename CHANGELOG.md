@@ -106,6 +106,22 @@ new version's values. If the file did differ, every line that wasn't carried is 
 you can set it back. Settings you edited through Saves & Config are unaffected — those have always
 been recorded, and they're still kept.
 
+### You can install a specific UE4SS build
+
+Every experimental UE4SS build ever published is kept, so **Choose build** next to the UE4SS card now
+lists them and installs whichever you pick — including an older one. That matters because the
+ordinary Update button only ever moves forward, and if a new build breaks your mods, forward is the
+wrong direction.
+
+They all call themselves "v3.0.1", so the list is built around the build number and the commit
+instead — which are the two things a bug report will ask you for. You can search by either. The
+build you already have is marked, console builds can be filtered to on their own, and switching
+between a console and a non-console build is called out before you commit to it, because that
+difference is invisible in the version and is easy to change without noticing.
+
+Installing an older build goes through the same path as any other update, so it keeps your mods,
+`mods.txt` and settings, sets the build it replaces aside, and can itself be undone.
+
 ### A UE4SS update can be undone
 
 UE4SS comes from a single rolling release whose files are replaced in place, so the build you were

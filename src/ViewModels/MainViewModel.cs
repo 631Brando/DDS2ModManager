@@ -1368,6 +1368,84 @@ public partial class MainViewModel : ObservableObject
             : "UE4SS is up to date.";
     }
 
+    /// Installs one specific UE4SS build, chosen from every one ever published.
+    ///
+    /// The ordinary Update button only ever moves forward, to whatever is newest. That is the right
+    /// default and the wrong only option: a user whose mods all broke after an update needs to get
+    /// back to the build that worked, and until this existed there was no way to ask for one by name.
+    ///
+    /// Separate from the copy kept by the last update, which covers the same need without a network
+    /// but only reaches one build back. This reaches any of them, including for someone who was
+    /// already broken before the copy existed.
+    [RelayCommand]
+    private async Task PickUE4SSBuildAsync()
+    {
+        if (Game == null) return;
+
+        // Same gate as the install path, for the same reason: a hidden button is a presentation
+        // detail, and this is the one that would break a working game.
+        if (Ue4ssStatus is { CanInstall: false } blocked)
+        {
+            LoggingService.Instance.Warn(blocked.InstallBlockedReason ??
+                "Installing UE4SS isn't supported for this game.");
+            return;
+        }
+
+        IsBusy = true;
+        StatusMessage = "Fetching the list of UE4SS builds...";
+
+        IReadOnlyList<UE4SSBuild> builds;
+        try
+        {
+            builds = await _ue4ss.GetArchivedBuildsAsync();
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+
+        if (builds.Count == 0)
+        {
+            StatusMessage = "Couldn't fetch the list of UE4SS builds - see log for details.";
+            return;
+        }
+
+        var installedIsDev = Ue4ssStatus is { IsManagedByUs: true, InstalledAssetName: { } a }
+            && a.StartsWith("zDEV-", StringComparison.OrdinalIgnoreCase);
+
+        var dialog = new Views.UE4SSBuildPickerWindow(builds, Ue4ssStatus?.InstalledAssetName, installedIsDev)
+        {
+            Owner = System.Windows.Application.Current.MainWindow
+        };
+
+        if (dialog.ShowDialog() != true || dialog.SelectedBuild is not { } build) return;
+
+        StatusMessage = $"Installing {build.AssetName}...";
+        IsBusy = true;
+        var pickProgress = new Progress<double>(p => ProgressValue = p);
+
+        try
+        {
+            var installed = await _ue4ss.InstallSpecificBuildAsync(Game!, build, pickProgress);
+
+            Ue4ssStatus = _ue4ss.GetCurrentStatus(Game!);
+            PreviousUE4SS = UE4SSManagerService.FindPreviousBuild(Game!);
+
+            // Deliberately re-checked rather than assumed false: installing an OLDER build on purpose
+            // leaves an update genuinely available, and saying otherwise would hide the way back.
+            await CheckUE4SSUpdateAsync();
+
+            StatusMessage = installed
+                ? $"Installed {build.AssetName}."
+                : "That build could not be installed - see log for details.";
+        }
+        finally
+        {
+            IsBusy = false;
+            ProgressValue = 0;
+        }
+    }
+
     private async Task InstallOrUpdateUE4SSAsync()
     {
         if (Game == null) return;

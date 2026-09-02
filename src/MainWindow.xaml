@@ -487,6 +487,14 @@
                             Command="{Binding InstallOrUpdateUE4SSCommand}"
                             Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVisibility}}"/>
 
+                    <!-- Every experimental build is kept upstream, so "put me back on the one that
+                         worked" is answerable by name - which the Update button, which only ever
+                         moves forward, cannot do. Shown whenever UE4SS is installable here. -->
+                    <Button Content="Choose build" Style="{StaticResource SmallActionButton}" Margin="8,0,0,0"
+                            Command="{Binding PickUE4SSBuildCommand}"
+                            Visibility="{Binding Ue4ssStatus.CanInstall, Converter={StaticResource BoolToVisibility}}"
+                            ToolTip="Install a specific UE4SS build, including an older one."/>
+
                     <!-- Only once an update has actually replaced something. The release channel is a
                          single rolling tag whose assets are replaced in place, so the build someone
                          was on cannot be downloaded again - this copy is the only way back. -->
