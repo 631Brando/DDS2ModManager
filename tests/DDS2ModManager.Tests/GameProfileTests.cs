@@ -53,15 +53,28 @@ public class GameProfileTests : IDisposable
         Assert.Equal(EGame.GAME_UE4_21, game.Profile.EngineVersion);
     }
 
-    // Everyone using this tool today has DDS2, and their settings say nothing about a game. An
-    // unrecognised folder must keep behaving exactly as it did before profiles existed.
+    // This used to assert the opposite - that an unrecognised Unreal game fell back to DDS2. That
+    // fallback is what made any other game unsafe to open: it was offered DDS2's experimental UE4SS
+    // (which crashes other engines), read with DDS2's usmap, shown DDS2's Nexus cards, and saved into
+    // DDS2's settings section over the user's real DDS2 path. The legacy-settings case the old test
+    // protected is handled explicitly by the flat-settings migration, not by this getter.
     [Fact]
-    public void An_unrecognised_project_folder_falls_back_to_dds2()
+    public void An_unrecognised_project_folder_gets_a_conservative_generic_profile()
     {
         var game = Install("SomeOtherUnrealGame");
+        var p = game.Profile;
 
-        Assert.Equal(GameProfiles.Default.Id, game.Profile.Id);
-        Assert.Equal("dds2", game.Profile.Id);
+        Assert.NotEqual("dds1", p.Id);
+        Assert.NotEqual("dds2", p.Id);
+        Assert.False(p.IsBuiltIn);
+        Assert.Equal(ModLoaders.None, p.InstallableLoaders);
+        Assert.False(p.HasNexus);
+        Assert.Null(p.ManagerNexusModId);
+        Assert.False(p.HasEmbeddedMappings);
+        Assert.False(p.SupportsDllPlugins);
+        Assert.False(p.SupportsLooseAssets);
+        Assert.False(p.SupportsSaveCloning);
+        Assert.Equal("SomeOtherUnrealGame", p.ProjectFolderName);
     }
 
     // Detection knows which game it went looking for, so an explicit profile has to win over a guess

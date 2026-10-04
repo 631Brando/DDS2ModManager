@@ -224,12 +224,22 @@ public static class UnrealInstallInspector
         return found;
     }
 
-    /// The Unreal config directory that actually exists for this project under Saved\Config.
+    /// The folder under Saved\Config that this game writes its .ini files to.
     ///
-    /// UE4 writes WindowsNoEditor, UE5 writes Windows, and a generic game's engine is a guess - so
-    /// what is on disk outranks it. Falls back to the engine-based answer when the game has never
-    /// been run and nothing exists yet.
-    public static string ResolveConfigPlatformDir(string projectName, bool isUe5)
+    /// It is named after the platform the game was COOKED for, and that varies: UE4 games are
+    /// usually "WindowsNoEditor", UE5 shortened it to "Windows", and client builds of multiplayer
+    /// games use "WindowsClient" (Mordhau). Getting it wrong finds no config at all - and Reset
+    /// would aim at a folder that isn't the game's - so the answer comes from evidence, strongest
+    /// first:
+    ///
+    ///   1. A folder that already exists and holds the files Unreal writes there.
+    ///   2. The cook platform in the base pak's own name: "pakchunk0-WindowsClient.pak" was cooked
+    ///      for WindowsClient. Available before the game has ever been launched.
+    ///   3. The engine generation.
+    ///
+    /// Never returns an empty string. Path.Combine with "" would make the config folder Saved\Config
+    /// itself, and Reset deletes that folder.
+    public static string ResolveConfigPlatformDir(string projectPath, string projectName, bool isUe5)
     {
         var configRoot = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -237,14 +247,45 @@ public static class UnrealInstallInspector
 
         try
         {
-            if (Directory.Exists(Path.Combine(configRoot, "Windows"))) return "Windows";
-            if (Directory.Exists(Path.Combine(configRoot, "WindowsNoEditor"))) return "WindowsNoEditor";
+            if (Directory.Exists(configRoot))
+            {
+                var withSettings = Directory.GetDirectories(configRoot)
+                    .Where(d => !Path.GetFileName(d).StartsWith("CrashReport", StringComparison.OrdinalIgnoreCase))
+                    .FirstOrDefault(d => File.Exists(Path.Combine(d, "GameUserSettings.ini"))
+                                         || File.Exists(Path.Combine(d, "Engine.ini")));
+                if (withSettings != null) return Path.GetFileName(withSettings);
+            }
         }
         catch
         {
-            // fall through to the engine-based guess
+            // fall through to the pak name
         }
 
+        var fromPak = CookPlatformFromPakName(FindMainPak(Path.Combine(projectPath, "Content", "Paks")));
+        if (fromPak != null) return fromPak;
+
         return isUe5 ? "Windows" : "WindowsNoEditor";
+    }
+
+    /// "pakchunk0-WindowsClient.pak" -> "WindowsClient". Null when the name carries no Windows
+    /// platform, so a custom-named pak can't produce a nonsense folder name. Public for tests.
+    public static string? CookPlatformFromPakName(string? pakPath)
+    {
+        if (string.IsNullOrWhiteSpace(pakPath)) return null;
+
+        var name = Path.GetFileNameWithoutExtension(pakPath);
+        var dash = name.LastIndexOf('-');
+        if (dash < 0 || dash == name.Length - 1) return null;
+
+        var platform = name[(dash + 1)..];
+
+        // A patch pak's suffix ("Windows_0_P") isn't part of the platform name.
+        var underscore = platform.IndexOf('_');
+        if (underscore > 0) platform = platform[..underscore];
+
+        return platform.StartsWith("Windows", StringComparison.OrdinalIgnoreCase)
+               && platform.All(char.IsLetter)
+            ? platform
+            : null;
     }
 }

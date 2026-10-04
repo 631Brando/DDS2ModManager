@@ -5,14 +5,23 @@ public class GameInstallation
     /// The Steam "common\<game>" folder.
     public string RootPath { get; set; } = "";
 
-    /// Which game this is. Set explicitly by detection, which knows what it went looking for;
-    /// otherwise inferred from the project folder found on disk.
+    /// Which game this is. Set explicitly by the game catalog, which resolves it once; otherwise
+    /// inferred here through the same resolver.
+    ///
+    /// An Unreal project that isn't DDS1 or DDS2 gets a GENERIC profile, never DDS2's. It used to
+    /// fall back to DDS2, and that one line was the root of most of what made "any Unreal game"
+    /// unsafe: a browsed Mordhau became DDS2, was offered DDS2's experimental UE4SS, was read with
+    /// DDS2's usmap, got DDS2's Nexus cards, and had its path saved into DDS2's settings section -
+    /// overwriting the user's real DDS2 folder. Only a folder with nothing on disk to identify
+    /// (missing, or no Unreal project inside) keeps the old default, since it can't be managed
+    /// either way and legacy settings migration expects it.
     ///
     /// Note this reads <see cref="DetectedProjectName"/> and not <see cref="ProjectName"/> -
     /// ProjectName falls back to the profile, so going through it would recurse forever.
     public GameProfile Profile
     {
-        get => _profile ??= GameProfiles.ByProjectFolder(DetectedProjectName) ?? GameProfiles.Default;
+        get => _profile ??= GenericGameProfiles.Resolve(
+            RootPath, DetectedProjectName, GameStoreIndex.Shared.Identify(RootPath), readExecutable: false);
         set => _profile = value;
     }
     private GameProfile? _profile;

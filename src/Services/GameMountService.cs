@@ -26,13 +26,7 @@ public static class GameMountService
     {
         var settings = AppSettingsService.Instance.ForGame(game.Profile);
 
-        // Mappings are only fetched for a game that needs them. DDS1 is UE 4.21, which carries its
-        // own property tags, so extracting a usmap for it would be work done to be ignored - and
-        // handing it DDS2's mappings would be worse than none.
-        var mappings = !string.IsNullOrWhiteSpace(settings.MappingsOverridePath)
-                       && File.Exists(settings.MappingsOverridePath)
-            ? settings.MappingsOverridePath!
-            : game.Profile.NeedsMappings ? MappingsProviderService.EnsureExtracted() : "";
+        var mappings = ResolveMappings(game, settings.MappingsOverridePath);
 
         // The profile is the default; the setting is only ever a deliberate override.
         var egame = Enum.TryParse<EGame>(settings.EGameVersion, out var parsed)
@@ -40,6 +34,75 @@ public static class GameMountService
             : game.Profile.EngineVersion;
 
         return new MountOptions(game.PaksPath, mappings, egame, settings.AesKeyHex);
+    }
+
+    /// Which .usmap to read a game's assets with, or "" for none.
+    ///
+    /// One rule above all: a game is never handed another game's mappings. A wrong usmap produces
+    /// no error - every path still lists - and the property reads it affects (a ModActor's update
+    /// address, DataTable rows) come back as plausible garbage that looks like real results. "None"
+    /// at least fails visibly. So, in order:
+    ///
+    ///   1. The user's override for THIS game, when the file exists.
+    ///   2. The usmap compiled in for this game - DDS2's, and only DDS2's.
+    ///   3. For a game with no profile of its own, a usmap UE4SS dumped into that game's folder.
+    ///      UE4SS writes it from the running game, so it describes exactly this game and version.
+    ///      Never done for a built-in profile: DDS1's install holds a stray 4.27 usmap left by a
+    ///      manual engine-version override, and DDS2 has its own.
+    ///   4. Nothing.
+    public static string ResolveMappings(GameInstallation game, string? overridePath)
+    {
+        if (!string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath)) return overridePath;
+
+        if (game.Profile.HasEmbeddedMappings) return MappingsProviderService.EnsureExtracted();
+
+        if (game.Profile.IsBuiltIn) return "";
+
+        var dumped = FindDumpedMappings(game);
+        ReportMappingsOnce(game, dumped);
+        return dumped ?? "";
+    }
+
+    /// A .usmap UE4SS generated for this game, newest first. UE4SS's dumper writes it beside itself
+    /// (ue4ss\ in the current layout, Binaries\Win64 in the older one) and names it either
+    /// "Mappings.usmap" or after the game and engine build.
+    public static string? FindDumpedMappings(GameInstallation game)
+    {
+        var places = new[] { game.UE4SSRootPath, game.Win64Path };
+        try
+        {
+            return places
+                .Where(Directory.Exists)
+                .SelectMany(p => Directory.EnumerateFiles(p, "*.usmap", SearchOption.TopDirectoryOnly))
+                .Where(f => new FileInfo(f).Length > 0)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static readonly HashSet<string> MappingsReported = new(StringComparer.OrdinalIgnoreCase);
+
+    /// Says once per game per session what deep reads will be able to do, so a user wondering why a
+    /// mod's update address wasn't found has the answer in the log - without it repeating on every
+    /// mount.
+    private static void ReportMappingsOnce(GameInstallation game, string? dumped)
+    {
+        lock (MappingsReported)
+        {
+            if (!MappingsReported.Add(AppPaths.GameKey(game.RootPath))) return;
+        }
+
+        var log = LoggingService.Instance;
+        if (dumped != null)
+            log.Info($"Using {Path.GetFileName(dumped)} for {game.Profile.DisplayName}'s mappings (dumped by UE4SS).");
+        else if (game.Profile.NeedsMappings)
+            log.Info($"No mappings (.usmap) found for {game.Profile.DisplayName}. Installing mods and detecting " +
+                     "conflicts work without one; reading values inside mods (like an update address) needs one - " +
+                     "UE4SS can dump it, or set one in Settings.");
     }
 
     public static DefaultFileProvider Mount(MountOptions options, bool warnOnMappingsFailure = false) =>

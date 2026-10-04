@@ -168,6 +168,36 @@ public sealed record GameProfile
     public string[] ContainerExtensions => PakLayout == PakLayout.IoStoreTriple
         ? [".pak", ".ucas", ".utoc"]
         : [".pak"];
+
+    /// True for the hand-written profiles in <see cref="GameProfiles"/>; false for one built at
+    /// runtime for an Unreal game this manager has no specific knowledge of.
+    ///
+    /// The distinction gates everything that only makes sense for a game someone actually studied:
+    /// an embedded usmap, a Nexus domain, a base-pak naming rule trusted enough to delete by,
+    /// installing a loader. A generic profile answers every one of those with "no".
+    public bool IsBuiltIn { get; init; }
+
+    /// Whether this game's .usmap is compiled into the app.
+    ///
+    /// Deliberately separate from NeedsMappings. The two used to be one flag, which meant "needs
+    /// mappings" was answered by extracting the only embedded file there is - DDS2's - so any other
+    /// UE5 game would have been read against DDS2's schema. That produces no error: a wrong usmap
+    /// still lists every path, and only the property reads come back as plausible garbage.
+    public bool HasEmbeddedMappings { get; init; }
+
+    /// Whether this game has a Nexus Mods catalogue the manager can query.
+    ///
+    /// An empty domain is NOT "no filter" to the Nexus API - it was live-tested to ignore a blank
+    /// gameDomainName and return every mod on the site, across all games. So this has to be checked
+    /// before any request is built, never left to the server to sort out.
+    public bool HasNexus => !string.IsNullOrWhiteSpace(NexusDomain);
+
+    /// The engine version as a person would write it, e.g. "UE 4.21", for display only.
+    public string EngineLabel { get; init; } = "";
+
+    /// True when <see cref="EngineVersion"/> was inferred from the install's files rather than
+    /// known. Shown as "estimated" so a user whose assets misread knows the setting to check.
+    public bool EngineIsEstimated { get; init; }
 }
 
 /// The games this manager supports, and the single place a new one gets added.
@@ -195,7 +225,10 @@ public static class GameProfiles
         InstallableLoaders  = ModLoaders.UE4SS,
         NexusDomain         = "drugdealersimulator2",
         ManagerNexusModId   = 118,
-        SupportsSaveCloning = true
+        SupportsSaveCloning = true,
+        IsBuiltIn           = true,
+        HasEmbeddedMappings = true,
+        EngineLabel         = "UE 5.3"
     };
 
     /// Drug Dealer Simulator 1 - UE 4.21.0 (CL 4753647).
@@ -225,7 +258,9 @@ public static class GameProfiles
         SupportedLoaders    = ModLoaders.UnrealModLoader | ModLoaders.UnrealModUnlocker | ModLoaders.UE4SS,
         InstallableLoaders  = ModLoaders.None,
         NexusDomain         = "drugdealersimulator",
-        SupportsSaveCloning = false
+        SupportsSaveCloning = false,
+        IsBuiltIn           = true,
+        EngineLabel         = "UE 4.21"
     };
 
     /// Every supported game. DDS2 first: it is this tool's original target, so it stays the
@@ -246,4 +281,30 @@ public static class GameProfiles
     /// Resolves by the Unreal project folder name, which is what a detected install gives us.
     public static GameProfile? ByProjectFolder(string? projectFolder) =>
         All.FirstOrDefault(p => string.Equals(p.ProjectFolderName, projectFolder, StringComparison.OrdinalIgnoreCase));
+
+    /// Resolves a built-in by Steam app id - the strongest identity a Steam install has, and the
+    /// reason a DDS1 found through its appmanifest becomes "dds1" rather than a generic "steam:682990"
+    /// whose settings would be split from the section every earlier version wrote.
+    public static GameProfile? BySteamAppId(uint appId) =>
+        appId == 0 ? null : All.FirstOrDefault(p => p.SteamAppId == appId);
+
+    // ---- profiles discovered at runtime -------------------------------------------------------
+
+    /// Generic profiles built this session, so a persisted Id can be turned back into its profile
+    /// (a settings section, an exported mod profile). Never part of <see cref="All"/>: that list is
+    /// pinned to the hand-written games, decides which one a new user opens on, and every caller of
+    /// ById relies on it returning null for anything it doesn't specifically know.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GameProfile> Discovered =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public static void Register(GameProfile profile)
+    {
+        if (profile.IsBuiltIn) return;
+        Discovered[profile.Id] = profile;
+    }
+
+    /// ById, then whatever has been discovered this session. Use this where an Id from disk has to
+    /// be shown to the user; use ById where only a built-in game is acceptable.
+    public static GameProfile? Resolve(string? id) =>
+        ById(id) ?? (id != null && Discovered.TryGetValue(id, out var p) ? p : null);
 }
