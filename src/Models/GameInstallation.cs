@@ -19,18 +19,11 @@ public class GameInstallation
 
     /// The Unreal project folder as it actually exists on disk, or null if nothing looks right.
     /// Detected rather than assumed so a renamed or repacked install still resolves correctly.
-    public string? DetectedProjectName
-    {
-        get
-        {
-            if (_detected != null) return _detected;
-            if (!Directory.Exists(RootPath)) return null;
-
-            var match = Directory.GetDirectories(RootPath)
-                .FirstOrDefault(d => Directory.Exists(Path.Combine(d, "Binaries", "Win64")));
-            return match == null ? null : _detected = Path.GetFileName(match);
-        }
-    }
+    ///
+    /// Never "Engine": every packaged Unreal game has an Engine folder with its own Binaries\Win64,
+    /// and taking the first such folder pointed Mordhau's every path into the engine. See
+    /// UnrealInstallInspector.FindProjectFolder.
+    public string? DetectedProjectName => _detected ??= UnrealInstallInspector.FindProjectFolder(RootPath);
     private string? _detected;
 
     /// The project folder name to use: what's on disk, else what the profile expects.
@@ -84,5 +77,23 @@ public class GameInstallation
     /// no .ini files at all rather than failing loudly, so it comes from the profile.
     public string ConfigPath => Path.Combine(SavedPath, "Config", Profile.ConfigPlatformDir);
 
+    /// Whether the folder is shaped like an Unreal project at all.
+    ///
+    /// Structural only, and deliberately left that way: tests and the settings window build
+    /// installs from nothing but a Binaries\Win64 folder. Whether a GAME is actually there - an
+    /// executable to run and paks to read - is <see cref="InstallState"/>, which is what anything
+    /// deciding to open, list or modify a game must ask.
     public bool IsValid => Directory.Exists(Win64Path);
+
+    /// Installed, a husk an uninstall left behind, or not an Unreal game at all.
+    ///
+    /// Re-read every time rather than cached: the game can be installed or removed while the
+    /// manager is open, and a stale answer here is exactly the bug it exists to prevent - a deleted
+    /// DDS2 still listed as installed because UE4SS had left Binaries\Win64 behind.
+    public UnrealInstallState InstallState => UnrealInstallInspector.Inspect(RootPath, out _);
+
+    public bool IsInstalled => InstallState == UnrealInstallState.Installed;
+
+    /// The game's executable, or null when none is present (the clearest sign of a husk).
+    public string? ExecutablePath => UnrealInstallInspector.FindGameExecutable(ProjectPath);
 }
