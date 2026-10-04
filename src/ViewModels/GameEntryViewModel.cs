@@ -18,16 +18,17 @@ public partial class GameEntryViewModel : ObservableObject
     public DetectedGame Game => _game;
 
     /// Whether this is the install currently being managed.
-    [ObservableProperty] private bool isActive;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanForget))]
+    private bool isActive;
 
     /// Steam's 600x900 box art, decoded at card size. Null until loaded, or when Steam has none.
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasCapsule), nameof(ShowIconFallback), nameof(ShowInitialsFallback))]
+    [NotifyPropertyChangedFor(nameof(ShowIconFallback), nameof(ShowInitialsFallback))]
     private BitmapSource? capsule;
 
     /// The wide hero banner, used behind the header for the open game.
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasHero))]
     private BitmapSource? hero;
 
     /// The game's own icon, for games Steam has no art for.
@@ -44,16 +45,6 @@ public partial class GameEntryViewModel : ObservableObject
     public bool IsFullSupport => Profile.IsBuiltIn;
 
     public string DisplayName => Profile.DisplayName;
-    public string ShortName => Profile.ShortName;
-
-    /// The line under the name: what clicking will DO when it isn't a plain switch, so a missing
-    /// game reads as an action rather than a dead control.
-    public string StateLabel => _game.State switch
-    {
-        CatalogState.Installed => Profile.IsBuiltIn ? Profile.DisplayName : EngineDisplay,
-        CatalogState.Leftover => "Uninstalled - only leftover files remain",
-        _ => "Not found - click to locate"
-    };
 
     public string SupportLabel => IsFullSupport ? "Full support" : "Basic support";
 
@@ -75,6 +66,43 @@ public partial class GameEntryViewModel : ObservableObject
 
     public string RootPath => _game.RootPath;
 
+    /// The big line over a card's art when the game can't simply be opened.
+    public string StateHeadline => _game.State switch
+    {
+        CatalogState.NotFound => "Not installed",
+        CatalogState.Leftover => "Uninstalled",
+        _ => ""
+    };
+
+    /// What clicking will do, or why it won't - so a card that isn't a plain switch never reads as a
+    /// dead control.
+    public string StateHint => _game.State switch
+    {
+        CatalogState.NotFound => "Click to locate it",
+        CatalogState.Leftover => "Only leftover files remain",
+        _ => ""
+    };
+
+    /// The line under a card's name.
+    public string CardSubtitle => _game.State switch
+    {
+        CatalogState.NotFound => "Not found on this PC",
+        CatalogState.Leftover => "Leftover files only",
+        _ => string.Join("  ·  ", new[] { EngineDisplay, SourceLabel }.Where(s => !string.IsNullOrWhiteSpace(s)))
+    };
+
+    public string CardTooltip => IsNotFound
+        ? $"{DisplayName} wasn't found in your Steam, Epic or GOG libraries. Click to pick its folder.\n\n{SupportTooltip}"
+        : $"{DisplayName}\n{RootPath}\n\n{SupportTooltip}";
+
+    /// Only a game added by hand can be removed from the list - one a launcher lists would simply
+    /// come back on the next scan, so offering it would be a button that lies.
+    public bool CanForget => _game.AddedByHand && !IsActive && !IsNotFound;
+
+    /// A built-in game never leaves the list - forgetting its folder turns it back into "not
+    /// installed" - so its link says what actually happens.
+    public string ForgetLabel => IsFullSupport ? "Forget this folder" : "Remove from list";
+
     public bool HasAntiCheat => _game.AntiCheat != AntiCheat.None;
 
     public string AntiCheatLabel => _game.AntiCheat switch
@@ -92,8 +120,6 @@ public partial class GameEntryViewModel : ObservableObject
         $"This game ships {AntiCheatLabel}. Modded files can get an account flagged in online play. " +
         "Single-player is usually fine, but check the game's own rules before playing online with mods.";
 
-    public bool HasCapsule => Capsule != null;
-    public bool HasHero => Hero != null;
     public bool ShowIconFallback => Capsule == null && Icon != null;
     public bool ShowInitialsFallback => Capsule == null && Icon == null;
 

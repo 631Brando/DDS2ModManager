@@ -45,6 +45,35 @@ public partial class MainWindow : Window
         {
             Dispatcher.InvokeAsync(() => LogScroller.ScrollToEnd());
         };
+
+        // Queued rather than shown inline: the request can come from the end of startup, and showing
+        // a modal window from inside that await would hold startup "running" until it closed.
+        ViewModel.GamePickerRequested += () => Dispatcher.BeginInvoke(ShowGamePicker);
+    }
+
+    private bool _gamePickerOpen;
+
+    /// Shows the game picker, then carries out whatever was chosen through the view model's own
+    /// commands - the same gated path every other game change takes. The picker never opens a game
+    /// itself.
+    private void ShowGamePicker()
+    {
+        if (_gamePickerOpen) return;
+        _gamePickerOpen = true;
+        try
+        {
+            var picker = new Views.GameSelectorWindow(ViewModel) { Owner = this };
+            picker.ShowDialog();
+
+            if (picker.ChosenEntry is { } chosen)
+                _ = ViewModel.SwitchGameCommand.ExecuteAsync(chosen);
+            else if (picker.AddFolderRequested)
+                _ = ViewModel.AddGameFolderCommand.ExecuteAsync(null);
+        }
+        finally
+        {
+            _gamePickerOpen = false;
+        }
     }
 
     /// Restores the size the user last left the window at, or picks a sensible large default.

@@ -45,6 +45,9 @@ public partial class MainViewModel
     public IRelayCommand<GameEntryViewModel> ForgetGameCommand { get; private set; } = null!;
     public IRelayCommand<GameEntryViewModel> OpenGameFolderCommand { get; private set; } = null!;
 
+    /// Shows the game picker. The window itself is the view's business; the view model only asks.
+    public IRelayCommand OpenGamePickerCommand { get; private set; } = null!;
+
     /// Raised when the window should show the game picker - at startup with no game to open, so the
     /// first thing a user without DDS1 or DDS2 sees is the list of games they CAN manage.
     public event Action? GamePickerRequested;
@@ -62,6 +65,7 @@ public partial class MainViewModel
             AsyncRelayCommandOptions.AllowConcurrentExecutions);
         RescanGamesCommand = new AsyncRelayCommand(RefreshCatalogAsync);
         ForgetGameCommand = new RelayCommand<GameEntryViewModel>(ForgetGame);
+        OpenGamePickerCommand = new RelayCommand(() => GamePickerRequested?.Invoke());
         OpenGameFolderCommand = new RelayCommand<GameEntryViewModel>(e =>
         {
             if (!string.IsNullOrWhiteSpace(e?.RootPath)) OpenFolderInExplorer(e!.RootPath);
@@ -346,6 +350,10 @@ public partial class MainViewModel
 
         GameEntries.Remove(entry);
         LoggingService.Instance.Info($"Removed {entry.DisplayName} from the list. Nothing in its folder was touched.");
+
+        // A built-in game is always listed - as "not installed" once its folder is forgotten - so it
+        // comes straight back as that, rather than vanishing until the next scan.
+        if (entry.Profile.IsBuiltIn) _ = RefreshCatalogAsync();
     }
 
     private static void OpenFolderInExplorer(string path)

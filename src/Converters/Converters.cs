@@ -97,12 +97,16 @@ public class ZeroCountToVisibilityConverter : IValueConverter
     public object ConvertBack(object v, Type t, object p, CultureInfo c) => throw new NotSupportedException();
 }
 
-/// Collapses anything bound to a null or empty string. Used to hide the per-mod trust tick on
-/// mods that publish no update address, where trusting an author would mean nothing.
+/// Collapses its target when the bound value is null, or a string that is empty or whitespace.
+/// Used to hide the per-mod trust tick on mods that publish no update address, where trusting an
+/// author would mean nothing, and the open game's details in the banner while no game is open.
+///
+/// A value that isn't a string is tested for null alone. Reading every value "as string" made any
+/// object - a view model, say - collapse its target whether it existed or not, in silence.
 public class NullToCollapsedConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        string.IsNullOrWhiteSpace(value as string)
+        value is null || (value is string s && string.IsNullOrWhiteSpace(s))
             ? System.Windows.Visibility.Collapsed
             : System.Windows.Visibility.Visible;
 

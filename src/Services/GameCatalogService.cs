@@ -66,31 +66,16 @@ public sealed class GameCatalogService
         var index = GameStoreIndex.Refresh();
         var settings = AppSettingsService.Instance.Current;
 
-        // Keyed by the normalised folder so each install is listed once however it was reached; the
-        // value keeps the spelling to use as RootPath (see DetectedGame.Key for why that matters).
-        var candidates = new Dictionary<string, (string Spelling, bool ByHand)>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var lib in index.SteamLibraries)
-        {
-            var common = Path.Combine(lib, "steamapps", "common");
-            foreach (var dir in SafeDirectories(common))
-                candidates.TryAdd(GameStoreIndex.NormalizeFolder(dir), (dir, false));
-        }
-
-        foreach (var known in index.KnownInstalls)
-            candidates.TryAdd(known.Key, (known.Key, false));
+        var discovered = index.SteamLibraries
+            .SelectMany(lib => SafeDirectories(Path.Combine(lib, "steamapps", "common")))
+            .Concat(index.KnownInstalls.Select(known => known.Key));
 
         // Remembered folders: anything added by hand, plus the last folder each game was opened
-        // from. These win on spelling - every per-install file for them was named from exactly this
-        // string. Read straight from the dictionary rather than through ForGame(), which would create
+        // from. Read straight from the dictionary rather than through ForGame(), which would create
         // an empty section for every key as a side effect of merely asking.
-        foreach (var (_, game) in settings.Games)
-        {
-            if (string.IsNullOrWhiteSpace(game.GamePathOverride)) continue;
-            var folder = GameStoreIndex.NormalizeFolder(game.GamePathOverride);
-            var byHand = index.Identify(folder) == null;
-            candidates[folder] = (game.GamePathOverride, byHand || (candidates.TryGetValue(folder, out var c) && c.ByHand));
-        }
+        var remembered = settings.Games.Values.Select(game => game.GamePathOverride ?? "");
+
+        var candidates = MergeRemembered(discovered, remembered);
 
         var found = new List<DetectedGame>();
         foreach (var (_, (spelling, byHand)) in candidates)
@@ -123,6 +108,33 @@ public sealed class GameCatalogService
         }
 
         return Order(found);
+    }
+
+    /// Folds remembered folders into the ones a scan discovered, keyed by normalised folder so each
+    /// install is listed once however it was reached. The value keeps the spelling to use as
+    /// RootPath: a remembered spelling wins, because every per-install file for that folder was
+    /// named from exactly that string (see DetectedGame.Key).
+    ///
+    /// A remembered folder counts as added by hand only when nothing but the setting knows it. One
+    /// a scan finds anyway - an uninstalled game's leftover folder still in steamapps\common, say -
+    /// would be back on the next scan whatever the setting said, so offering to remove it from the
+    /// list would be a button that lies.
+    public static Dictionary<string, (string Spelling, bool ByHand)> MergeRemembered(
+        IEnumerable<string> discovered, IEnumerable<string> remembered)
+    {
+        var merged = new Dictionary<string, (string Spelling, bool ByHand)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in discovered)
+            merged.TryAdd(GameStoreIndex.NormalizeFolder(dir), (dir, false));
+
+        var scanned = new HashSet<string>(merged.Keys, StringComparer.OrdinalIgnoreCase);
+        foreach (var path in remembered)
+        {
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            var folder = GameStoreIndex.NormalizeFolder(path);
+            merged[folder] = (path, !scanned.Contains(folder));
+        }
+
+        return merged;
     }
 
     /// One folder, as the catalog would list it - or null when it isn't an Unreal game at all.

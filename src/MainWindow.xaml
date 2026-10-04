@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:DDS2ModManager.Converters"
+        xmlns:svc="clr-namespace:DDS2ModManager.Services"
         Title="{Binding WindowTitle}" Height="980" Width="1760" MinWidth="980" MinHeight="600"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
         WindowStartupLocation="CenterScreen"
@@ -19,6 +20,7 @@
         <!-- Ctrl+F is added in code-behind: it moves focus to a named control, which is the view's
              own business and nothing the view model should know about. -->
         <KeyBinding Key="Escape"                Command="{Binding ClearModSearchCommand}"/>
+        <KeyBinding Key="G"   Modifiers="Ctrl" Command="{Binding OpenGamePickerCommand}"/>
         <KeyBinding Key="O"   Modifiers="Ctrl" Command="{Binding InstallModCommand}"/>
         <KeyBinding Key="F5"                    Command="{Binding RunDeepScanCommand}"/>
         <KeyBinding Key="U"   Modifiers="Ctrl" Command="{Binding CheckModUpdatesCommand}"/>
@@ -163,132 +165,170 @@
 
     <Grid Margin="18">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>   <!-- game tabs -->
-            <RowDefinition Height="Auto"/>   <!-- header -->
+            <RowDefinition Height="Auto"/>   <!-- game banner -->
+            <RowDefinition Height="Auto"/>   <!-- (was the header row; kept empty so later rows keep their numbers) -->
             <RowDefinition Height="Auto"/>   <!-- toolbar -->
             <RowDefinition Height="*"/>      <!-- mods + conflicts -->
             <RowDefinition Height="Auto"/>   <!-- status bar -->
             <RowDefinition Height="Auto"/>   <!-- log panel -->
         </Grid.RowDefinitions>
 
-        <!-- ===== Game tabs =====
-             At the very top and always visible, both games always present. A strip that appeared
-             only when a second game happened to be installed would be invisible to most users,
-             which defeats the point: this exists so it is never ambiguous which game is being
-             modded. A game that isn't installed keeps its tab and turns into a "find it" button,
-             because "we don't support that" and "we can't see it" look identical otherwise. -->
-        <ItemsControl Grid.Row="0" ItemsSource="{Binding GameEntries}" Margin="0,0,0,12">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <StackPanel Orientation="Horizontal"/>
-                </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <Button Command="{Binding DataContext.SwitchGameCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                            CommandParameter="{Binding}"
-                            Margin="0,0,8,0" Padding="0" BorderThickness="0" Cursor="Hand"
-                            HorizontalContentAlignment="Stretch">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="Tab" CornerRadius="8,8,0,0" Padding="16,9"
-                                        Background="{StaticResource CardBrush}"
-                                        BorderBrush="{StaticResource CardBorderBrush}"
-                                        BorderThickness="1,1,1,0">
-                                    <StackPanel>
-                                        <TextBlock x:Name="Short" Text="{Binding ShortName}"
-                                                   FontSize="15" FontWeight="Bold"
-                                                   Foreground="{StaticResource TextMutedBrush}"/>
-                                        <TextBlock Text="{Binding StateLabel}" FontSize="10" Margin="0,1,0,0"
-                                                   Foreground="{StaticResource TextMutedBrush}"/>
-                                    </StackPanel>
-                                </Border>
+        <!-- ===== Game banner =====
+             Replaces the DDS1/DDS2 tab strip and the old header row. The open game is unmistakable
+             at a glance - its own box art and hero image, its name in large type - which is the
+             requirement the tabs existed for, kept while the list of games grew past what a strip
+             of tabs can hold. Choosing another game, or adding one by folder, is the picker's job
+             (Switch game / Ctrl+G).
 
-                                <!-- EVERY visual state lives here, in ControlTemplate.Triggers,
-                                     targeting the named Border.
+             Layers, back to front: the game's placeholder colour, its Steam hero art, a gradient
+             that keeps the text readable over any art, then the content. ImageBrush backgrounds are
+             what round a picture's corners in WPF; an Image inside a rounded Border stays square. -->
+        <Grid Grid.Row="0" Margin="0,0,0,14" Height="136">
+            <Grid.Resources>
+                <Style x:Key="BannerChip" TargetType="Border">
+                    <Setter Property="CornerRadius" Value="4"/>
+                    <Setter Property="Padding" Value="7,2"/>
+                    <Setter Property="Margin" Value="0,0,6,0"/>
+                    <Setter Property="Background" Value="#2EFFFFFF"/>
+                </Style>
+                <Style x:Key="BannerChipText" TargetType="TextBlock">
+                    <Setter Property="FontSize" Value="10.5"/>
+                    <Setter Property="FontWeight" Value="SemiBold"/>
+                    <Setter Property="Foreground" Value="#E5E7EB"/>
+                </Style>
+                <!-- A ghost button that stays legible over box art. A style setter, not a local
+                     value, so the template's hover state can still win over it. -->
+                <Style x:Key="BannerGhost" TargetType="Button" BasedOn="{StaticResource GhostButton}">
+                    <Setter Property="Background" Value="#8C12131A"/>
+                    <Setter Property="BorderBrush" Value="#40FFFFFF"/>
+                </Style>
+            </Grid.Resources>
 
-                                     It cannot live in a <Border.Style> on that same Border. The
-                                     Background / BorderBrush / BorderThickness above are written as
-                                     ATTRIBUTES in this template's markup, which WPF ranks as
-                                     BaseValueSource.ParentTemplate - above BaseValueSource.StyleTrigger.
-                                     A Style trigger trying to change them is silently discarded, so
-                                     the active tab rendered pixel-identical to an inactive one and
-                                     clicking a tab looked like it did nothing at all, even though the
-                                     game underneath had switched. A trigger declared HERE resolves as
-                                     ParentTemplateTrigger and does win. -->
-                                <ControlTemplate.Triggers>
-                                    <!-- A 3px accent lid rather than a colour swap, so the active tab
-                                         reads at a glance even out of the corner of the eye. -->
-                                    <DataTrigger Binding="{Binding IsActive}" Value="True">
-                                        <Setter TargetName="Tab" Property="Background"
-                                                Value="{StaticResource BgBrush}"/>
-                                        <Setter TargetName="Tab" Property="BorderBrush"
-                                                Value="{StaticResource AccentBrush}"/>
-                                        <Setter TargetName="Tab" Property="BorderThickness"
-                                                Value="1,3,1,0"/>
-                                        <Setter TargetName="Short" Property="Foreground"
-                                                Value="{StaticResource TextPrimaryBrush}"/>
+            <Border CornerRadius="12"
+                    Background="{Binding ActiveEntry.PlaceholderBrush, FallbackValue={StaticResource CardBrush}, TargetNullValue={StaticResource CardBrush}}"/>
+            <Border CornerRadius="12">
+                <Border.Background>
+                    <ImageBrush ImageSource="{Binding ActiveEntry.Hero}" Stretch="UniformToFill" AlignmentY="Center"/>
+                </Border.Background>
+            </Border>
+            <Border CornerRadius="12" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                        <GradientStop Color="#F512131A" Offset="0"/>
+                        <GradientStop Color="#E012131A" Offset="0.40"/>
+                        <GradientStop Color="#8512131A" Offset="0.74"/>
+                        <GradientStop Color="#4712131A" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
+
+            <Grid Margin="18,14,18,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Box art, with the same fallbacks as the picker's cards. -->
+                <Grid Grid.Column="0" Width="72" Height="108" Margin="0,0,18,0" VerticalAlignment="Center"
+                      Visibility="{Binding ActiveEntry, Converter={StaticResource NullToCollapsed}}">
+                    <Border CornerRadius="7" Background="{Binding ActiveEntry.PlaceholderBrush}"/>
+                    <TextBlock Text="{Binding ActiveEntry.Initials}" FontSize="22" FontWeight="Bold" Foreground="#D9FFFFFF"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Visibility="{Binding ActiveEntry.ShowInitialsFallback, Converter={StaticResource BoolToVisibility}}"/>
+                    <Image Source="{Binding ActiveEntry.Icon}" Width="40" Height="40" RenderOptions.BitmapScalingMode="HighQuality"
+                           Visibility="{Binding ActiveEntry.ShowIconFallback, Converter={StaticResource BoolToVisibility}}"/>
+                    <Border CornerRadius="7">
+                        <Border.Background>
+                            <ImageBrush ImageSource="{Binding ActiveEntry.Capsule}" Stretch="UniformToFill"/>
+                        </Border.Background>
+                    </Border>
+                    <Border CornerRadius="7" BorderBrush="#40FFFFFF" BorderThickness="1"/>
+                </Grid>
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <!-- On screen, not just buried in Settings: a bug report that names a version is
+                         worth several that don't, and nobody goes looking for it. -->
+                    <TextBlock FontSize="10.5" FontWeight="SemiBold" Foreground="#9CA3AF">
+                        <Run Text="{x:Static svc:AppPaths.AppDisplayName}"/><Run Text="  ·  "/><Run Text="{Binding AppVersionDisplay, Mode=OneWay}"/>
+                    </TextBlock>
+
+                    <TextBlock Text="{Binding ActiveEntry.DisplayName, FallbackValue='No game selected', TargetNullValue='No game selected'}"
+                               FontSize="26" FontWeight="Bold" Margin="0,1,0,0" TextTrimming="CharacterEllipsis"
+                               Foreground="{StaticResource TextPrimaryBrush}"/>
+
+                    <!-- What this manager can do for this game, at a glance. The support chip is the
+                         answer to "why is there no Nexus banner / no Install UE4SS button" on a game
+                         with no profile of its own. -->
+                    <WrapPanel Margin="0,6,0,0" Visibility="{Binding ActiveEntry, Converter={StaticResource NullToCollapsed}}">
+                        <Border ToolTip="{Binding ActiveEntry.SupportTooltip}">
+                            <Border.Style>
+                                <Style TargetType="Border" BasedOn="{StaticResource BannerChip}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ActiveEntry.IsFullSupport}" Value="True">
+                                            <Setter Property="Background" Value="#334ADE80"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock Text="{Binding ActiveEntry.SupportLabel}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource BannerChipText}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ActiveEntry.IsFullSupport}" Value="True">
+                                                <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Border>
+                        <Border Style="{StaticResource BannerChip}"
+                                Visibility="{Binding ActiveEntry.EngineDisplay, Converter={StaticResource NonEmptyToVisibility}}">
+                            <TextBlock Text="{Binding ActiveEntry.EngineDisplay}" Style="{StaticResource BannerChipText}"/>
+                        </Border>
+                        <Border Style="{StaticResource BannerChip}"
+                                Visibility="{Binding ActiveEntry.SourceLabel, Converter={StaticResource NonEmptyToVisibility}}">
+                            <TextBlock Text="{Binding ActiveEntry.SourceLabel}" Style="{StaticResource BannerChipText}"/>
+                        </Border>
+                        <Border CornerRadius="4" Padding="7,2" Margin="0,0,6,0" Background="#33FBBF24"
+                                ToolTip="{Binding ActiveEntry.AntiCheatTooltip}"
+                                Visibility="{Binding ActiveEntry.HasAntiCheat, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource WarningBrush}">
+                                <Run Text="⚠ "/><Run Text="{Binding ActiveEntry.AntiCheatLabel, Mode=OneWay}"/>
+                            </TextBlock>
+                        </Border>
+                    </WrapPanel>
+
+                    <TextBlock Text="{Binding GamePathDisplay}" ToolTip="{Binding GamePathDisplay}" FontSize="11" Margin="0,6,0,0"
+                               Foreground="#9CA3AF" TextTrimming="CharacterEllipsis"
+                               Visibility="{Binding ActiveEntry, Converter={StaticResource NullToCollapsed}}"/>
+
+                    <!-- With no game open, say what to do rather than show an empty header. -->
+                    <TextBlock Text="Pick a game to start managing its mods - any Unreal Engine game on this PC can be opened."
+                               FontSize="12" Margin="0,6,0,0" Foreground="#9CA3AF">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ActiveEntry}" Value="{x:Null}">
+                                        <Setter Property="Visibility" Value="Visible"/>
                                     </DataTrigger>
-
-                                    <!-- Dimmed, not hidden: the tab still works, it just opens a
-                                         folder picker instead of switching. -->
-                                    <DataTrigger Binding="{Binding IsInstalled}" Value="False">
-                                        <Setter TargetName="Tab" Property="Opacity" Value="0.55"/>
-                                    </DataTrigger>
-
-                                    <!-- Hover has to look DIFFERENT from active, not identical to it.
-                                         Both used to brighten the label and nothing else, so the tab
-                                         under the pointer was indistinguishable from the open one. -->
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="Tab" Property="BorderBrush"
-                                                Value="{StaticResource AccentHoverBrush}"/>
-                                        <Setter TargetName="Short" Property="Foreground"
-                                                Value="{StaticResource TextPrimaryBrush}"/>
-                                    </Trigger>
-
-                                    <!-- The strip goes dead for the length of a switch: both tabs share
-                                         one AsyncRelayCommand, whose CanExecute is false while it runs.
-                                         Without this a click during those seconds produced nothing at
-                                         all - no highlight, no message - which is indistinguishable
-                                         from the app ignoring you. -->
-                                    <Trigger Property="IsEnabled" Value="False">
-                                        <Setter TargetName="Tab" Property="Opacity" Value="0.4"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
-
-
-        <!-- ===== Header ===== -->
-        <Grid Grid.Row="1" Margin="0,0,0,14">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-
-            <StackPanel Grid.Column="0">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="{Binding HeaderTitle}" FontSize="24" FontWeight="Bold"/>
-                    <!-- On screen, not just buried in Settings. A bug report that names a
-                         version is worth several that don't, and nobody goes looking for it. -->
-                    <TextBlock Text="{Binding AppVersionDisplay}" FontSize="13" Margin="10,0,0,0"
-                               VerticalAlignment="Bottom" Padding="0,0,0,4"
-                               Foreground="{StaticResource TextMutedBrush}"/>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                    <TextBlock Text="Game folder:" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,6,0"/>
-                    <TextBlock Text="{Binding GamePathDisplay}" Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis" MaxWidth="600"/>
-                </StackPanel>
-            </StackPanel>
 
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
-                <Button Content="Browse..." Style="{StaticResource GhostButton}" Command="{Binding BrowseGameFolderCommand}" Margin="0,0,8,0"/>
-                <Button Content="⚙ Settings" Style="{StaticResource GhostButton}" Command="{Binding OpenSettingsCommand}"/>
-            </StackPanel>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="⇄   Switch game" Style="{StaticResource AccentButton}" Command="{Binding OpenGamePickerCommand}"
+                            Padding="16,9" FontSize="13"
+                            ToolTip="Choose another game, or add one by its folder.  (Ctrl+G)"/>
+                    <Button Content="⚙  Settings" Style="{StaticResource BannerGhost}" Command="{Binding OpenSettingsCommand}"
+                            Margin="8,0,0,0" Padding="14,9" FontSize="13"
+                            ToolTip="Settings  (Ctrl+,)"/>
+                </StackPanel>
+            </Grid>
         </Grid>
 
         <!-- ===== Toolbar ===== -->

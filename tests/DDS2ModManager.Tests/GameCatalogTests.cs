@@ -93,6 +93,35 @@ public class GameCatalogTests : IDisposable
     // ---- order and startup ------------------------------------------------------------------
 
     [Fact]
+    public void A_remembered_folder_a_scan_also_finds_is_not_added_by_hand()
+    {
+        // An uninstalled Steam game: no manifest any more, but its leftover folder is still in
+        // steamapps\common, so the library walk lists it whatever the setting says.
+        const string leftover = @"C:\Program Files (x86)\Steam\steamapps\common\Drug Dealer Simulator 2";
+        const string remembered = @"c:\program files (x86)\steam\steamapps\common\Drug Dealer Simulator 2";
+
+        var merged = GameCatalogService.MergeRemembered([leftover], [remembered]);
+
+        var entry = Assert.Single(merged).Value;
+        Assert.False(entry.ByHand);
+        Assert.Equal(remembered, entry.Spelling);   // the spelling its per-install files were named from
+    }
+
+    [Fact]
+    public void A_folder_only_the_settings_know_is_added_by_hand()
+    {
+        var custom = Path.Combine(_root, "Games", "Somewhere");
+
+        // Two settings sections remembering one folder must not talk each other out of it.
+        var merged = GameCatalogService.MergeRemembered(
+            [Path.Combine(_root, "Library", "Other")], [custom, custom + Path.DirectorySeparatorChar]);
+
+        Assert.True(merged[GameStoreIndex.NormalizeFolder(custom)].ByHand);
+        Assert.False(merged[GameStoreIndex.NormalizeFolder(Path.Combine(_root, "Library", "Other"))].ByHand);
+        Assert.Equal(2, merged.Count);
+    }
+
+    [Fact]
     public void Built_in_games_come_first_then_everything_else_by_name()
     {
         var zed = GenericGameProfiles.Create(MakeGame("Zed", "Zed"), "Zed", null, readExecutable: false);
