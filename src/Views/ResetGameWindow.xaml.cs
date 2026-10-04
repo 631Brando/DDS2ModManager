@@ -6,12 +6,26 @@ public partial class ResetGameWindow : Window
 {
     public VanillaResetOptions Options { get; private set; } = new();
 
-    public ResetGameWindow(int trackedModCount)
+    /// <param name="isGenericGame">
+    /// True for an Unreal game with no hand-written profile. Its base files can't be told apart from
+    /// mods by name, so removing untracked files is limited to the conventional mod folders - and
+    /// the option says exactly that, and starts unticked, rather than repeating a promise ("base game
+    /// files are never touched") that only holds because of that narrower scope.
+    /// </param>
+    public ResetGameWindow(int trackedModCount, bool isGenericGame = false)
     {
         InitializeComponent();
         TrackedCountText.Text = trackedModCount == 0
             ? "Nothing is currently tracked."
             : $"{trackedModCount} mod(s) currently tracked. Their files are deleted from the game.";
+
+        if (isGenericGame)
+        {
+            UntrackedBox.IsChecked = false;
+            UntrackedDetail.Text =
+                "On this game only the mod folders (Content\\Paks\\LogicMods, Mods and ~mods) are cleared. Nothing " +
+                "directly in Content\\Paks is touched, because this manager doesn't know this game's own file names.";
+        }
     }
 
     private void Reset_Click(object sender, RoutedEventArgs e)

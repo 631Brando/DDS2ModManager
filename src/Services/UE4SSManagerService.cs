@@ -92,12 +92,18 @@ public class UE4SSManagerService
         info.Layout = detected?.Layout ?? LoaderLayout.None;
         info.DetectedVersion = detected?.Version;
 
-        info.CanInstall = game.Profile.InstallableLoaders.HasFlag(ModLoaders.UE4SS);
+        info.CanInstall = MayInstall(game);
         if (!info.CanInstall)
-            info.InstallBlockedReason =
-                $"{game.Profile.DisplayName} needs a UE4SS build made for its engine version, and that build " +
-                "isn't published as a download - the standard ones crash this game on startup. Install it " +
-                "yourself if you need it; this manager works with whatever is already there.";
+            info.InstallBlockedReason = game.Profile.IsBuiltIn
+                ? $"{game.Profile.DisplayName} needs a UE4SS build made for its engine version, and that build " +
+                  "isn't published as a download - the standard ones crash this game on startup. Install it " +
+                  "yourself if you need it; this manager works with whatever is already there."
+                // For a game nobody studied, the honest reason is that we don't know - and the build we
+                // can fetch is the one DDS2 needs, which has crashed other engines on startup.
+                : "This manager only installs UE4SS on games it was built for. The only build it can download " +
+                  "is made for Drug Dealer Simulator 2, and other games can crash with it - or, if they use " +
+                  "anti-cheat, flag the player. Install UE4SS yourself if you want it; mods that need it will " +
+                  "work with whatever is already there.";
 
         var manifestPath = GetManifestPath(game);
         if (File.Exists(manifestPath))
@@ -123,9 +129,41 @@ public class UE4SSManagerService
     private string GetManifestPath(GameInstallation game) =>
         Path.Combine(game.UE4SSRootPath, ".dds2modmanager_manifest.json");
 
+    /// The one permission to put UE4SS on a game, enforced HERE as well as in the view model.
+    ///
+    /// The view-model checks are presentation: a hidden button, a guard on a command. This is the
+    /// method that actually writes a DLL injector into a game, so it refuses on its own account -
+    /// any future caller, or a status that hasn't loaded yet, must not be enough to get past it.
+    public static bool MayInstall(GameInstallation game) =>
+        game.Profile.InstallableLoaders.HasFlag(ModLoaders.UE4SS);
+
+    /// MayInstall, plus: the game has to really be installed. Writing UE4SS into the husk an
+    /// uninstall left behind would "succeed" into a folder with no game in it.
+    private static bool RefuseIfNotPermitted(GameInstallation game, string what)
+    {
+        if (!MayInstall(game))
+        {
+            LoggingService.Instance.Error(
+                $"Refused to {what} UE4SS on {game.Profile.DisplayName}: this manager doesn't install UE4SS on that game.");
+            return true;
+        }
+
+        if (!game.IsInstalled)
+        {
+            LoggingService.Instance.Error(
+                $"Refused to {what} UE4SS: {game.RootPath} doesn't contain an installed game " +
+                "(no executable or game paks) - it looks like files left behind after an uninstall.");
+            return true;
+        }
+
+        return false;
+    }
+
     public async Task<bool> InstallOrUpdateAsync(GameInstallation game, GitHubReleaseInfo release, GitHubAsset asset,
         IProgress<double>? progress = null)
     {
+        if (RefuseIfNotPermitted(game, "install")) return false;
+
         var log = LoggingService.Instance;
         var tempDir = Path.Combine(Path.GetTempPath(), "DDS2MM_UE4SS_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
@@ -280,6 +318,11 @@ public class UE4SSManagerService
     /// have been the problem can be repeated.
     public static bool RestorePreviousBuild(GameInstallation game)
     {
+        // Restoring IS installing: it writes a UE4SS build and its proxy DLL into the game. The kept
+        // copy is per install folder, so a folder once managed as DDS2 still has one after it is
+        // recognised as some other game - which is exactly when this must refuse.
+        if (RefuseIfNotPermitted(game, "restore")) return false;
+
         var log = LoggingService.Instance;
         var previous = FindPreviousBuild(game);
 

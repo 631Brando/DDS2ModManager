@@ -182,6 +182,14 @@ public class GameResetService
                 _game.PaksPath.TrimEnd(Path.DirectorySeparatorChar),
                 StringComparison.OrdinalIgnoreCase);
 
+            // For a game with no profile of its own, nothing at the top of Content\Paks is ever
+            // deleted. The base-pak name rules below were written for DDS1 and DDS2; on any other
+            // game they are a guess, and a wrong guess here is irreversible - a DLC, audio or
+            // optional-chunk pak under 2 GB with an unanticipated name would be deleted, breaking the
+            // install until the user re-downloads it. Mods on such a game are only ever taken from
+            // the conventional mod folders, so this costs nothing that was ever really a mod.
+            if (directlyInPaks && !_game.Profile.IsBuiltIn) return true;
+
             if (directlyInPaks &&
                 UnmanagedModScannerService.IsBaseGameArchive(Path.GetFileNameWithoutExtension(path), _game))
                 return true;
@@ -213,6 +221,18 @@ public class GameResetService
         if (loader is not { IsInstalled: true })
         {
             log.Info("UE4SS isn't installed - nothing to remove.");
+            return true;
+        }
+
+        // Detection accepts a bare ue4ss\ folder as UE4SS. On a game with no profile of its own that
+        // is not enough to delete anything by: an older build fabricated exactly that folder when a
+        // lua mod was installed without UE4SS, and the dwmapi.dll that removal also deletes may then
+        // belong to a different tool entirely. Only a real UE4SS.dll counts here.
+        if (!_game.Profile.IsBuiltIn
+            && !File.Exists(Path.Combine(_game.UE4SSRootPath, "UE4SS.dll"))
+            && !File.Exists(Path.Combine(_game.Win64Path, "UE4SS.dll")))
+        {
+            log.Info("No UE4SS.dll found, so there's no UE4SS to remove - nothing beside it was touched.");
             return true;
         }
 
@@ -269,6 +289,30 @@ public class GameResetService
     {
         try
         {
+            // For a game with no profile of its own, every part of ConfigPath was inferred - the
+            // project name, the platform folder. So instead of deleting the folder recursively, only
+            // the .ini files directly in it go, and only when the folder name is a single real
+            // segment: Path.Combine with an empty platform folder would make this Saved\Config
+            // itself, and every platform's config with it.
+            if (!_game.Profile.IsBuiltIn)
+            {
+                var platform = _game.Profile.ConfigPlatformDir;
+                if (string.IsNullOrWhiteSpace(platform) || platform.IndexOfAny(['\\', '/', '.']) >= 0)
+                {
+                    result.Failures.Add("Didn't reset configs: this game's config folder couldn't be identified safely.");
+                    return false;
+                }
+
+                if (Directory.Exists(_game.ConfigPath))
+                {
+                    foreach (var ini in Directory.GetFiles(_game.ConfigPath, "*.ini", SearchOption.TopDirectoryOnly))
+                        File.Delete(ini);
+                }
+
+                LoggingService.Instance.Info($"Deleted the .ini files in {_game.ConfigPath} - the game will regenerate them at defaults.");
+                return true;
+            }
+
             if (Directory.Exists(_game.ConfigPath))
                 Directory.Delete(_game.ConfigPath, true);
 

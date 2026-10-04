@@ -92,6 +92,12 @@ query GameMods($filter: ModsFilter, $sort: [ModsSort!], $offset: Int, $count: In
     public async Task<List<NexusModPost>> GetAsync(
         string gameDomain, bool forceRefresh = false, CancellationToken cancel = default)
     {
+        // A blank domain is a wildcard to the Nexus API, not an empty filter: it pages the newest
+        // mods of every game on the site into a cache file every domain-less game would then share,
+        // and the matcher would hang strangers' cards on this game's mods. Nothing is read, fetched
+        // or written for it.
+        if (string.IsNullOrWhiteSpace(gameDomain)) return new List<NexusModPost>();
+
         var cached = ReadCache(gameDomain);
 
         if (!forceRefresh && cached != null && DateTime.UtcNow - cached.FetchedUtc < RefreshInterval)

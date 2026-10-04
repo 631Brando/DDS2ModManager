@@ -177,7 +177,13 @@ public class CompatibilityCheckerService
             }
         }
 
-        return foundAny ? paths.ToList() : null;
+        // An archive that mounted but listed NOTHING is a failed read, not an empty mod - the same
+        // rule the analyzer and the import scanner apply. It happens when an IoStore container meets
+        // the wrong engine version, a missing Oodle, or an encrypted mod with no key, all of which
+        // are more likely on a game whose engine version had to be estimated. Returned as data, an
+        // empty list replaced the mod's stored paths, advanced its fingerprint, and the panel said
+        // "no conflicts" - a silent loss of real conflicts. Null keeps the stored list in use.
+        return foundAny && paths.Count > 0 ? paths.ToList() : null;
     }
 
     private DefaultFileProvider MountGame(GameInstallation game, string mappingsPath, EGame egame, string? aesKeyHex) =>

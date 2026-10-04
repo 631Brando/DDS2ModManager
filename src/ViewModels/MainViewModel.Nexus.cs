@@ -32,7 +32,12 @@ public partial class MainViewModel
     private async Task CheckNexusFeedAsync()
     {
         if (!AppSettingsService.Instance.Current.ShowNexusNewModBanner) return;
-        if (Game == null) return;
+        if (Game == null || !IsNexusAvailable) return;
+
+        // Captured before the await, and checked after it. This runs fire-and-forget, so a slow
+        // fetch can finish after the user has switched games - and without the check its results
+        // were written into the banner of whichever game was open by then, under that game's name.
+        var context = _gameContextVersion;
 
         // Per game - the two games have separate Nexus catalogues, so "what's new since I last
         // looked" is a separate answer for each.
@@ -43,6 +48,7 @@ public partial class MainViewModel
         var since = settings.NexusFeedLastSeenUtc ?? DateTime.UtcNow.AddDays(-14);
 
         var posts = await _nexus.GetNewModsAsync(NexusGameDomain, since);
+        if (IsStaleGameContext(context)) return;
         if (posts.Count == 0) return;
 
         // Anything the user already has installed is not news to them. Matched on name because
@@ -58,7 +64,7 @@ public partial class MainViewModel
 
         // Named from the game this actually came from. It was hardcoded to "DDS2", so a DDS1 user
         // was told about "new DDS2 mods" on a page listing DDS1's catalogue.
-        var game = Game?.Profile.ShortName ?? GameProfiles.Default.ShortName;
+        var game = Game?.Profile.ShortName ?? "";
         NexusBannerText = fresh.Count == 1
             ? $"1 new {game} mod on Nexus"
             : $"{fresh.Count} new {game} mods on Nexus";
@@ -87,6 +93,7 @@ public partial class MainViewModel
     private async Task RefreshNexusDetailsAsync(int context, bool force = false)
     {
         if (!AppSettingsService.Instance.Current.ShowNexusModDetails) return;
+        if (!IsNexusAvailable) return;
 
         try
         {
@@ -172,6 +179,14 @@ public partial class MainViewModel
     private void LinkNexusPage(ModInfo? mod)
     {
         if (mod == null) return;
+
+        // Said plainly rather than "hasn't loaded yet": for a game with no Nexus catalogue it never
+        // will, and waiting would be advice that can't work.
+        if (!IsNexusAvailable)
+        {
+            StatusMessage = $"{Game?.Profile.DisplayName ?? "This game"} has no Nexus catalogue in this manager, so there's nothing to link to.";
+            return;
+        }
 
         if (_nexusCatalogue is not { } c ||
             !string.Equals(c.Domain, NexusGameDomain, StringComparison.OrdinalIgnoreCase))

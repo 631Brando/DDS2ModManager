@@ -162,11 +162,57 @@ public partial class MainViewModel
                 "Launch game", System.Windows.MessageBoxButton.OKCancel, System.Windows.MessageBoxImage.Warning)
             != System.Windows.MessageBoxResult.OK) return;
 
-        // steam:// rather than the exe: Steam has to be running for the game to authenticate, and
-        // launching the exe directly is what produces "please start via Steam".
-        var profile = Game?.Profile ?? GameProfiles.Default;
-        OpenUrl($"steam://rungameid/{profile.SteamAppId}");
-        StatusMessage = $"Launching {profile.DisplayName} through Steam...";
+        // No game open used to launch DDS2. There is nothing sensible to start, so start nothing.
+        if (Game == null)
+        {
+            StatusMessage = "Pick a game first.";
+            return;
+        }
+
+        var profile = Game.Profile;
+
+        // steam:// rather than the exe for a Steam game: Steam has to be running for the game to
+        // authenticate, and launching the exe directly is what produces "please start via Steam".
+        if (profile.SteamAppId != 0)
+        {
+            OpenUrl($"steam://rungameid/{profile.SteamAppId}");
+            StatusMessage = $"Launching {profile.DisplayName} through Steam...";
+            return;
+        }
+
+        // A game from Epic, GOG or a folder added by hand has no Steam app id - steam://rungameid/0
+        // did nothing at all. The root-folder launcher is preferred over the shipping exe deep in
+        // Binaries, because it's what the game's own shortcut runs and it sets up anything the
+        // shipping build expects.
+        var launcher = FindLauncher(Game);
+        if (launcher == null)
+        {
+            StatusMessage = $"Couldn't find {profile.DisplayName}'s executable to launch.";
+            return;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(launcher)
+            {
+                UseShellExecute = true,
+                WorkingDirectory = Path.GetDirectoryName(launcher)
+            });
+            StatusMessage = $"Launching {profile.DisplayName}...";
+        }
+        catch (Exception ex)
+        {
+            LoggingService.Instance.Error($"Couldn't launch {profile.DisplayName}: {ex.Message}");
+        }
+    }
+
+    /// The executable a player would double-click: "<Project>.exe" in the game's root folder when
+    /// there is one, otherwise the shipping build itself.
+    private static string? FindLauncher(GameInstallation game)
+    {
+        var rootExe = Path.Combine(game.RootPath, game.ProjectName + ".exe");
+        if (File.Exists(rootExe)) return rootExe;
+        return game.ExecutablePath;
     }
 
     /// Opens a mod's Nexus page - the one its name matched, or the one the user declared.

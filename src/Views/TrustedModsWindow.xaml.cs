@@ -57,7 +57,7 @@ public partial class TrustedModsWindow : Window
 {
     /// The active game's Nexus domain. Was a constant, which meant a DDS1 user opening "Browse
     /// trusted mods" was shown DDS2's catalogue with no indication anything was wrong.
-    private string GameDomain => (_mainViewModel.Game?.Profile ?? GameProfiles.Default).NexusDomain;
+    private string GameDomain => _mainViewModel.Game?.Profile.NexusDomain ?? "";
 
     /// This application's own Nexus page, for the game currently open.
     ///
@@ -65,7 +65,7 @@ public partial class TrustedModsWindow : Window
     /// reworded at any time and would silently stop matching. Per game because **Nexus mod ids
     /// restart per game** - id 118 on one game is an unrelated mod on the other, so a hardcoded id
     /// would badge some stranger's mod as "this app".
-    private int? ThisAppModId => (_mainViewModel.Game?.Profile ?? GameProfiles.Default).ManagerNexusModId;
+    private int? ThisAppModId => _mainViewModel.Game?.Profile.ManagerNexusModId;
 
     private const string AllAuthors = "All authors";
 
@@ -161,7 +161,7 @@ public partial class TrustedModsWindow : Window
         // the dropdown and the list can never disagree about what is being shown.
         // Scoped to the game that is open. Without the gameId these two calls would put a DDS2-only
         // author's name in front of a DDS1 player as though they had been recommended for it.
-        var gameId = (_mainViewModel.Game?.Profile ?? GameProfiles.Default).Id;
+        var gameId = _mainViewModel.Game?.Profile.Id;
 
         _catalogueCount = all.Count;
 
@@ -246,7 +246,7 @@ public partial class TrustedModsWindow : Window
 
         // Says what the list is and, just as importantly, what it isn't. "Trusted" on a page of
         // downloadable-looking things reads as a safety claim unless it's spelled out otherwise.
-        var gameName = (_mainViewModel.Game?.Profile ?? GameProfiles.Default).ShortName;
+        var gameName = _mainViewModel.Game?.Profile.ShortName ?? "Game";
 
         SubtitleText.Text = $"{gameName} mods published by {who}. Authors the maintainers rate and think are worth "
                             + "finding - not a check of any individual file. Opens each mod's page; nothing is "

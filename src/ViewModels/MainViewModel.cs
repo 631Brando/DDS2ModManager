@@ -81,10 +81,33 @@ public partial class MainViewModel : ObservableObject
     private readonly NexusFeedService _nexus = new();
     private readonly NexusIndexService _nexusIndex = new();
 
-    /// The active game's Nexus domain. Not a setting: an unrecognised domain silently returns
-    /// nothing rather than failing in a way anyone could diagnose, so it comes from the profile.
-    /// Falls back to the default profile's before a game has been detected.
-    private string NexusGameDomain => (Game?.Profile ?? GameProfiles.Default).NexusDomain;
+    /// The active game's Nexus domain, or "" when it has none - a game with no profile of its own,
+    /// or no game open at all.
+    ///
+    /// It used to fall back to DDS2's domain with no game open, and a generic game's empty domain
+    /// went straight into requests. Neither is harmless: Nexus treats a blank domain as "every
+    /// game", so the empty case is checked by <see cref="IsNexusAvailable"/> before anything is
+    /// built from this, and the services refuse it again on their own account.
+    private string NexusGameDomain => Game?.Profile.NexusDomain ?? "";
+
+    /// Whether the active game has a Nexus catalogue at all. Every Nexus feature - the new-mods
+    /// banner, hover cards, Trusted Mods, the link dialog, browse buttons - is behind this.
+    public bool IsNexusAvailable => Game?.Profile.HasNexus == true;
+
+    /// Things the window shows that depend on which game is open. Raised together on every switch
+    /// so a binding can never show one game's capabilities while another game is loaded.
+    partial void OnGameChanged(GameInstallation? value)
+    {
+        OnPropertyChanged(nameof(IsNexusAvailable));
+        OnPropertyChanged(nameof(IsGenericGame));
+        OnPropertyChanged(nameof(CanRestoreUE4SS));
+        OpenNexusGameCommand?.NotifyCanExecuteChanged();
+        BrowseTrustedModsCommand?.NotifyCanExecuteChanged();
+    }
+
+    /// True for an Unreal game with no hand-written profile. The window says so, because "why is
+    /// there no Nexus banner / no Install UE4SS button" otherwise has no visible answer.
+    public bool IsGenericGame => Game != null && !Game.Profile.IsBuiltIn;
 
     private ModRegistryService? _registry;
     private ModAnalyzerService? _analyzer;
@@ -112,7 +135,13 @@ public partial class MainViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(CanRestoreUE4SS))]
     private PreviousUE4SSBuild? previousUE4SS;
 
-    public bool CanRestoreUE4SS => PreviousUE4SS != null;
+    /// Needs permission to install as well as a copy to restore. The copy is kept per install
+    /// folder, so a folder once opened as DDS2 and updated still has one after it is recognised as
+    /// some other game - and "Undo update" would then put a UE4SS build onto a game this manager
+    /// must never install one on.
+    public bool CanRestoreUE4SS => PreviousUE4SS != null && Ue4ssStatus is { CanInstall: true };
+
+    partial void OnUe4ssStatusChanged(UE4SSInstallInfo? value) => OnPropertyChanged(nameof(CanRestoreUE4SS));
     public IRelayCommand ToggleLogCommand { get; }
     public IRelayCommand SaveLogCommand { get; }
     public IRelayCommand OpenSettingsCommand { get; }
@@ -156,9 +185,10 @@ public partial class MainViewModel : ObservableObject
             new ModAuthorGuideWindow { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog());
         DismissNexusFeedCommand = new RelayCommand(DismissNexusFeed);
         OpenNexusModCommand = new RelayCommand<NexusModPost>(OpenNexusMod);
-        OpenNexusGameCommand = new RelayCommand(() =>
-            OpenUrl($"https://www.nexusmods.com/{NexusGameDomain}/mods/?sort=lastcreated"));
-        BrowseTrustedModsCommand = new RelayCommand(BrowseTrustedMods);
+        OpenNexusGameCommand = new RelayCommand(
+            () => OpenUrl($"https://www.nexusmods.com/{NexusGameDomain}/mods/?sort=lastcreated"),
+            () => IsNexusAvailable);
+        BrowseTrustedModsCommand = new RelayCommand(BrowseTrustedMods, () => IsNexusAvailable);
         OpenCreditsCommand = new RelayCommand(OpenCredits);
 
         InitializeGameTabs();
@@ -244,6 +274,12 @@ public partial class MainViewModel : ObservableObject
             StatusMessage = "Locate the game folder first.";
             return;
         }
+
+        // The command's CanExecute already says no; this is the same rule for any other route in.
+        // The page lists one game's Nexus catalogue, and the curated authors are curated for the
+        // games this manager was built for - shown against an arbitrary game they'd read as a
+        // recommendation nobody made.
+        if (!IsNexusAvailable) return;
 
         new TrustedModsWindow(this) { Owner = System.Windows.Application.Current.MainWindow }.ShowDialog();
     }
@@ -1334,7 +1370,9 @@ public partial class MainViewModel : ObservableObject
 
         // Nothing to check when installing is not allowed for this game. Reporting "an update is
         // available" for a build that crashes it would be an invitation to break the install.
-        if (Ue4ssStatus is { CanInstall: false })
+        // Fails closed: a null status (between a game switch and its setup finishing) is "not
+        // known to be allowed", not "allowed".
+        if (Ue4ssStatus is not { CanInstall: true })
         {
             UpdateAvailable = false;
             return;
@@ -1384,9 +1422,12 @@ public partial class MainViewModel : ObservableObject
 
         // Same gate as the install path, for the same reason: a hidden button is a presentation
         // detail, and this is the one that would break a working game.
-        if (Ue4ssStatus is { CanInstall: false } blocked)
+        // Fails closed. The old pattern matched only an explicit CanInstall=false, so a null status -
+        // which is what ClearPerGameState leaves until the next game's setup reaches its UE4SS
+        // check - let the install straight through.
+        if (Ue4ssStatus is not { CanInstall: true })
         {
-            LoggingService.Instance.Warn(blocked.InstallBlockedReason ??
+            LoggingService.Instance.Warn(Ue4ssStatus?.InstallBlockedReason ??
                 "Installing UE4SS isn't supported for this game.");
             return;
         }
@@ -1453,9 +1494,12 @@ public partial class MainViewModel : ObservableObject
         // Enforced here as well as in the UI. The button is hidden for a game we must not install
         // into, but a hidden button is a presentation detail and this is the one that would break a
         // working game - the only UE4SS build we can fetch crashes on some engine versions.
-        if (Ue4ssStatus is { CanInstall: false } blocked)
+        // Fails closed. The old pattern matched only an explicit CanInstall=false, so a null status -
+        // which is what ClearPerGameState leaves until the next game's setup reaches its UE4SS
+        // check - let the install straight through.
+        if (Ue4ssStatus is not { CanInstall: true })
         {
-            LoggingService.Instance.Warn(blocked.InstallBlockedReason ??
+            LoggingService.Instance.Warn(Ue4ssStatus?.InstallBlockedReason ??
                 "Installing UE4SS isn't supported for this game.");
             return;
         }
@@ -1535,7 +1579,7 @@ public partial class MainViewModel : ObservableObject
     {
         if (Game == null || _installer == null || _registry == null) return;
 
-        var dialog = new ResetGameWindow(_registry.Mods.Count)
+        var dialog = new ResetGameWindow(_registry.Mods.Count, isGenericGame: !Game.Profile.IsBuiltIn)
         {
             Owner = System.Windows.Application.Current.MainWindow
         };

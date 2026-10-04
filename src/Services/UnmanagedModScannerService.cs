@@ -199,6 +199,40 @@ public class UnmanagedModScannerService
 
     private record PakGroup(string BaseName, string Folder, List<string> Files);
 
+    /// Every folder searched for untracked pak mods, each scanned top-level only.
+    ///
+    /// The top of Content\Paks is only included for games whose base-pak names are KNOWN. For DDS1
+    /// and DDS2, IsBaseGameArchive's rules describe every pak the game ships, so anything else at
+    /// the top level really is a mod someone dropped there. For any other game those rules are a
+    /// guess - DLC, optional chunks, audio paks and official _P patches all sit at the top level
+    /// with names nobody anticipated - and this list feeds both the import dialog and Reset's
+    /// File.Delete. So for a generic game only the conventional mod folders are searched
+    /// (LogicMods, Mods, ~mods), where nothing the game shipped lives.
+    public static List<string> PakModFolders(GameInstallation game)
+    {
+        var disabledRoot = Path.Combine(game.PaksPath, "DisabledMods");
+        var modsRoot = Path.Combine(game.PaksPath, "Mods");
+        var tildeModsRoot = Path.Combine(game.PaksPath, "~mods");
+
+        var roots = game.Profile.IsBuiltIn
+            ? new List<string> { game.PaksPath, game.LogicModsPath, modsRoot, disabledRoot }
+            : new List<string> { game.LogicModsPath, modsRoot, tildeModsRoot, disabledRoot };
+
+        foreach (var parent in new[] { game.LogicModsPath, modsRoot, tildeModsRoot, disabledRoot })
+        {
+            try
+            {
+                if (Directory.Exists(parent)) roots.AddRange(Directory.GetDirectories(parent));
+            }
+            catch
+            {
+                // An unreadable folder contributes nothing rather than aborting the scan.
+            }
+        }
+
+        return roots;
+    }
+
     private List<PakGroup> FindUnmanagedPakGroups(GameInstallation game, HashSet<string> knownPaths)
     {
         var groups = new List<PakGroup>();
@@ -228,16 +262,7 @@ public class UnmanagedModScannerService
         // and were invisible to conflict checking. What changed is that we no longer repeat the
         // claim that they are disabled. The only in-place hand-disable that actually works is
         // renaming the file so it no longer ends in .pak.
-        var disabledRoot = Path.Combine(game.PaksPath, "DisabledMods");
-        var modsRoot = Path.Combine(game.PaksPath, "Mods");
-
-        var roots = new List<string> { game.PaksPath, game.LogicModsPath, modsRoot, disabledRoot };
-
-        foreach (var parent in new[] { game.LogicModsPath, modsRoot, disabledRoot })
-        {
-            if (!Directory.Exists(parent)) continue;
-            roots.AddRange(Directory.GetDirectories(parent));
-        }
+        var roots = PakModFolders(game);
 
         foreach (var folder in roots.Distinct(StringComparer.OrdinalIgnoreCase))
         {

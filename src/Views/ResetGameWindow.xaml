@@ -34,7 +34,8 @@
                 <TextBlock TextWrapping="Wrap">
                     <Run Text="Remove mod files it isn't tracking" FontWeight="SemiBold"/>
                     <LineBreak/>
-                    <Run Text="Mod paks placed by hand or left over from another tool. Base game files are never touched."
+                    <Run x:Name="UntrackedDetail"
+                         Text="Mod paks placed by hand or left over from another tool. Base game files are never touched."
                          FontSize="10" Foreground="{StaticResource TextMutedBrush}"/>
                 </TextBlock>
             </CheckBox>

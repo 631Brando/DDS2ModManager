@@ -55,6 +55,12 @@ query LatestMods($filter: ModsFilter, $sort: [ModsSort!]) {
     {
         var results = new List<NexusModPost>();
 
+        // Checked here as well as by every caller. Nexus does not treat a blank gameDomainName as
+        // "nothing" - it ignores the filter and returns the newest mods across the WHOLE site, which
+        // would then be shown as "new mods for <this game>". An unknown domain correctly returns
+        // none, so only a blank one is dangerous, and it must never reach the request.
+        if (string.IsNullOrWhiteSpace(gameDomain)) return results;
+
         try
         {
             var sinceUnix = ((DateTimeOffset)DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc)).ToUnixTimeSeconds();

@@ -19,8 +19,18 @@ public class Ue4ssRollbackTests : IDisposable
     {
         var root = Path.Combine(Path.GetTempPath(), "dds_rb_" + Guid.NewGuid().ToString("N")[..8]);
         _temps.Add(root);
-        Directory.CreateDirectory(Path.Combine(root, "DrugDealerSimulator2", "Binaries", "Win64"));
-        return new GameInstallation { RootPath = root };
+
+        // A real install, with an executable and the game's own paks - restoring UE4SS is refused
+        // into a folder that has only Binaries\Win64, because that is the shape of the husk an
+        // uninstall leaves behind, and writing a loader into it would "succeed" with no game there.
+        var win64 = Path.Combine(root, "DrugDealerSimulator2", "Binaries", "Win64");
+        var paks = Path.Combine(root, "DrugDealerSimulator2", "Content", "Paks");
+        Directory.CreateDirectory(win64);
+        Directory.CreateDirectory(paks);
+        File.WriteAllBytes(Path.Combine(win64, "DrugDealerSimulator2-Win64-Shipping.exe"), new byte[16]);
+        File.WriteAllBytes(Path.Combine(paks, "pakchunk0-Windows.utoc"), new byte[16]);
+
+        return new GameInstallation { RootPath = root, Profile = GameProfiles.Dds2 };
     }
 
     private static void Write(string path, string text)
@@ -103,6 +113,52 @@ public class Ue4ssRollbackTests : IDisposable
 
         Assert.True(UE4SSManagerService.RestorePreviousBuild(game));
         Assert.NotNull(UE4SSManagerService.FindPreviousBuild(game));
+    }
+
+    // The kept copy is per install FOLDER, so a folder once managed as DDS2 and updated still has one
+    // after it is recognised as some other game. "Undo update" must not become the back door that
+    // puts DDS2's UE4SS onto a game this manager never installs it on.
+    [Fact]
+    public void Restoring_is_refused_on_a_game_this_manager_does_not_install_ue4ss_on()
+    {
+        var game = Install();
+        game.Profile = GenericGameProfiles.Create(game.RootPath, "DrugDealerSimulator2", null, readExecutable: false);
+        var kept = AppPaths.PreviousUE4SSFor(game.RootPath);
+        _temps.Add(kept);
+
+        Write(Path.Combine(kept, "ue4ss", "UE4SS.dll"), "old");
+        Write(Path.Combine(kept, "dwmapi.dll"), "old proxy");
+        Write(Path.Combine(kept, "asset.txt"), "UE4SS_old.zip");
+
+        Assert.False(UE4SSManagerService.RestorePreviousBuild(game));
+        Assert.False(File.Exists(Path.Combine(game.Win64Path, "dwmapi.dll")));
+        Assert.False(Directory.Exists(game.UE4SSRootPath));
+    }
+
+    [Fact]
+    public void Restoring_is_refused_into_a_folder_an_uninstall_left_behind()
+    {
+        var game = Install();
+        File.Delete(Path.Combine(game.Win64Path, "DrugDealerSimulator2-Win64-Shipping.exe"));
+        var kept = AppPaths.PreviousUE4SSFor(game.RootPath);
+        _temps.Add(kept);
+        Write(Path.Combine(kept, "ue4ss", "UE4SS.dll"), "old");
+        Write(Path.Combine(kept, "asset.txt"), "UE4SS_old.zip");
+
+        Assert.False(UE4SSManagerService.RestorePreviousBuild(game));
+        Assert.False(Directory.Exists(game.UE4SSRootPath));
+    }
+
+    [Fact]
+    public void The_install_status_never_permits_ue4ss_on_a_generic_game()
+    {
+        var game = Install();
+        game.Profile = GenericGameProfiles.Create(game.RootPath, "DrugDealerSimulator2", null, readExecutable: false);
+
+        var status = new UE4SSManagerService().GetCurrentStatus(game);
+
+        Assert.False(status.CanInstall);
+        Assert.Contains("only installs UE4SS on games it was built for", status.InstallBlockedReason);
     }
 
     [Fact]

@@ -516,6 +516,12 @@ public class ModInstallerService
             Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)),
             StringComparison.OrdinalIgnoreCase);
 
+    /// UE4SS itself, in either layout - judged by UE4SS.dll, never by a ue4ss\ folder existing, since
+    /// an empty one is exactly what a lua install used to leave behind on a game without UE4SS.
+    private bool UE4SSPresent() =>
+        File.Exists(Path.Combine(_game.UE4SSRootPath, "UE4SS.dll"))
+        || File.Exists(Path.Combine(_game.Win64Path, "UE4SS.dll"));
+
     private void InstallPakTriple(string workingDir, string destFolder, ModInfo mod)
     {
         // Logic mods go in their OWN subfolder, named after the pak. That is the layout UE4SS's
@@ -570,6 +576,20 @@ public class ModInstallerService
     /// Copies a lua mod into UE4SS's Mods folder. False means the install was refused.
     private bool InstallLuaMod(string workingDir, ModInfo mod, bool workingDirIsTempRoot)
     {
+        // UE4SS is what runs a lua mod. On a game where it isn't present AND this manager can't
+        // install it, the code below would create ue4ss\Mods and a mods.txt from nothing: the mod
+        // never loads, and the fabricated folder then reads as an installed UE4SS - which is what
+        // Reset's "remove UE4SS" acts on, deleting a dwmapi.dll that may belong to another tool.
+        // Refused with the reason instead. Where UE4SS CAN be installed (DDS2) the old behaviour
+        // stands, since installing UE4SS afterwards is a button away.
+        if (!UE4SSPresent() && !_game.Profile.InstallableLoaders.HasFlag(ModLoaders.UE4SS))
+        {
+            LoggingService.Instance.Error(
+                $"Installation blocked: '{mod.Name}' is a lua mod, and lua mods run inside UE4SS, which isn't installed " +
+                $"for {_game.Profile.DisplayName}. Install UE4SS for this game yourself first, then install the mod again.");
+            return false;
+        }
+
         Directory.CreateDirectory(_game.UE4SSModsPath);
         var scriptsDir = Directory.GetDirectories(workingDir, "Scripts", SearchOption.AllDirectories).FirstOrDefault();
         var modRoot = scriptsDir != null ? Path.GetDirectoryName(scriptsDir)! : workingDir;

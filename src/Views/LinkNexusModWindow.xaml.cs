@@ -110,8 +110,14 @@ public partial class LinkNexusModWindow : Window
                 ? $"{other.DisplayName} ({domain})"
                 : $"a different game on Nexus ({domain})";
 
-            Say($"That address is for {whose}. This mod is installed under " +
-                $"{GameProfiles.All.First(p => p.NexusDomain == _domain).ShortName}, so it can't be that page.",
+            // FirstOrDefault with a fallback, never First(): this used to assume the active domain
+            // always belongs to a built-in profile, and threw from a TextChanged handler for any
+            // other - an error dialog for typing into a box.
+            var ours = GameProfiles.All.FirstOrDefault(p =>
+                           string.Equals(p.NexusDomain, _domain, StringComparison.OrdinalIgnoreCase))?.ShortName
+                       ?? "this game";
+
+            Say($"That address is for {whose}. This mod is installed under {ours}, so it can't be that page.",
                 warn: true);
             UseUrlButton.IsEnabled = false;
             return;
