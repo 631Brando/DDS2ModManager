@@ -1,13 +1,15 @@
 # DDS Mod Manager
 
 A mod installer/manager/compatibility-checker for **Drug Dealer Simulator** and **Drug Dealer
-Simulator 2**, built with WPF (.NET 10) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
+Simulator 2** — and, with basic support, any other Unreal Engine game — built with WPF (.NET 10)
+and [CUE4Parse](https://github.com/FabianFG/CUE4Parse).
 
 ## Two games, one manager
 
-Tabs across the top switch between them. Each game keeps its own tracked mods, disabled mods,
-profiles, history, backups, settings and Nexus catalogue — nothing is shared, so managing one can
-never disturb the other.
+The banner at the top always shows which game is open. **Switch game** (Ctrl+G) opens a picker of
+every Unreal Engine game on your PC, with DDS1 and DDS2 always listed first. Each game keeps its own
+tracked mods, disabled mods, profiles, history, backups, settings and Nexus catalogue — nothing is
+shared, so managing one can never disturb the other.
 
 They are not variants of each other, and the manager treats them differently where it matters:
 
@@ -23,9 +25,19 @@ They are not variants of each other, and the manager treats them differently whe
 its engine version, and the ones published as downloads crash it on startup. Whatever loader you
 already have is detected and worked with as-is.
 
+## Other Unreal Engine games
+
+Any other Unreal Engine game can be opened too, with **basic support**: pak mods install (patch mods
+into `Content\Paks\~mods`) and conflicts are found by reading every pak. Everything that needs
+knowledge of one particular game is off — Nexus, installing UE4SS, save cloning — because on a game
+nobody has studied, each of those would be a guess. The engine version is read from the game's own
+files and shown as an estimate when it can't be read exactly. A game that ships anti-cheat is
+flagged in the picker, and you're asked once before the first install into it.
+
 ## What it does
 
-- Auto-detects your installs by scanning Steam library folders (or lets you browse manually).
+- Finds every Unreal Engine game installed through Steam, Epic or GOG, or one you add by its folder,
+  and tells a real install from the leftover files an uninstall leaves behind.
 - Detects the mod loaders each game actually has — UE4SS in either of its two on-disk layouts,
   UnrealModLoader, and UnrealModUnlocker — and says when the one your mods depend on is missing.
   On DDS1 that matters: loose-asset mods simply do nothing without the unlocker, with no error.

@@ -176,7 +176,8 @@ UnrealModUnlocker, installs loose assets into `Content\<Category>\` (DataTables,
 file-level overwrite tracking against the base pak's 32,316 assets — which CUE4Parse can enumerate, so
 conflict detection is genuinely achievable here. Additive rather than disruptive, but it is real feature work.
 
-**6 — UI. A tab strip at the very top.** Decided: a real tab at the top of the main window, an unmistakable
+**6 — UI. A tab strip at the very top.** *(Superseded 2026-10-04 by a banner and a game picker — see the
+amendment at the end. The requirement it served still stands.)* Decided: a real tab at the top of the main window, an unmistakable
 DDS1/DDS2 discriminator — not a subtle header combo. Switching rebinds the whole game context (registry,
 analyzer, installer, mod list, conflicts, Nexus domain, saves and config).
 
@@ -243,7 +244,7 @@ All three open questions were answered by Andre on 2026-08-18:
    `ue4ss\` layout and DDS1's legacy `Binaries\Win64` layout), UnrealModLoader, and UnrealModUnlockerBasic,
    and offer the right one per game. `GameProfile.SupportedLoaders` declares what is plausible per game;
    what is actually present is resolved at runtime against the install.
-3. **Tabs at the very top** — see the UI item above.
+3. **Tabs at the very top** — see the UI item above. Superseded by the game picker, 2026-10-04.
 
 ## Amendment, 2026-08-18: a fifth mod type
 
@@ -278,6 +279,34 @@ unpublished local work rather than a defect. The one genuine failure, AERR, is u
 name: it is published as "AE Revolutions Reloaded". The fix is a user-declared link that outranks
 matching, not a looser matcher — full reasoning, precedence rules and the rejected alternatives are
 in `docs/nexus-identification.md`.
+
+## Amendment, 2026-10-04: a game picker, and any Unreal game
+
+**The tab strip is superseded; the requirement behind it is not.** The open game must be
+unmistakable, and it now is through a banner carrying its box art, name, support level and folder.
+What changed is the list. The manager now finds every Unreal game on the PC — each Steam library's
+`steamapps\common` walked directly, plus Epic and GOG installs, plus folders the user opened before —
+and a strip of tabs can't hold an unbounded list. **Switch game** opens a picker instead. DDS1 and
+DDS2 are always in it, as "not installed" when absent, so it never hides that they're supported.
+Leftover folders from uninstalled games are classified and shown apart, never mistaken for installs.
+
+**An unrecognised Unreal game gets a generic profile, never a built-in's.** The old fallback handed
+any such game DDS2's profile, and that one line was the root of nearly everything unsafe about using
+the manager elsewhere: DDS2's experimental UE4SS offered to engines it crashes, DDS2's usmap read
+against foreign assets (which fails silently — paths list, values come back as garbage), DDS2's Nexus
+feed, and the folder saved into DDS2's settings slot over the user's real one. A generic profile is
+built from the install and answers "no" to every question disk can't answer. Each DDS-only feature
+fails closed on it: Nexus (`HasNexus` — a blank domain is not "no filter" to Nexus, it returns the
+whole site), UE4SS installs (`InstallableLoaders`), embedded mappings (`HasEmbeddedMappings`), save
+cloning, and base-pak detection, since nothing directly in `Content\Paks` is a mod or deletable on a
+game nobody studied.
+
+Identity has one resolver, `GenericGameProfiles.Resolve`, used by the scan, startup and "Add game
+folder" alike, so a game can't be one thing in the list and another once opened. A built-in is
+claimed by Steam app id, then project folder — never by what the user clicked. Generic ids are
+prefixed (`steam:`, `epic:`, `gog:`, `path:`) so they can never equal `dds1`/`dds2`, and are
+settings keys only, never file paths. Discovered profiles are registered so a stored id resolves
+back, but never enter `GameProfiles.All` or `ById`, which callers read as "built-in".
 
 ## Still open
 

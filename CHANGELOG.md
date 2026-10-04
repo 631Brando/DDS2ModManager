@@ -3,6 +3,66 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
+## v1.3.0-exp.3
+
+A new way to choose your game, and the first support for Unreal Engine games other than the two Drug
+Dealer Simulators. Anything that would be a guess on a game the manager doesn't know is switched
+off, rather than borrowed from DDS2.
+
+### Choose a game
+
+The DDS1 / DDS2 tabs are gone. The top of the window now shows the game you have open: its box art,
+its artwork behind it, its name, and chips saying how well it's supported, which engine version it
+runs, where it came from (Steam, Epic or GOG) and whether it ships anti-cheat.
+
+**Switch game** (or Ctrl+G) opens a picker showing every Unreal Engine game found on your PC. DDS1
+and DDS2 come first and are always listed, as "not installed" when they aren't. Everything else
+follows. Games you've uninstalled that left files behind — Steam leaves UE4SS and your mods in
+place — are folded away at the bottom, each with a button to open its folder. You can search,
+rescan, or add a game by its folder if it's installed somewhere no launcher knows about. Box art
+comes from Steam's own local cache; nothing is downloaded.
+
+The game folder is no longer typed into Settings. It's shown there, and changed by picking a game.
+
+### Other Unreal Engine games: basic support
+
+Any Unreal Engine game can now be opened. You get what works the same on every Unreal game:
+installing pak mods, and conflict detection by reading every pak. Everything that needs knowledge of
+one particular game — Nexus, installing UE4SS, save cloning — is off, and a **Basic support** chip
+says so.
+
+Until now, a game the manager didn't recognise was quietly treated as DDS2. It was offered DDS2's
+experimental UE4SS, which crashes other engines and on an anti-cheat game is a ban risk. It was read
+with DDS2's mappings file, shown DDS2's Nexus mods, and its folder was saved over your real DDS2
+folder. All of that is gone. Specifically:
+
+- The engine version is read from the game's own files, and labelled as an estimate when it can't be
+  read exactly.
+- A game is never read with another game's mappings file. Only DDS2 ships one; for another UE5 game,
+  a mappings file UE4SS dumped into that game's own folder is used, if there is one.
+- Patch mods for other games install into `Content\Paks\~mods`, never on top of the game's own paks.
+- On these games, nothing directly in `Content\Paks` is treated as a mod or deleted by Reset — a
+  pak's name says nothing reliable about whether it belongs to the game.
+- Before your first install into a game that ships anti-cheat, you're told what that can mean for
+  online play and asked once.
+- Play launches Epic games through the Epic launcher, and other non-Steam games through their own
+  exe.
+
+### Fixed
+
+- **An uninstalled game still counted as installed.** Steam removes only the files it installed, so
+  UE4SS, its dumps and your mods stay behind — and the manager would reopen that leftover folder as
+  the game and install into it. A game now needs its executable and its own paks to count.
+- **The wrong folder could be taken as the game's project.** Every packaged Unreal game has an
+  `Engine` folder, and on a game whose name sorts after "E" it was picked instead, pointing every
+  path into the engine. DDS1 only escaped because its name sorts first.
+- **Clicking while a game was still opening could start a second setup alongside the first.** Every
+  change of game now goes through one gate.
+- **An older build could save a browsed folder into DDS2's slot** and open it as DDS2 from then on.
+  Such a slot is cleared on startup, with a line in the log saying so.
+- **A mod archive that opened but listed no files was treated as an empty mod**, silently dropping
+  its conflicts. It's now reported as a failed read.
+
 ## v1.3.0-exp.2
 
 Fixes for two things that broke real installs: mods shipped in two halves, and a UE4SS update

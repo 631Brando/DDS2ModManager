@@ -85,6 +85,14 @@ a user's declared `NexusModLink` — needs the domain too, or one game's data sh
 on DDS1 and "Gh0sted - Rebalance" on DDS2. A link whose stored domain isn't the active game resolves
 to nothing — never to whatever that number happens to mean here. See `docs/nexus-identification.md`.
 
+**An unrecognised Unreal game gets a generic profile, never a built-in's.** Falling back to DDS2's
+profile handed other games DDS2's experimental UE4SS, its usmap (a wrong usmap fails silently: paths
+list, values are garbage) and its Nexus feed, and saved their folder into DDS2's slot.
+`GenericGameProfiles.Resolve` is the one resolver for every route. A generic profile answers "no" to
+anything it can't read from disk, and every DDS-only feature must fail closed on it — check
+`IsBuiltIn`, `HasNexus`, `InstallableLoaders`, `HasEmbeddedMappings`, never "not DDS1". A blank
+`NexusDomain` is not "no filter" to Nexus: it returns the newest mods across the whole site.
+
 **WPF: visual state goes in `ControlTemplate.Triggers` with `TargetName`,** never a `<X.Style>` on an
 element whose properties the template already sets as attributes. Template values outrank style
 triggers, so those setters are discarded in silence.
@@ -93,7 +101,9 @@ triggers, so those setters are discarded in silence.
 
 - **`GameProfile`** (`src/Models/GameProfile.cs`) holds everything that differs per game. The rule:
   a *value* that changes per game goes in a profile; a *mechanism* stays in the services, which are
-  game-agnostic. `GameProfiles.All` is the single place a new game is added.
+  game-agnostic. `GameProfiles.All` is the single place a new game is added. Generic profiles for
+  other Unreal games are registered separately and must never enter `All` or `ById`, which callers
+  read as "built-in".
 - **`GameInstallation`** derives every path from a detected install. It resolves the UE project
   folder *from disk*, not from the profile, so a renamed or repacked install still works.
 - **`AppPaths`** is the one place this app's own storage is named. Per-game state is keyed by
@@ -109,6 +119,11 @@ the multi-select, the undo closure and several fire-and-forget tasks all hold re
 outgoing game's services and file paths. `_gameContextVersion` discards background results that
 land after a switch. `DetachModSubscriptions()` exists because `ObservableCollection.Clear()` raises
 a Reset whose `OldItems` is null, so the collection-changed unsubscribe never runs for a Clear.
+
+Every transition holds `_transitionGate`: startup takes it directly, and a pick in the game picker or
+an added folder goes through `OpenGameAsync`. The picker window only *chooses*; the main window runs
+the choice through the view model, so no second route can open a game with different rules or
+alongside a running switch.
 
 ## Naming
 
