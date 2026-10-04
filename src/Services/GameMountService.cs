@@ -29,7 +29,11 @@ public static class GameMountService
         var mappings = ResolveMappings(game, settings.MappingsOverridePath);
 
         // The profile is the default; the setting is only ever a deliberate override.
-        var egame = Enum.TryParse<EGame>(settings.EGameVersion, out var parsed)
+        // Case-insensitive, and only a defined member: Enum.TryParse alone rejects "game_ue4_27" and
+        // happily accepts "42", either of which a hand-edited settings file can contain.
+        var egame = Enum.TryParse<EGame>(settings.EGameVersion, ignoreCase: true, out var parsed)
+                    && Enum.IsDefined(parsed)
+                    && !int.TryParse(settings.EGameVersion, out _)
             ? parsed
             : game.Profile.EngineVersion;
 
@@ -66,14 +70,30 @@ public static class GameMountService
     /// A .usmap UE4SS generated for this game, newest first. UE4SS's dumper writes it beside itself
     /// (ue4ss\ in the current layout, Binaries\Win64 in the older one) and names it either
     /// "Mappings.usmap" or after the game and engine build.
+    ///
+    /// Only those two names are accepted. UE4SS names a dump after the project it came from -
+    /// "DrugDealerSimulator2-5.3.2-0+UE5-....usmap" - and installing UE4SS by copying its folder over
+    /// from another game is common, so "the newest .usmap here" can be another game's. That is the
+    /// exact failure this whole lookup exists to avoid, and it fails silently.
     public static string? FindDumpedMappings(GameInstallation game)
     {
         var places = new[] { game.UE4SSRootPath, game.Win64Path };
+        var project = game.ProjectName;
+
+        bool IsThisGames(string path)
+        {
+            var name = Path.GetFileName(path);
+            return name.Equals("Mappings.usmap", StringComparison.OrdinalIgnoreCase)
+                   || name.StartsWith(project + "-", StringComparison.OrdinalIgnoreCase)
+                   || name.StartsWith(project + ".", StringComparison.OrdinalIgnoreCase);
+        }
+
         try
         {
             return places
                 .Where(Directory.Exists)
                 .SelectMany(p => Directory.EnumerateFiles(p, "*.usmap", SearchOption.TopDirectoryOnly))
+                .Where(IsThisGames)
                 .Where(f => new FileInfo(f).Length > 0)
                 .OrderByDescending(File.GetLastWriteTimeUtc)
                 .FirstOrDefault();

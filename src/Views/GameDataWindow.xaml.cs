@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -12,9 +12,13 @@ public partial class GameDataWindow : Window
     private readonly SteamCloudStatus _cloud;
     private GameConfigFile? _currentConfig;
 
+    /// Named in the UE4SS notice, which has to say which game the file is NOT for.
+    private readonly string _gameName;
+
     public GameDataWindow(GameInstallation game)
     {
         InitializeComponent();
+        _gameName = game.Profile.DisplayName;
         _saves = new SaveGameService(game);
         _configs = new GameConfigService(game);
 
@@ -376,8 +380,8 @@ public partial class GameDataWindow : Window
         }
 
         ModLoaderConfigNoticeText.Text =
-            $"{_currentConfig.Name} configures UE4SS — the mod loader that runs your Lua mods — not Drug Dealer "
-            + "Simulator 2. Changing it won't alter anything in the game itself; it's where things like the "
+            $"{_currentConfig.Name} configures UE4SS — the mod loader that runs your Lua mods — not {_gameName}. "
+            + "Changing it won't alter anything in the game itself; it's where things like the "
             + "debug console and UE4SS's own keybinds live.\n\n"
             + $"It sits in the mod loader's folder ({_currentConfig.Folder}), not with the game's config files. "
             + "Reinstalling or updating UE4SS replaces it — though once you've edited it here, your version is "

@@ -12,12 +12,22 @@ public partial class SettingsWindow : Window
     /// hints fall back to their offline wording rather than guessing.
     private AppUpdateService.ChannelStatus? _channels;
 
-    /// The game these per-game settings belong to. Four of the boxes on this window (folder, engine
-    /// version, mappings, AES key) describe one game rather than the app, so they follow whichever
-    /// game is open. Falls back to the default profile when no game has been detected yet.
-    private GameProfile ActiveProfile => _mainViewModel.Game?.Profile ?? GameProfiles.Default;
+    /// The game these per-game settings belong to, or null with no game open. Four of the boxes on
+    /// this window (folder, engine version, mappings, AES key) describe one game rather than the
+    /// app, so they follow whichever game is open.
+    ///
+    /// No longer falls back to DDS2's profile. With no game open the boxes used to edit DDS2's
+    /// section - and a folder typed there was reopened next launch with DDS2's profile forced onto
+    /// it, whatever game it really was. With no game they're now simply disabled.
+    private GameProfile? ActiveProfile => _mainViewModel.Game?.Profile;
 
-    private GameSettings ActiveGameSettings => AppSettingsService.Instance.ForGame(ActiveProfile);
+    private GameSettings? ActiveGameSettings =>
+        ActiveProfile == null ? null : AppSettingsService.Instance.ForGame(ActiveProfile);
+
+    /// The engine version shown when the window opened. For a game with no profile of its own, a
+    /// change from this is a deliberate choice and is stored; leaving it alone keeps following the
+    /// detected version, which can become exact once the executable has been read.
+    private string? _initialEGameText;
 
     public SettingsWindow(MainViewModel mainViewModel)
     {
@@ -27,18 +37,33 @@ public partial class SettingsWindow : Window
         var current = AppSettingsService.Instance.Current;
         var forGame = ActiveGameSettings;
 
-        GamePathBox.Text = forGame.GamePathOverride;
-        MappingsPathBox.Text = forGame.MappingsOverridePath;
-        AesKeyBox.Text = forGame.AesKeyHex;
+        if (forGame != null && ActiveProfile != null)
+        {
+            // Shown, not edited: which folder a game lives in is changed in the game picker, so the
+            // one writer of it is the code that also verifies the folder IS that game.
+            GamePathBox.Text = _mainViewModel.Game?.RootPath;
+            MappingsPathBox.Text = forGame.MappingsOverridePath;
+            AesKeyBox.Text = forGame.AesKeyHex;
 
-        // Shows what will actually be used: the stored override if there is one, otherwise what the
-        // game's profile says. Displaying an empty box for "whatever the profile says" would read
-        // as "no engine version set", which is alarming and wrong.
-        EGameCombo.Text = string.IsNullOrWhiteSpace(forGame.EGameVersion)
-            ? ActiveProfile.EngineVersion.ToString()
-            : forGame.EGameVersion;
+            // Shows what will actually be used: the stored override if there is one, otherwise what
+            // the game's profile says. Displaying an empty box for "whatever the profile says" would
+            // read as "no engine version set", which is alarming and wrong.
+            EGameCombo.Text = string.IsNullOrWhiteSpace(forGame.EGameVersion)
+                ? ActiveProfile.EngineVersion.ToString()
+                : forGame.EGameVersion;
+            _initialEGameText = EGameCombo.Text;
 
-        GameScopeText.Text = $"These four apply to {ActiveProfile.DisplayName}.";
+            GameScopeText.Text = ActiveProfile.EngineIsEstimated
+                ? $"These four apply to {ActiveProfile.DisplayName}. Its engine version below was worked out from its files - " +
+                  "change it if mods misread."
+                : $"These four apply to {ActiveProfile.DisplayName}.";
+        }
+        else
+        {
+            GameScopeText.Text = "Open a game first - these four settings belong to one game at a time.";
+            foreach (var control in new System.Windows.Controls.Control[] { EGameCombo, MappingsPathBox, AesKeyBox })
+                control.IsEnabled = false;
+        }
 
         AutoCheckBox.IsChecked = current.AutoCheckUE4SSUpdatesOnStartup;
         AutoCheckAppUpdateBox.IsChecked = current.CheckForAppUpdatesOnStartup;
@@ -61,10 +86,16 @@ public partial class SettingsWindow : Window
         Loaded += async (_, _) => await LoadChannelStatusAsync();
     }
 
+    /// Opens the folder rather than letting it be retyped. Pointing a game at a different folder
+    /// happens in the game picker, which checks the folder actually is that game - this box used to
+    /// accept any path and save it under whichever game was open.
     private void BrowseGamePath_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new Microsoft.Win32.OpenFolderDialog { Title = "Select the game folder" };
-        if (dialog.ShowDialog() == true) GamePathBox.Text = dialog.FolderName;
+        var path = _mainViewModel.Game?.RootPath;
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path)) return;
+
+        try { Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"")); }
+        catch (Exception ex) { LoggingService.Instance.Warn($"Couldn't open Explorer: {ex.Message}"); }
     }
 
     private void BrowseMappings_Click(object sender, RoutedEventArgs e)
@@ -199,12 +230,11 @@ public partial class SettingsWindow : Window
 
         var defaults = new AppSettings();
         var gameDefaults = new GameSettings();
-        GamePathBox.Text = gameDefaults.GamePathOverride;
         MappingsPathBox.Text = gameDefaults.MappingsOverridePath;
         AesKeyBox.Text = gameDefaults.AesKeyHex;
 
         // "Default" for the engine version is what the game's profile says, not blank.
-        EGameCombo.Text = ActiveProfile.EngineVersion.ToString();
+        if (ActiveProfile != null) EGameCombo.Text = ActiveProfile.EngineVersion.ToString();
 
         AutoCheckBox.IsChecked = defaults.AutoCheckUE4SSUpdatesOnStartup;
         AutoCheckAppUpdateBox.IsChecked = defaults.CheckForAppUpdatesOnStartup;
@@ -269,21 +299,34 @@ public partial class SettingsWindow : Window
     {
         var settings = AppSettingsService.Instance.Current;
         var forGame = ActiveGameSettings;
+        var profile = ActiveProfile;
 
-        forGame.GamePathOverride = string.IsNullOrWhiteSpace(GamePathBox.Text) ? null : GamePathBox.Text.Trim();
-        forGame.MappingsOverridePath = string.IsNullOrWhiteSpace(MappingsPathBox.Text) ? null : MappingsPathBox.Text.Trim();
-        forGame.AesKeyHex = string.IsNullOrWhiteSpace(AesKeyBox.Text) ? null : AesKeyBox.Text.Trim();
+        // The game folder is NOT written here any more - it's shown read-only, and changed through
+        // the game picker, which verifies the folder is the game. This window was a second, unchecked
+        // writer of it, and the one that put other games' folders into DDS2's section.
+        if (forGame != null && profile != null)
+        {
+            forGame.MappingsOverridePath = string.IsNullOrWhiteSpace(MappingsPathBox.Text) ? null : MappingsPathBox.Text.Trim();
+            forGame.AesKeyHex = string.IsNullOrWhiteSpace(AesKeyBox.Text) ? null : AesKeyBox.Text.Trim();
 
-        // Store ONLY a deliberate override. The old code wrote the engine version on every save,
-        // which is why every existing settings.json pins UE 5.3 - carried forward that would
-        // survive any future profile bump, silently, because a wrong engine version still lists
-        // every path in a pak and only fails when an asset is deserialized.
-        var chosen = EGameCombo.Text?.Trim();
-        forGame.EGameVersion =
-            string.IsNullOrWhiteSpace(chosen)
-            || string.Equals(chosen, ActiveProfile.EngineVersion.ToString(), StringComparison.OrdinalIgnoreCase)
-                ? null
-                : chosen;
+            // For a built-in game, store ONLY a deliberate override. The old code wrote the engine
+            // version on every save, which is why every existing settings.json pins UE 5.3 - carried
+            // forward that would survive any future profile bump, silently, because a wrong engine
+            // version still lists every path in a pak and only fails when an asset is deserialized.
+            //
+            // For a game with no profile of its own the opposite is right: its "profile value" is an
+            // estimate that can move when the game updates or the exe becomes readable, and a choice
+            // the user made that happened to equal today's estimate must not silently flip with it.
+            var chosen = EGameCombo.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(chosen))
+                forGame.EGameVersion = null;
+            else if (profile.IsBuiltIn)
+                forGame.EGameVersion =
+                    string.Equals(chosen, profile.EngineVersion.ToString(), StringComparison.OrdinalIgnoreCase) ? null : chosen;
+            else if (!string.Equals(chosen, _initialEGameText, StringComparison.OrdinalIgnoreCase))
+                forGame.EGameVersion = chosen;
+            // Generic and untouched: whatever was stored before stays as it was.
+        }
 
         settings.AutoCheckUE4SSUpdatesOnStartup = AutoCheckBox.IsChecked ?? true;
         settings.CheckForAppUpdatesOnStartup = AutoCheckAppUpdateBox.IsChecked ?? true;

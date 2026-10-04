@@ -69,6 +69,27 @@ public class DiagnosticsBundleService
         if (r.Game == null) sb.AppendLine("Game               NOT FOUND - the manager could not locate the game folder.");
         else
         {
+            // Which game, and how much of what the manager believes about it was inferred. The
+            // likeliest failures on a game with no profile of its own - a wrong engine estimate, a
+            // missing or foreign usmap, the wrong config folder - are all silent, so a report that
+            // doesn't record them is indistinguishable from a DDS2 one.
+            var p = r.Game.Profile;
+            sb.AppendLine($"Game               {p.DisplayName}  (profile '{p.Id}', {(p.IsBuiltIn ? "full support" : "basic support - no profile of its own")})");
+            sb.AppendLine($"Engine             {p.EngineLabel}{(p.EngineIsEstimated ? " (estimated from the game's files)" : "")}  -> {p.EngineVersion}");
+            sb.AppendLine($"Pak layout         {p.PakLayout}");
+            sb.AppendLine($"Install state      {r.Game.InstallState}");
+            try
+            {
+                var mount = GameMountService.OptionsFor(r.Game);
+                sb.AppendLine($"Effective EGame    {mount.EGame}");
+                sb.AppendLine($"Mappings           {(string.IsNullOrEmpty(mount.MappingsPath) ? "none" : Path.GetFileName(mount.MappingsPath))}");
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine($"Mount options      couldn't be resolved: {ex.Message}");
+            }
+            sb.AppendLine($"Config folder      {r.Game.ConfigPath}");
+            sb.AppendLine($"Anti-cheat         {UnrealInstallInspector.DetectAntiCheat(r.Game.RootPath, r.Game.DetectedProjectName)}");
             sb.AppendLine($"Game folder        {r.Game.RootPath}");
             sb.AppendLine($"Paks folder        {r.Game.PaksPath}");
 

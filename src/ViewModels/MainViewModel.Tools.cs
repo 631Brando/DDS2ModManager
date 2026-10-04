@@ -170,13 +170,23 @@ public partial class MainViewModel
         }
 
         var profile = Game.Profile;
+        var store = GameStoreIndex.Shared.Identify(Game.RootPath);
 
-        // steam:// rather than the exe for a Steam game: Steam has to be running for the game to
-        // authenticate, and launching the exe directly is what produces "please start via Steam".
+        // Through the game's own launcher wherever there is one. Steam has to be running for a
+        // Steam game to authenticate (launching the exe is what produces "please start via Steam"),
+        // and an Epic game needs Epic for ownership and EOS sign-in - and its anti-cheat, where it
+        // has one, is started by the launcher, not by the game's exe.
         if (profile.SteamAppId != 0)
         {
             OpenUrl($"steam://rungameid/{profile.SteamAppId}");
             StatusMessage = $"Launching {profile.DisplayName} through Steam...";
+            return;
+        }
+
+        if (store is { Store: GameStore.Epic, StoreId: { Length: > 0 } epicApp })
+        {
+            OpenUrl($"com.epicgames.launcher://apps/{Uri.EscapeDataString(epicApp)}?action=launch&silent=true");
+            StatusMessage = $"Launching {profile.DisplayName} through the Epic Games Launcher...";
             return;
         }
 

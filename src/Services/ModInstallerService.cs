@@ -516,6 +516,15 @@ public class ModInstallerService
             Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)),
             StringComparison.OrdinalIgnoreCase);
 
+    /// Where a patch mod lives on a game with no profile of its own. See InstallPakTriple.
+    private string GenericPatchModFolder(string pakBaseName) =>
+        Path.Combine(_game.PaksPath, "~mods", pakBaseName);
+
+    private static string? PakBaseName(string workingDir) =>
+        Directory.GetFiles(workingDir, "*.pak", SearchOption.AllDirectories)
+            .Select(Path.GetFileNameWithoutExtension)
+            .FirstOrDefault(n => !string.IsNullOrWhiteSpace(n));
+
     /// UE4SS itself, in either layout - judged by UE4SS.dll, never by a ue4ss\ folder existing, since
     /// an empty one is exactly what a lua install used to leave behind on a game without UE4SS.
     private bool UE4SSPresent() =>
@@ -539,6 +548,18 @@ public class ModInstallerService
 
             if (!string.IsNullOrWhiteSpace(pakName)) destFolder = Path.Combine(destFolder, pakName);
         }
+
+        // On a game with no profile of its own, a patch mod goes in Content\Paks\~mods\<pak>\ rather
+        // than loose at the top of Content\Paks beside the game's own containers.
+        //
+        // The copy below overwrites, and the top of Paks is exactly where a game's base and DLC paks
+        // live - with names this manager doesn't know for an arbitrary game. A mod whose container
+        // shares a name with one of them would silently replace it, and uninstalling the mod would
+        // then delete the game's file. ~mods is the community's convention for pak mods (it sorts
+        // last, so mods mount with priority), Unreal mounts it like any other folder under Paks, and
+        // it is the folder the generic scanner and Reset already treat as mods.
+        if (mod.Type == ModType.PatchMod && !_game.Profile.IsBuiltIn)
+            destFolder = GenericPatchModFolder(PakBaseName(workingDir) ?? mod.Name);
 
         Directory.CreateDirectory(destFolder);
         var moved = new List<string>();
@@ -1027,6 +1048,9 @@ public class ModInstallerService
                     : _game.LogicModsPath,
                 // Loose assets go back where they override from, at their original relative paths.
                 ModType.LooseAsset => _game.ContentPath,
+                // Must match InstallPakTriple: a generic game's patch mods live in ~mods, and putting
+                // one back at the top of Paks would hand it the name-collision risk install avoids.
+                ModType.PatchMod when !_game.Profile.IsBuiltIn => GenericPatchModFolder(pakBaseName),
                 _ => _game.PaksPath
             };
             Directory.CreateDirectory(destFolder);

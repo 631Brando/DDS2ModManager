@@ -177,7 +177,7 @@
              which defeats the point: this exists so it is never ambiguous which game is being
              modded. A game that isn't installed keeps its tab and turns into a "find it" button,
              because "we don't support that" and "we can't see it" look identical otherwise. -->
-        <ItemsControl Grid.Row="0" ItemsSource="{Binding GameTabs}" Margin="0,0,0,12">
+        <ItemsControl Grid.Row="0" ItemsSource="{Binding GameEntries}" Margin="0,0,0,12">
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
                     <StackPanel Orientation="Horizontal"/>
@@ -311,7 +311,7 @@
                         ToolTip="Install a mod from a .zip, .7z, .rar or folder. You can also drag one onto this window.  (Ctrl+O)"/>
                 <Button Content="▶ Play" Style="{StaticResource PlayButton}" Command="{Binding LaunchGameCommand}"
                         Margin="0,0,8,6"
-                        ToolTip="Launches the game through Steam. Warns first if your enabled mods have critical conflicts."/>
+                        ToolTip="Launches the game through its own launcher (Steam or Epic) where it has one. Warns first if your enabled mods have critical conflicts."/>
                 <Button Content="Check Mod Updates" Style="{StaticResource GhostButton}" Command="{Binding CheckModUpdatesCommand}" Margin="0,0,8,6"
                         ToolTip="Checks each mod that publishes an update address for a newer release. Those updates come from the mod author's own repository, not from Nexus, and nothing is downloaded or installed without asking.  (Ctrl+U)"/>
                 <Button Content="Re-scan Mod Files" Style="{StaticResource GhostButton}" Command="{Binding RunDeepScanCommand}" Margin="0,0,8,6"
@@ -743,6 +743,12 @@
                                              linked. HasNexusPage and NexusPageUrl, not the NexusInfo
                                              pair: a link to a mod published inside the three-day
                                              catalogue window has a page and no card yet. -->
+                                        <!-- Both Nexus buttons sit inside this, which follows the
+                                             GAME: on one with no Nexus catalogue the "link" button
+                                             otherwise showed on every row (no catalogue loaded reads
+                                             as "unmatched") and opened a dialog with nothing to pick. -->
+                                        <StackPanel Orientation="Horizontal"
+                                                    Visibility="{Binding DataContext.IsNexusAvailable, RelativeSource={RelativeSource AncestorType=DataGrid}, Converter={StaticResource BoolToVisibility}}">
                                         <Button Content="nexus" Style="{StaticResource LinkButton}"
                                                 Margin="6,0,0,0" VerticalAlignment="Center"
                                                 Visibility="{Binding HasNexusPage, Converter={StaticResource BoolToVisibility}}"
@@ -762,6 +768,7 @@
                                                 Command="{Binding DataContext.LinkNexusPageCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                                 CommandParameter="{Binding}"
                                                 ToolTip="Tell the manager which Nexus page this mod is, when its name doesn't match."/>
+                                        </StackPanel>
 
                                         <!-- Skips the six-hour cache, for an author who just
                                              published and wants to see it appear. -->

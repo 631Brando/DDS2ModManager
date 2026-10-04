@@ -42,6 +42,29 @@ public static class GenericGameProfiles
         _ => PathPrefix + AppPaths.GameKey(GameStoreIndex.NormalizeFolder(rootPath))
     };
 
+    /// The id already in use for this folder, if a different one was derived this time.
+    ///
+    /// The derived id depends on what the launchers say right now, and that can change between
+    /// sessions: a game added by hand before Steam had written its manifest was "path:...", and is
+    /// "steam:..." once the manifest exists. Switching keys would orphan everything stored under the
+    /// old one - the folder, the engine override, the AES key. So when no settings section exists
+    /// for the derived id but one already records this exact folder, that one keeps being used.
+    public static string StableId(string derived, string rootPath)
+    {
+        var games = AppSettingsService.Instance.Current.Games;
+        if (games.ContainsKey(derived)) return derived;
+
+        var folder = GameStoreIndex.NormalizeFolder(rootPath);
+        foreach (var (key, game) in games)
+        {
+            if (!IsGenericId(key) || string.IsNullOrWhiteSpace(game.GamePathOverride)) continue;
+            if (string.Equals(GameStoreIndex.NormalizeFolder(game.GamePathOverride), folder, StringComparison.OrdinalIgnoreCase))
+                return key;
+        }
+
+        return derived;
+    }
+
     public static bool IsGenericId(string? id) =>
         id != null && (id.StartsWith(SteamPrefix, StringComparison.OrdinalIgnoreCase)
                        || id.StartsWith(EpicPrefix, StringComparison.OrdinalIgnoreCase)
@@ -68,7 +91,7 @@ public static class GenericGameProfiles
 
         var profile = new GameProfile
         {
-            Id = IdFor(identity, rootPath),
+            Id = StableId(IdFor(identity, rootPath), rootPath),
             DisplayName = name,
             ShortName = name,
 

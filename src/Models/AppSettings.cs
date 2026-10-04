@@ -59,6 +59,14 @@ public class GameSettings
     /// Optional AES-256 key (hex), only needed if CUE4Parse reports it can't decrypt a pak.
     public string? AesKeyHex { get; set; }
 
+    /// The user has been told this game ships anti-cheat and chose to install mods anyway.
+    ///
+    /// Asked once per game rather than per install - a warning on every install stops being read -
+    /// and stored rather than assumed, because the user is the only one who knows whether they play
+    /// that game online. An older build reading this file drops the field on save, which only means
+    /// being asked once more; it never means being asked less.
+    public bool AntiCheatAcknowledged { get; set; }
+
     /// Whether this section holds anything worth keeping, used to decide if a legacy settings file
     /// had per-game state at all.
     public bool HasAnything =>

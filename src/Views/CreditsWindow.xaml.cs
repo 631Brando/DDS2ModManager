@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Windows;
 using DDS2ModManager.ViewModels;
 
@@ -18,7 +18,7 @@ public partial class CreditsWindow : Window
 
         // The same string the title bar shows, including the commit, so a screenshot of this page
         // identifies the exact build.
-        VersionText.Text = $"{MainViewModel.AppVersionDisplay}  ·  a free, open-source mod manager for Drug Dealer Simulator 2";
+        VersionText.Text = $"{MainViewModel.AppVersionDisplay}  ·  a free, open-source mod manager for the Drug Dealer Simulator games and other Unreal Engine games";
     }
 
     private void Link_Click(object sender, RoutedEventArgs e)

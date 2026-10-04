@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 
 namespace DDS2ModManager.Services;
 
@@ -232,7 +232,7 @@ public class ModProfileService
         {
             // Named from the profile so a shared list says which game it is for. A profile written
             // before GameId existed has none, and falls back to the original wording exactly.
-            $"{GameProfiles.ById(profile.GameId)?.ShortName ?? GameProfiles.Default.ShortName} mod list - {profile.Name}",
+            $"{GameProfiles.Resolve(profile.GameId)?.ShortName ?? "Game"} mod list - {profile.Name}",
             $"Saved {profile.SavedDisplay}   Manager {profile.ManagerVersion}   Game {profile.GameVersion}",
             $"{profile.Summary}",
             ""
