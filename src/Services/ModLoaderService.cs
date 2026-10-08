@@ -43,7 +43,10 @@ public class ModLoaderService
         var legacyDll = Path.Combine(game.Win64Path, "UE4SS.dll");
         var proxy = Path.Combine(game.Win64Path, "dwmapi.dll");
 
-        if (File.Exists(modernDll) || Directory.Exists(modernRoot))
+        // UE4SS.dll, not just the folder. A ue4ss\Mods created by a lua mod installed ahead of UE4SS
+        // is a folder waiting for UE4SS, and reading it as an install hid the Install button behind a
+        // label claiming "installed (unverified experimental)".
+        if (File.Exists(modernDll))
         {
             return new ModLoaderInstallation
             {
@@ -63,6 +66,26 @@ public class ModLoaderService
 
         if (File.Exists(legacyDll))
         {
+            // Stable UE4SS v3.0.1 ships this layout, and when THIS manager installed it the exact file
+            // list is on record - so it can be removed file by file without touching the game's own
+            // executable or the player's mods in Mods\. Anything else here stays hands-off.
+            var stable = UE4SSManagerService.ReadLegacyManifest(game);
+            if (stable != null)
+            {
+                return new ModLoaderInstallation
+                {
+                    Loader = ModLoaders.UE4SS,
+                    Layout = LoaderLayout.Legacy,
+                    ModsPath = Path.Combine(game.Win64Path, "Mods"),
+                    SettingsPath = FirstExisting(Path.Combine(game.Win64Path, "UE4SS-settings.ini")),
+                    ConfigFolder = game.Win64Path,
+                    Version = ReadUE4SSVersion(Path.Combine(game.Win64Path, "UE4SS.log")),
+                    IsManagedByUs = true,
+                    RemovableRoot = null,
+                    RemovableFiles = UE4SSManagerService.LegacyFilesOnRecord(game, stable)
+                };
+            }
+
             return new ModLoaderInstallation
             {
                 Loader = ModLoaders.UE4SS,
@@ -165,30 +188,40 @@ public class ModLoaderService
     /// UnrealModLoader - the loader DDS1's public scene uses for pak/logic mods.
     ///
     /// ModLoaderInfo.ini is correct for the AutoInjector install method - the loader reads exactly
-    /// &lt;game exe dir&gt;\ModLoaderInfo.ini - but note the user hand-creates that file; the loader only
-    /// ever reads it. The real limitation is the OTHER install method: launching through
-    /// UnrealModLoader's own launcher writes nothing into the game folder at all, so an install done
-    /// that way is undetectable from here. A false negative only means we report it absent, which is
-    /// the safe direction given we never install or remove it.
+    /// &lt;game exe dir&gt;\ModLoaderInfo.ini, whether this manager wrote it or the player did. The real
+    /// limitation is the OTHER install method: launching through UnrealModLoader's own launcher writes
+    /// nothing into the game folder at all, so an install done that way is undetectable from here. A
+    /// false negative only means we report it absent, and installing is refused over anything we
+    /// can't account for.
     private static ModLoaderInstallation DetectUnrealModLoader(GameInstallation game)
     {
-        var info = Path.Combine(game.Win64Path, "ModLoaderInfo.ini");
+        var info = Path.Combine(game.Win64Path, UnrealModLoaderService.LoaderInfoFileName);
         if (!File.Exists(info)) return Absent(ModLoaders.UnrealModLoader);
+
+        var manifest = UnrealModLoaderService.ReadManifest(game);
 
         return new ModLoaderInstallation
         {
             Loader = ModLoaders.UnrealModLoader,
             Layout = LoaderLayout.Flat,
-            PluginFolder = Path.Combine(game.Win64Path, "coremods"),
+
+            // Content\CoreMods, NOT a "coremods" folder beside the loader. UML's CoreModLoader takes the
+            // game exe's path, climbs three levels to the project folder and appends Content\CoreMods -
+            // a DLL placed anywhere else is never loaded, and nothing says so.
+            PluginFolder = Path.Combine(game.ContentPath, "CoreMods"),
             SettingsPath = info,
             ModsPath = game.LogicModsPath,
+            Version = manifest?.Version,
+            IsManagedByUs = manifest != null,
 
-            // Not ours to remove: we did not install it and do not know its full file set.
+            // Removed by UnrealModLoaderService.Remove, which takes exactly the files its manifest
+            // lists. Never a folder: UML's files sit beside the game's own executable.
             RemovableRoot = null,
             RemovableFiles = [],
-            RemovalBlockedReason =
-                "UnrealModLoader wasn't installed by this manager and its full file list isn't known, so removing " +
-                "it automatically could leave the game in a half-patched state. Remove it the way you installed it."
+            RemovalBlockedReason = manifest != null
+                ? "Remove UnrealModLoader with the Remove button on its card."
+                : "UnrealModLoader wasn't installed by this manager and its full file list isn't known, so removing " +
+                  "it automatically could leave the game in a half-patched state. Remove it the way you installed it."
         };
     }
 

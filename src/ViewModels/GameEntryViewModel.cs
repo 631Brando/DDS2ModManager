@@ -53,8 +53,9 @@ public partial class GameEntryViewModel : ObservableObject
     /// everything it would otherwise have to guess.
     public string SupportTooltip => IsFullSupport
         ? $"{Profile.DisplayName} has a profile written for it: Nexus integration, mod loader setup, save handling and everything else."
-        : "Any Unreal Engine game: mods install as paks and conflicts are detected by reading every pak. " +
-          "Nexus features, installing UE4SS and save cloning are off, because they need knowledge of this particular game.";
+        : "Any Unreal Engine game: mods install as paks, conflicts are detected by reading every pak, and UE4SS or " +
+          "UnrealModLoader can be installed where its engine version is supported. Nexus features and save cloning " +
+          "are off, because they need knowledge of this particular game.";
 
     public string EngineDisplay => string.IsNullOrWhiteSpace(Profile.EngineLabel)
         ? ""

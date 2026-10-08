@@ -212,13 +212,13 @@
                     <StackPanel>
                         <TextBlock x:Name="FullHeader" Text="FULL SUPPORT" Style="{StaticResource SectionTitle}"/>
                         <TextBlock x:Name="FullNote" Style="{StaticResource SectionNote}"
-                                   Text="The games this manager was built for: Nexus integration, UE4SS setup, save tools and everything else."/>
+                                   Text="The games this manager was built for: Nexus integration, mod loader setup, save tools and everything else."/>
                         <ItemsControl x:Name="FullList" ItemTemplate="{StaticResource GameCard}" ItemsPanel="{StaticResource CardWrap}"
                                       Focusable="False"/>
 
                         <TextBlock x:Name="OtherHeader" Text="OTHER UNREAL ENGINE GAMES" Style="{StaticResource SectionTitle}" Margin="0,8,0,2"/>
                         <TextBlock x:Name="OtherNote" Style="{StaticResource SectionNote}"
-                                   Text="Basic support: mods install as paks and conflicts are found by reading every pak. Nexus features, installing UE4SS and save cloning are off, because they need knowledge of each particular game."/>
+                                   Text="Basic support: mods install as paks, conflicts are found by reading every pak, and UE4SS or UnrealModLoader can be installed for the engine version. Nexus features and save cloning are off, because they need knowledge of each particular game."/>
                         <ItemsControl x:Name="OtherList" ItemTemplate="{StaticResource GameCard}" ItemsPanel="{StaticResource CardWrap}"
                                       Focusable="False"/>
                         <Border x:Name="OtherEmpty" CornerRadius="10" Padding="18,16" Margin="0,0,18,18"

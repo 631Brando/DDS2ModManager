@@ -467,8 +467,65 @@
                 </StackPanel>
             </WrapPanel>
 
-            <!-- UE4SS status card -->
-            <Border Grid.Column="1" Style="{StaticResource CardBorder}" Padding="12,8">
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+
+            <!-- UnrealModLoader card. Only where UML means something: a UE4 game it can be installed
+                 on, or one it is already on. Every Visibility binding here has FallbackValue=Collapsed,
+                 because UmlStatus is null while a game loads and a Visibility binding that can't
+                 resolve its path falls back to the property default, which is Visible. -->
+            <Border Style="{StaticResource CardBorder}" Padding="12,8" Margin="0,0,10,0"
+                    Visibility="{Binding UmlStatus.IsRelevant, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}"
+                    ToolTip="UnrealModLoader loads Blueprint logic mods from Content\Paks\LogicMods and DLL core mods from Content\CoreMods. UE4 only.">
+                <StackPanel Orientation="Horizontal">
+                    <Ellipse Width="10" Height="10" VerticalAlignment="Center" Margin="0,0,8,0">
+                        <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                                <Setter Property="Fill" Value="{StaticResource ErrorBrush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding UmlStatus.IsInstalled}" Value="True">
+                                        <Setter Property="Fill" Value="{StaticResource WarningBrush}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding UmlStatus.IsManagedByUs}" Value="True">
+                                        <Setter Property="Fill" Value="{StaticResource SuccessBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
+                    <TextBlock Text="{Binding UmlStatus.StatusLabel}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+
+                    <Button Content="Install" Padding="10,4" FontSize="12" Margin="12,0,0,0"
+                            Command="{Binding InstallUmlCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource AccentButton}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding UmlStatus.IsInstalled}" Value="False"/>
+                                            <Condition Binding="{Binding UmlStatus.CanInstall}" Value="True"/>
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </MultiDataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Content="Reinstall" Style="{StaticResource SmallActionButton}" Margin="12,0,0,0"
+                            Command="{Binding InstallUmlCommand}"
+                            Visibility="{Binding UmlStatus.IsManagedByUs, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}"
+                            ToolTip="Install UnrealModLoader's latest release again. Your profile and mods are kept."/>
+                    <Button Content="Remove" Style="{StaticResource SmallActionButton}" Margin="8,0,0,0"
+                            Command="{Binding RemoveUmlCommand}"
+                            Visibility="{Binding UmlStatus.IsManagedByUs, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}"
+                            ToolTip="Remove UnrealModLoader's own files. Your mods are left where they are."/>
+                </StackPanel>
+            </Border>
+
+            <!-- UE4SS status card. Hidden where UE4SS is neither installed nor installable - DDS1
+                 without it - since there is nothing on it to act on, and the log says why. -->
+            <Border Style="{StaticResource CardBorder}" Padding="12,8"
+                    Visibility="{Binding Ue4ssStatus.IsRelevant, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}">
                 <StackPanel Orientation="Horizontal">
                     <Ellipse Width="10" Height="10" VerticalAlignment="Center" Margin="0,0,8,0">
                         <Ellipse.Style>
@@ -490,7 +547,7 @@
                         </Ellipse.Style>
                     </Ellipse>
 
-                    <StackPanel>
+                    <StackPanel VerticalAlignment="Center">
                         <!-- Text comes from Ue4ssStatus.StatusLabel, because the honest wording depends
                              on which GAME is open and not just on two booleans - "unverified
                              experimental" names the build that crashes DDS1 on startup. Only the
@@ -512,6 +569,7 @@
                                             <MultiDataTrigger.Conditions>
                                                 <Condition Binding="{Binding Ue4ssStatus.IsInstalled}" Value="True"/>
                                                 <Condition Binding="{Binding Ue4ssStatus.IsManagedByUs}" Value="True"/>
+                                                <Condition Binding="{Binding Ue4ssStatus.IsConfirmedExperimental}" Value="True"/>
                                                 <Condition Binding="{Binding UpdateAvailable}" Value="True"/>
                                             </MultiDataTrigger.Conditions>
                                             <Setter Property="Text" Value="UE4SS experimental - update available"/>
@@ -520,7 +578,8 @@
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
-                        <TextBlock Text="{Binding Ue4ssStatus.InstalledAssetName}" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                        <TextBlock Text="{Binding Ue4ssStatus.InstalledAssetName}" FontSize="11" Foreground="{StaticResource TextMutedBrush}"
+                                   Visibility="{Binding Ue4ssStatus.InstalledAssetName, Converter={StaticResource NonEmptyToVisibility}, FallbackValue=Collapsed}"/>
                     </StackPanel>
 
                     <Button Content="Update" Style="{StaticResource SmallActionButton}" Margin="12,0,0,0"
@@ -532,8 +591,8 @@
                          moves forward, cannot do. Shown whenever UE4SS is installable here. -->
                     <Button Content="Choose build" Style="{StaticResource SmallActionButton}" Margin="8,0,0,0"
                             Command="{Binding PickUE4SSBuildCommand}"
-                            Visibility="{Binding Ue4ssStatus.CanInstall, Converter={StaticResource BoolToVisibility}}"
-                            ToolTip="Install a specific UE4SS build, including an older one."/>
+                            Visibility="{Binding Ue4ssStatus.CanInstall, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}"
+                            ToolTip="Install a specific experimental UE4SS build, including an older one."/>
 
                     <!-- Only once an update has actually replaced something. The release channel is a
                          single rolling tag whose assets are replaced in place, so the build someone
@@ -565,6 +624,7 @@
                     </Button>
                 </StackPanel>
             </Border>
+            </StackPanel>
         </Grid>
 
         <!-- ===== Mods + Conflicts ===== -->

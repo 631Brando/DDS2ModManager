@@ -89,7 +89,7 @@ public class AppSettingsService
     public void SaveQuiet() => WriteToDisk();
 
     private void WriteToDisk() =>
-        File.WriteAllText(_path, JsonSerializer.Serialize(Current, new JsonSerializerOptions { WriteIndented = true }));
+        AtomicFile.WriteAllText(_path, JsonSerializer.Serialize(Current, new JsonSerializerOptions { WriteIndented = true }));
 
     public string GetLogsFolder() => AppPaths.Logs;
 

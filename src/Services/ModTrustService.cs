@@ -124,7 +124,7 @@ public class ModTrustService
             }
 
             _verified = list;
-            File.WriteAllText(_verifiedCachePath, json);
+            AtomicFile.WriteAllText(_verifiedCachePath, json);
             LoggingService.Instance.Info($"Verified mod list updated ({list.Entries.Count} entries).");
         }
         catch (Exception ex)
@@ -151,7 +151,7 @@ public class ModTrustService
     {
         try
         {
-            File.WriteAllText(_trustFilePath,
+            AtomicFile.WriteAllText(_trustFilePath,
                 JsonSerializer.Serialize(_trustedOwners.ToList(), new JsonSerializerOptions { WriteIndented = true }));
         }
         catch (Exception ex)

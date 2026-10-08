@@ -5,9 +5,10 @@ namespace DDS2ModManager.Services;
 /// Everything a generic profile claims is read from the install itself, and everything it can't
 /// read is answered with the cautious "no":
 ///
-///   - never installs a mod loader. The only UE4SS build this app can fetch is the experimental one
-///     DDS2 needs, and it crashes other engines on startup; on a multiplayer game with anti-cheat an
-///     injected DLL can also cost the player their account.
+///   - installs only the mod loaders whose published engine range covers the version read from the
+///     game's files (LoaderCompatibility.InstallableFor) - UE4SS on UE 4.7-5.8, UnrealModLoader on
+///     UE4. What can't be read from disk is asked instead: on a game with anti-cheat, every loader
+///     install is confirmed, because an injected DLL can cost the player their account.
 ///   - no Nexus. A game's Nexus slug can't be read from its files, and a guessed one either finds
 ///     nothing or - worse - another game's catalogue under this game's name.
 ///   - no embedded mappings. The only usmap compiled in is DDS2's, and another game read against it
@@ -16,7 +17,7 @@ namespace DDS2ModManager.Services;
 ///     game loads things or names its saves, and guessing wrong fails silently.
 ///
 /// What remains is what works the same on any Unreal game: reading paks, detecting conflicts
-/// between them, and installing pak mods and (where UE4SS is already present) logic and lua mods.
+/// between them, installing pak, logic and lua mods, and installing a loader to run the last two.
 public static class GenericGameProfiles
 {
     public const string SteamPrefix = "steam:";
@@ -116,12 +117,13 @@ public static class GenericGameProfiles
             SaveSubfolders = ["SaveGames"],
             PakLayout = ioStore ? PakLayout.IoStoreTriple : PakLayout.SinglePak,
 
-            // UE4SS's convention, which is the only loader a generic game is assumed to have.
+            // UE4SS's convention. ModInstallerService installs flat instead once UnrealModLoader is
+            // present, because UML scans LogicMods flat and UE4SS finds a flat pak as well.
             LogicModsUseSubfolders = true,
             SupportsDllPlugins = false,
             SupportsLooseAssets = false,
-            SupportedLoaders = ModLoaders.UE4SS,
-            InstallableLoaders = ModLoaders.None,
+            SupportedLoaders = ModLoaders.UE4SS | (engine.IsUe5 ? ModLoaders.None : ModLoaders.UnrealModLoader),
+            InstallableLoaders = LoaderCompatibility.InstallableFor(engine.Game),
             NexusDomain = "",
             ManagerNexusModId = null,
             SupportsSaveCloning = false,
@@ -146,14 +148,49 @@ public static class GenericGameProfiles
     public static GameProfile Resolve(string rootPath, string? projectName, StoreIdentity? identity, bool readExecutable)
     {
         if (identity is { SteamAppId: > 0 } && GameProfiles.BySteamAppId(identity.SteamAppId) is { } bySteam)
-            return bySteam;
+            return ForInstall(bySteam, rootPath, projectName);
 
         if (GameProfiles.ByProjectFolder(projectName) is { } byFolder)
-            return byFolder;
+            return ForInstall(byFolder, rootPath, projectName);
 
         return projectName == null
             ? GameProfiles.Default
             : Create(rootPath, projectName, identity, readExecutable);
+    }
+
+    /// A built-in profile with its engine-dependent values taken from THIS install.
+    ///
+    /// A game can ship on more than one engine at once - DDS1 has a 4.21 branch and a 4.27 one on
+    /// Steam - and the profile's version is only the default. The executable's version resource says
+    /// which one is installed, and a wrong one is not cosmetic: CUE4Parse reads assets with the wrong
+    /// rules, and UnrealModLoader's profile is written with the wrong flags (FNamePool arrived in
+    /// 4.23). Everything else - the id, the settings slot, which loaders may be installed - stays the
+    /// profile's: those describe the GAME, not the build. Returns the profile itself when nothing differs.
+    public static GameProfile ForInstall(GameProfile builtIn, string rootPath, string? projectName)
+    {
+        var projectPath = Path.Combine(rootPath, projectName ?? builtIn.ProjectFolderName);
+        var exe = UnrealInstallInspector.FindGameExecutable(projectPath);
+        if (exe == null || UnrealEngineProbe.ReadExeFileVersion(exe) is not { } version) return builtIn;
+
+        var paks = Path.Combine(projectPath, "Content", "Paks");
+        var mainPak = UnrealInstallInspector.FindMainPak(paks);
+        if (!UnrealEngineProbe.IsConsistentWithPak(version, mainPak == null ? null : UnrealEngineProbe.ReadPakVersion(mainPak)))
+            return builtIn;
+
+        var engine = UnrealEngineProbe.ToEGame(version.Major, version.Minor);
+        var ioStore = UnrealInstallInspector.UsesIoStore(paks);
+        var layout = ioStore ? PakLayout.IoStoreTriple : PakLayout.SinglePak;
+        if (engine == builtIn.EngineVersion && layout == builtIn.PakLayout) return builtIn;
+
+        return builtIn with
+        {
+            EngineVersion = engine,
+            EngineLabel = $"UE {version.Major}.{version.Minor}",
+            EngineIsEstimated = false,
+            PakLayout = layout,
+            // Loose assets only override packed ones without IoStore.
+            SupportsLooseAssets = builtIn.SupportsLooseAssets && !ioStore
+        };
     }
 
     /// "DrugDealerSimulator" -> "Drug Dealer Simulator", "ABInfinite" -> "AB Infinite",

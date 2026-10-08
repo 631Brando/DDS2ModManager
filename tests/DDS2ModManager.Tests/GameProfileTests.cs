@@ -67,7 +67,9 @@ public class GameProfileTests : IDisposable
         Assert.NotEqual("dds1", p.Id);
         Assert.NotEqual("dds2", p.Id);
         Assert.False(p.IsBuiltIn);
-        Assert.Equal(ModLoaders.None, p.InstallableLoaders);
+        // Loaders come from the engine version read off disk - never a built-in's, never a guess.
+        Assert.Equal(LoaderCompatibility.InstallableFor(p.EngineVersion), p.InstallableLoaders);
+        Assert.False(p.InstallableLoaders.HasFlag(ModLoaders.UnrealModUnlocker));
         Assert.False(p.HasNexus);
         Assert.Null(p.ManagerNexusModId);
         Assert.False(p.HasEmbeddedMappings);

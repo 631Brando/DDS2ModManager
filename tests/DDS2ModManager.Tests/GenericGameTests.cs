@@ -147,12 +147,13 @@ public class GenericGameTests : IDisposable
     // ---- what a generic profile claims ------------------------------------------------------
 
     [Fact]
-    public void A_generic_profile_never_permits_installing_a_loader()
+    public void A_generic_profile_permits_only_the_loaders_its_engine_supports()
     {
         var p = GenericGameProfiles.Create(MakeGame("NoLoader", "NoLoader"), "NoLoader", null, readExecutable: false);
 
-        Assert.Equal(ModLoaders.None, p.InstallableLoaders);
-        Assert.True(p.SupportedLoaders.HasFlag(ModLoaders.UE4SS));   // recognised, not installed
+        Assert.Equal(LoaderCompatibility.InstallableFor(p.EngineVersion), p.InstallableLoaders);
+        Assert.True(p.SupportedLoaders.HasFlag(ModLoaders.UE4SS));
+        Assert.False(p.InstallableLoaders.HasFlag(ModLoaders.UnrealModUnlocker));   // never fetchable
     }
 
     [Fact]

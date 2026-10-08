@@ -91,7 +91,7 @@ public class ModHistoryService
     }
 
     private void Save() =>
-        File.WriteAllText(_path, JsonSerializer.Serialize(_entries, new JsonSerializerOptions { WriteIndented = true }));
+        AtomicFile.WriteAllText(_path, JsonSerializer.Serialize(_entries, new JsonSerializerOptions { WriteIndented = true }));
 
     public void Clear()
     {

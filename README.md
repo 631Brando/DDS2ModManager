@@ -21,18 +21,33 @@ They are not variants of each other, and the manager treats them differently whe
 | Mod loader      | UnrealModLoader + UnrealModUnlocker         | UE4SS (experimental build)               |
 | Saves           | `Saved\Serialized\`                         | `Saved\SaveGames\Cartels\`              |
 
-**A note for DDS1 users:** this manager will not install UE4SS for you. DDS1 needs a build made for
-its engine version, and the ones published as downloads crash it on startup. Whatever loader you
-already have is detected and worked with as-is.
+**A note for DDS1 users:** this manager will not install UE4SS for you — the builds published as
+downloads crash DDS1 on startup. It installs **UnrealModLoader** instead, which is what DDS1's mods
+are made for, and writes the per-game profile UnrealModLoader needs (it ships none for DDS1).
+Whatever loader you already have is detected and worked with as-is.
 
 ## Other Unreal Engine games
 
 Any other Unreal Engine game can be opened too, with **basic support**: pak mods install (patch mods
-into `Content\Paks\~mods`) and conflicts are found by reading every pak. Everything that needs
-knowledge of one particular game is off — Nexus, installing UE4SS, save cloning — because on a game
-nobody has studied, each of those would be a guess. The engine version is read from the game's own
-files and shown as an estimate when it can't be read exactly. A game that ships anti-cheat is
-flagged in the picker, and you're asked once before the first install into it.
+into `Content\Paks\~mods`), conflicts are found by reading every pak, and a mod loader can be
+installed where the game's engine version is one it supports. Nexus and save cloning stay off,
+because on a game nobody has studied each would be a guess. The engine version is read from the
+game's own files and shown as an estimate when it can't be read exactly. A game that ships
+anti-cheat is flagged in the picker, you're asked once before the first mod install into it, and
+every mod-loader install asks again.
+
+## Mod loaders
+
+| Loader                     | Engine versions | Installs as                                                |
+|----------------------------|-----------------|------------------------------------------------------------|
+| UE4SS experimental (recommended) | UE 4.7 – 5.8 | `Binaries\Win64\ue4ss\` + `dwmapi.dll`                     |
+| UE4SS stable v3.0.1        | UE 4.12 – 5.3   | directly in `Binaries\Win64` (its older layout)            |
+| UnrealModLoader v2.2.1     | UE 4 only       | `Binaries\Win64`, loaded through `xinput1_3.dll`           |
+
+UE4SS's experimental build is preselected everywhere: it supports far more engines, and on UE 5.2
+and newer it's the only one whose Blueprint mod loader works. Stable is offered because some
+players want it, with the reason when it won't run a game. Moving from stable to experimental
+carries your mods into `ue4ss\Mods`.
 
 ## What it does
 
@@ -41,9 +56,9 @@ flagged in the picker, and you're asked once before the first install into it.
 - Detects the mod loaders each game actually has — UE4SS in either of its two on-disk layouts,
   UnrealModLoader, and UnrealModUnlocker — and says when the one your mods depend on is missing.
   On DDS1 that matters: loose-asset mods simply do nothing without the unlocker, with no error.
-- Installs UE4SS directly from the `experimental-latest` GitHub release, correctly
-  filtering out `zCustomGameConfigs.zip`, `zDEV-*.zip`, `zMapGenBP.zip`, and the source
-  archives — only the real `UE4SS_v*.zip` asset is downloaded.
+- Installs UE4SS from its `experimental-latest` release (recommended) or its stable release,
+  correctly filtering out `zCustomGameConfigs.zip`, `zMapGenBP.zip` and the source archives —
+  and UnrealModLoader from its own GitHub release on UE4 games.
 - Installs mods from **.zip, .7z, and .rar** archives (or a plain folder), drag-and-drop,
   or the file picker.
 - When an archive contains **multiple self-contained versions** of one mod (e.g. x2/x5/x10

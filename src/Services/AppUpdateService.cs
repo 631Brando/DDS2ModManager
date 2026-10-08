@@ -206,6 +206,18 @@ public class AppUpdateService
     {
         var tempPath = Path.Combine(Path.GetTempPath(), "DDS2MM_update_" + Guid.NewGuid().ToString("N") + ".exe");
         await _github.DownloadAssetAsync(asset.BrowserDownloadUrl, tempPath, progress);
+
+        // Checked before anything touches the running exe: what replaces it has to be the whole
+        // file GitHub listed, and an executable at all - not a proxy's HTML error page saved as .exe.
+        var length = new FileInfo(tempPath).Length;
+        if (asset.Size > 0 && length != asset.Size)
+            throw new IOException($"The update downloaded {length:N0} bytes but the release lists {asset.Size:N0}. Nothing was replaced.");
+
+        var header = new byte[2];
+        await using (var fs = File.OpenRead(tempPath)) fs.ReadExactly(header);
+        if (header[0] != (byte)'M' || header[1] != (byte)'Z')
+            throw new IOException("The downloaded update isn't a Windows executable. Nothing was replaced.");
+
         SelfReplaceHelper.ApplyUpdateAndRestart(tempPath);
     }
 

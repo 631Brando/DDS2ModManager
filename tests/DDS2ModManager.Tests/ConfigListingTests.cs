@@ -15,7 +15,11 @@ public class ConfigListingTests : IDisposable
         // A project folder is identified by containing Binaries\Win64, which is also what makes
         // UE4SSRootPath resolve underneath this temp directory instead of a real install.
         _root = Path.Combine(Path.GetTempPath(), "dds2mm_cfg_" + Guid.NewGuid().ToString("N")[..8]);
-        Directory.CreateDirectory(Path.Combine(_root, "DDS2", "Binaries", "Win64", "ue4ss"));
+        var ue4ss = Path.Combine(_root, "DDS2", "Binaries", "Win64", "ue4ss");
+        Directory.CreateDirectory(ue4ss);
+
+        // A real install - UE4SS.dll is what detection keys on, so a bare folder isn't one.
+        File.WriteAllBytes(Path.Combine(ue4ss, "UE4SS.dll"), new byte[16]);
         _game = new GameInstallation { RootPath = _root };
     }
 

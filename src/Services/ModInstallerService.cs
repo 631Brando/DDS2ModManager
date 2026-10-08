@@ -527,9 +527,34 @@ public class ModInstallerService
 
     /// UE4SS itself, in either layout - judged by UE4SS.dll, never by a ue4ss\ folder existing, since
     /// an empty one is exactly what a lua install used to leave behind on a game without UE4SS.
+    /// Whether a path is a descendant of a folder - never the folder itself, never outside it.
+    private static bool IsStrictlyInside(string path, string folder)
+    {
+        try
+        {
+            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
+            var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            return full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private bool UE4SSPresent() =>
         File.Exists(Path.Combine(_game.UE4SSRootPath, "UE4SS.dll"))
         || File.Exists(Path.Combine(_game.Win64Path, "UE4SS.dll"));
+
+    /// Whether logic mods go in a subfolder of LogicMods on THIS install.
+    ///
+    /// The profile says what its usual loader expects; an installed UnrealModLoader overrides it to
+    /// flat, because UML only scans LogicMods' own files while UE4SS's BPModLoaderMod reads both the
+    /// top level and one folder down - so flat is the one layout both load. Install and Enable both
+    /// call this, so a disable/enable cycle can never re-nest a mod UML was loading.
+    private bool LogicModsNested() =>
+        _game.Profile.LogicModsUseSubfolders
+        && !File.Exists(Path.Combine(_game.Win64Path, UnrealModLoaderService.LoaderInfoFileName));
 
     private void InstallPakTriple(string workingDir, string destFolder, ModInfo mod)
     {
@@ -540,7 +565,7 @@ public class ModInstallerService
         // Only where the game's loader actually reads subfolders. On DDS1 it does not: UnrealModLoader
         // scans LogicMods flat, so a nested pak mounts but its ModActor never spawns - the mod appears
         // to install fine and then does nothing, with no error anywhere to explain it.
-        if (mod.Type == ModType.LogicMod && _game.Profile.LogicModsUseSubfolders)
+        if (mod.Type == ModType.LogicMod && LogicModsNested())
         {
             var pakName = Directory.GetFiles(workingDir, "*.pak", SearchOption.AllDirectories)
                 .Select(Path.GetFileNameWithoutExtension)
@@ -663,7 +688,7 @@ public class ModInstallerService
     /// Installs a native DLL plugin into whichever loader on this install can load one.
     ///
     /// The destination is NOT fixed: UnrealModUnlocker reads Binaries\Win64\UnrealModPlugins,
-    /// UnrealModLoader reads coremods, and there is no shared convention between them. So it is
+    /// UnrealModLoader reads Content\CoreMods, and there is no shared convention between them. So it is
     /// resolved from what is actually installed, and refused outright when nothing present can load
     /// a DLL - dropping a native DLL somewhere the game never reads is indistinguishable, from the
     /// user's side, from the mod being broken.
@@ -675,16 +700,30 @@ public class ModInstallerService
     {
         var log = LoggingService.Instance;
 
-        var loader = new ModLoaderService().DetectAll(_game)
-            .FirstOrDefault(l => l.IsInstalled && l.PluginFolder != null);
+        // Chosen by preference, not by detection order. DDS1's DLL frameworks are built for
+        // UnrealModUnlocker, so with both present UnrealModUnlocker takes the plugin - installing
+        // UnrealModLoader beside it must not silently redirect every later plugin into
+        // Content\CoreMods, where the framework it was written for never looks. A UML core mod can't
+        // be told apart by its file (they compile UML's SDK in rather than importing it), so the
+        // choice is said out loud whenever there was one to make.
+        var capable = new ModLoaderService().DetectAll(_game)
+            .Where(l => l.IsInstalled && l.PluginFolder != null)
+            .OrderBy(l => l.Loader == ModLoaders.UnrealModUnlocker ? 0 : 1)
+            .ToList();
+        var loader = capable.FirstOrDefault();
+
+        if (capable.Count > 1)
+            log.Info($"Both {string.Join(" and ", capable.Select(l => l.DisplayName))} take DLL plugins here; '{mod.Name}' " +
+                     $"goes to {loader!.DisplayName} ({loader.PluginFolder}). If it's made for " +
+                     $"{capable[1].DisplayName} instead, move it to {capable[1].PluginFolder}.");
 
         if (loader?.PluginFolder == null)
         {
             log.Error(
                 $"'{mod.Name}' is a DLL plugin, and nothing installed here can load one. Install a loader that " +
                 "takes DLL plugins first (UnrealModUnlocker reads Binaries\\Win64\\UnrealModPlugins; " +
-                "UnrealModLoader reads coremods), launch the game once so it creates that folder, then install " +
-                "this again.");
+                "UnrealModLoader reads Content\\CoreMods), launch the game once so it creates that folder, then " +
+                "install this again.");
             return false;
         }
 
@@ -914,7 +953,17 @@ public class ModInstallerService
             }
             else if (mod.Type == ModType.LuaMod)
             {
-                if (Directory.Exists(mod.InstallPath)) Directory.Delete(mod.InstallPath, true);
+                // A recursive delete, so it has to be ONE mod's folder: strictly inside the Mods folder
+                // UE4SS reads. A registry entry naming the Mods folder itself, or somewhere else
+                // entirely, would otherwise take every lua mod - or worse - with it.
+                if (Directory.Exists(mod.InstallPath))
+                {
+                    if (IsStrictlyInside(mod.InstallPath, _game.UE4SSModsPath))
+                        Directory.Delete(mod.InstallPath, true);
+                    else
+                        log.Warn($"Didn't delete {mod.InstallPath} for '{mod.Name}' - it isn't a mod folder inside " +
+                                 $"{_game.UE4SSModsPath}. Remove it by hand if it really is this mod.");
+                }
                 _lua.RemoveEntry(_game, LuaFolderName(mod));
             }
 
@@ -1043,7 +1092,7 @@ public class ModInstallerService
                 // Must match the install rule exactly. This reconstructs the destination
                 // independently, so gating only the install would leave a working flat DDS1 mod
                 // re-nested - and re-broken - by the next disable/enable cycle.
-                ModType.LogicMod => _game.Profile.LogicModsUseSubfolders
+                ModType.LogicMod => LogicModsNested()
                     ? Path.Combine(_game.LogicModsPath, pakBaseName)
                     : _game.LogicModsPath,
                 // Loose assets go back where they override from, at their original relative paths.

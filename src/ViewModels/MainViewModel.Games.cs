@@ -399,6 +399,7 @@ public partial class MainViewModel
         UpdateAvailable = false;
         Ue4ssStatus = null;
         PreviousUE4SS = null;
+        UmlStatus = null;
         CompatibilitySummary = "No mods to check yet.";
     }
 

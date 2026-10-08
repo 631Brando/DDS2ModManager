@@ -19,6 +19,10 @@ public static class SelfReplaceHelper
         var pid = Environment.ProcessId;
         var backupPath = currentExePath + ".old";
 
+        // The backup is only discarded once the new exe is verifiably in place. Every step runs with
+        // errors silenced, so a move that failed - antivirus still holding the download, a copy across
+        // drives cut short - used to fall straight through to deleting the backup, leaving no exe at
+        // all: an app gone from its own folder, which no later update can ever reach to repair.
         var script = $$"""
             $ErrorActionPreference = 'SilentlyContinue'
             try { Wait-Process -Id {{pid}} -Timeout 30 } catch {}
@@ -26,7 +30,11 @@ public static class SelfReplaceHelper
             Remove-Item -LiteralPath '{{Esc(backupPath)}}' -Force -ErrorAction SilentlyContinue
             Rename-Item -LiteralPath '{{Esc(currentExePath)}}' -NewName '{{Esc(Path.GetFileName(backupPath))}}' -Force
             Move-Item -LiteralPath '{{Esc(newExePath)}}' -Destination '{{Esc(currentExePath)}}' -Force
-            Remove-Item -LiteralPath '{{Esc(backupPath)}}' -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath '{{Esc(currentExePath)}}') {
+                Remove-Item -LiteralPath '{{Esc(backupPath)}}' -Force -ErrorAction SilentlyContinue
+            } elseif (Test-Path -LiteralPath '{{Esc(backupPath)}}') {
+                Rename-Item -LiteralPath '{{Esc(backupPath)}}' -NewName '{{Esc(Path.GetFileName(currentExePath))}}' -Force
+            }
             Start-Process -FilePath '{{Esc(currentExePath)}}'
             Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
             """;

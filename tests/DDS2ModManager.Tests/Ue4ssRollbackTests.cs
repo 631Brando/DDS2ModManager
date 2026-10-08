@@ -121,8 +121,10 @@ public class Ue4ssRollbackTests : IDisposable
     [Fact]
     public void Restoring_is_refused_on_a_game_this_manager_does_not_install_ue4ss_on()
     {
+        // The kept copy is per install FOLDER, so the folder can be recognised as a different game
+        // later. DDS1 is the one UE4SS is never installed on, whatever is kept.
         var game = Install();
-        game.Profile = GenericGameProfiles.Create(game.RootPath, "DrugDealerSimulator2", null, readExecutable: false);
+        game.Profile = GameProfiles.Dds1;
         var kept = AppPaths.PreviousUE4SSFor(game.RootPath);
         _temps.Add(kept);
 
@@ -150,15 +152,25 @@ public class Ue4ssRollbackTests : IDisposable
     }
 
     [Fact]
-    public void The_install_status_never_permits_ue4ss_on_a_generic_game()
+    public void The_install_status_follows_ue4ss_s_engine_range_on_a_generic_game()
     {
         var game = Install();
         game.Profile = GenericGameProfiles.Create(game.RootPath, "DrugDealerSimulator2", null, readExecutable: false);
 
-        var status = new UE4SSManagerService().GetCurrentStatus(game);
+        Assert.True(new UE4SSManagerService().GetCurrentStatus(game).CanInstall);
 
+        // Below experimental's 4.7 floor nothing is offered, and the reason names the range.
+        var ancient = (CUE4Parse.UE4.Versions.EGame)((4 << 24) | (5 << 16));
+        game.Profile = game.Profile with
+        {
+            EngineVersion = ancient,
+            EngineLabel = "UE 4.5",
+            InstallableLoaders = LoaderCompatibility.InstallableFor(ancient)
+        };
+
+        var status = new UE4SSManagerService().GetCurrentStatus(game);
         Assert.False(status.CanInstall);
-        Assert.Contains("only installs UE4SS on games it was built for", status.InstallBlockedReason);
+        Assert.Contains("UE 4.7 to 5.8", status.InstallBlockedReason);
     }
 
     [Fact]

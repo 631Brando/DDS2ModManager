@@ -115,6 +115,10 @@ public partial class MainViewModel : ObservableObject
     private GitHubReleaseInfo? _latestRelease;
     private GitHubAsset? _latestAsset;
 
+    /// Which line _latestRelease came from, so an install never takes a cached stable release for
+    /// an experimental one or the other way round.
+    private UE4SSChannel _latestChannel;
+
     public IAsyncRelayCommand InitializeCommand { get; }
     public IAsyncRelayCommand BrowseGameFolderCommand { get; }
     public IAsyncRelayCommand InstallModCommand { get; }
@@ -775,6 +779,7 @@ public partial class MainViewModel : ObservableObject
         _history = new ModHistoryService(game);
         _backups = new ModBackupService(game);
         _profiles = new ModProfileService(game);
+        RelinkMovedLuaMods(game);
 
         DetachModSubscriptions();
         Mods.Clear();
@@ -782,6 +787,7 @@ public partial class MainViewModel : ObservableObject
 
         Ue4ssStatus = _ue4ss.GetCurrentStatus(game);
         PreviousUE4SS = UE4SSManagerService.FindPreviousBuild(game);
+        UmlStatus = UnrealModLoaderService.GetStatus(game);
         ReportLoaderState(game);
 
         RunCompatibilityCheck();
@@ -890,6 +896,38 @@ public partial class MainViewModel : ObservableObject
         return true;
     }
 
+    /// Before a mod LOADER goes into a game that ships anti-cheat, every time.
+    ///
+    /// Deliberately not remembered like ConfirmAntiCheatOnce. A loader is not a modified asset, it is
+    /// a DLL injected into the game process - the exact thing anti-cheat exists to detect - and it
+    /// stays loaded for every session, online ones included, until it is removed.
+    private static bool ConfirmLoaderOnAntiCheat(GameInstallation game, string loader)
+    {
+        var antiCheat = UnrealInstallInspector.DetectAntiCheat(game.RootPath, game.DetectedProjectName);
+        if (antiCheat == AntiCheat.None) return true;
+
+        var which = antiCheat switch
+        {
+            AntiCheat.EasyAntiCheat => "EasyAntiCheat",
+            AntiCheat.BattlEye => "BattlEye",
+            _ => "EasyAntiCheat and BattlEye"
+        };
+
+        var answer = System.Windows.MessageBox.Show(
+            $"{game.Profile.DisplayName} ships {which}.\n\n" +
+            $"{loader} works by loading its own DLL into the game - which is exactly what anti-cheat looks for. " +
+            "Launching the game ONLINE with it installed can get an account kicked, flagged or banned, and it loads " +
+            "every time until it's removed.\n\n" +
+            "Only install it if you play offline or the game's rules allow it.\n\n" +
+            $"Install {loader} anyway?",
+            $"Install {loader} on an anti-cheat game?",
+            System.Windows.MessageBoxButton.YesNo,
+            System.Windows.MessageBoxImage.Warning,
+            System.Windows.MessageBoxResult.No);
+
+        return answer == System.Windows.MessageBoxResult.Yes;
+    }
+
     /// Whether a folder independently identifies as <paramref name="builtIn"/> - by its Steam app id
     /// or its project folder - rather than just carrying that profile because something assigned it.
     private static bool BelongsTo(GameInstallation game, GameProfile builtIn)
@@ -906,9 +944,14 @@ public partial class MainViewModel : ObservableObject
         var log = LoggingService.Instance;
         var p = game.Profile;
 
+        var loaders = new List<string>();
+        if (p.InstallableLoaders.HasFlag(ModLoaders.UE4SS)) loaders.Add("UE4SS");
+        if (p.InstallableLoaders.HasFlag(ModLoaders.UnrealModLoader)) loaders.Add("UnrealModLoader");
+
         log.Info($"{p.DisplayName} ({p.EngineLabel}{(p.EngineIsEstimated ? ", estimated" : "")}) has basic support: mods install " +
-                 "as paks and conflicts are found by reading every pak. Nexus features, installing UE4SS and save cloning " +
-                 "are off for it, because they need knowledge of this particular game.");
+                 "as paks and conflicts are found by reading every pak" +
+                 (loaders.Count > 0 ? $", and {string.Join(" or ", loaders)} can be installed for its engine version" : "") +
+                 ". Nexus features and save cloning are off for it, because they need knowledge of this particular game.");
 
         if (p.EngineIsEstimated)
             log.Info("Its engine version was worked out from its files rather than read exactly. If mods misread, set the " +
@@ -977,6 +1020,11 @@ public partial class MainViewModel : ObservableObject
             log.Warn(ue4ss.CanInstall
                 ? "UE4SS is not installed. Logic mods and lua mods will not load until it is."
                 : $"UE4SS is not installed. {ue4ss.InstallBlockedReason}");
+        }
+        else if (ue4ss is { IsManagedByUs: true, Channel: UE4SSChannel.Stable })
+        {
+            log.Info($"UE4SS stable {LoaderCompatibility.StableVersion} is installed. Experimental is the recommended " +
+                     "line - Choose build installs any experimental build and moves your mods across.");
         }
         else if (ue4ss.Layout == LoaderLayout.Legacy)
         {
@@ -1583,17 +1631,37 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // Taken before the await. This runs fire-and-forget at startup, and the GitHub request can
+        // easily outlast a game switch - after which every field below belongs to a different game,
+        // and an "Update" button would light up on it for a check that was never about it.
+        var context = _gameContextVersion;
+        var current = Ue4ssStatus;
+
+        // Measured against the line that is installed: a stable install is up to date with stable,
+        // not "out of date" because experimental exists. Anything else compares to experimental,
+        // the recommended line.
+        var channel = current is { IsManagedByUs: true, Channel: UE4SSChannel.Stable }
+            ? UE4SSChannel.Stable
+            : UE4SSChannel.Experimental;
+
         StatusMessage = "Checking for UE4SS updates...";
-        _latestRelease = await _ue4ss.GetLatestExperimentalReleaseAsync();
+        var release = await _ue4ss.GetLatestReleaseAsync(channel);
+        if (IsStaleGameContext(context)) return;
+
+        _latestRelease = release;
+        _latestChannel = channel;
         if (_latestRelease == null)
         {
             StatusMessage = "Couldn't reach GitHub to check for UE4SS updates.";
             return;
         }
 
-        // Compares against whichever build (Standard/Dev) is currently preferred, so switching
-        // builds shows up as "update available" the same way a version bump would.
-        var preferDev = AppSettingsService.Instance.Current.PreferredUE4SSBuild == "Dev";
+        // Compares like with like: the build kind (Standard/Dev) that is INSTALLED, when we know it.
+        // The preference is one setting shared by every game, so a Dev choice made on one game used
+        // to read as "update available" on another game's Standard install, forever.
+        var preferDev = current is { IsManagedByUs: true, InstalledAssetName: { } installedAsset }
+            ? installedAsset.StartsWith("zDEV-", StringComparison.OrdinalIgnoreCase)
+            : AppSettingsService.Instance.Current.PreferredUE4SSBuild == "Dev";
         _latestAsset = _ue4ss.FindAsset(_latestRelease, preferDev);
         if (_latestAsset == null)
         {
@@ -1601,10 +1669,11 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        var current = Ue4ssStatus;
-        UpdateAvailable = !current!.IsInstalled
-            || !current.IsManagedByUs
-            || !string.Equals(current.InstalledAssetName, _latestAsset.Name, StringComparison.OrdinalIgnoreCase);
+        // Only for something installed. A missing UE4SS already has its Install button, and also
+        // reporting it as "update available" put both buttons on the card for the same action.
+        UpdateAvailable = current!.IsInstalled
+            && (!current.IsManagedByUs
+                || !string.Equals(current.InstalledAssetName, _latestAsset.Name, StringComparison.OrdinalIgnoreCase));
 
         StatusMessage = UpdateAvailable
             ? $"UE4SS update available: {_latestAsset.Name}"
@@ -1665,6 +1734,7 @@ public partial class MainViewModel : ObservableObject
         };
 
         if (dialog.ShowDialog() != true || dialog.SelectedBuild is not { } build) return;
+        if (!ConfirmLoaderOnAntiCheat(Game!, "UE4SS")) return;
 
         StatusMessage = $"Installing {build.AssetName}...";
         IsBusy = true;
@@ -1674,6 +1744,7 @@ public partial class MainViewModel : ObservableObject
         {
             var installed = await _ue4ss.InstallSpecificBuildAsync(Game!, build, pickProgress);
 
+            RelinkMovedLuaMods(Game!);
             Ue4ssStatus = _ue4ss.GetCurrentStatus(Game!);
             PreviousUE4SS = UE4SSManagerService.FindPreviousBuild(Game!);
 
@@ -1722,18 +1793,37 @@ public partial class MainViewModel : ObservableObject
             ? asset.StartsWith("zDEV-", StringComparison.OrdinalIgnoreCase)
             : AppSettingsService.Instance.Current.PreferredUE4SSBuild == "Dev";
 
-        var dialog = new UE4SSBuildSelectionWindow(installedIsDev)
+        // The line follows what's installed for the same reason the build does: an update must never
+        // quietly move someone from one to the other. A fresh install starts on experimental.
+        var installedChannel = Ue4ssStatus is { IsManagedByUs: true, Channel: { } c } ? c : UE4SSChannel.Experimental;
+
+        var dialog = new UE4SSBuildSelectionWindow(Game.Profile, installedIsDev, installedChannel,
+            experimentalLayoutInstalled: Ue4ssStatus is { IsInstalled: true, Layout: LoaderLayout.Modern })
         {
             Owner = System.Windows.Application.Current.MainWindow
         };
         if (dialog.ShowDialog() != true) return;
 
+        if (!ConfirmLoaderOnAntiCheat(Game, "UE4SS")) return;
+
         AppSettingsService.Instance.Current.PreferredUE4SSBuild = dialog.UseDevBuild ? "Dev" : "Standard";
         AppSettingsService.Instance.Save();
 
-        if (_latestRelease == null)
-            await CheckUE4SSUpdateAsync();
-        if (_latestRelease == null) return;
+        var channel = dialog.Channel;
+        var game = Game;
+
+        // The cached release is only reused when it is from the line just chosen.
+        if (_latestRelease == null || _latestChannel != channel)
+        {
+            StatusMessage = $"Fetching the latest {(channel == UE4SSChannel.Stable ? "stable" : "experimental")} UE4SS...";
+            _latestRelease = await _ue4ss.GetLatestReleaseAsync(channel);
+            _latestChannel = channel;
+        }
+        if (_latestRelease == null || Game != game)
+        {
+            StatusMessage = "Couldn't reach GitHub to fetch UE4SS.";
+            return;
+        }
 
         // Re-resolve regardless of what CheckUE4SSUpdateAsync already cached - the user may have
         // just switched builds in the dialog above, and a stale cached asset from before that
@@ -1749,9 +1839,10 @@ public partial class MainViewModel : ObservableObject
         var progress = new Progress<double>(p => ProgressValue = p);
         try
         {
-            var ok = await _ue4ss.InstallOrUpdateAsync(Game!, _latestRelease!, _latestAsset!, progress);
+            var ok = await _ue4ss.InstallOrUpdateAsync(Game!, _latestRelease!, _latestAsset!, progress, channel);
             if (ok)
             {
+                RelinkMovedLuaMods(Game!);
                 Ue4ssStatus = _ue4ss.GetCurrentStatus(Game!);
                 PreviousUE4SS = UE4SSManagerService.FindPreviousBuild(Game!);
                 UpdateAvailable = false;
@@ -1800,6 +1891,7 @@ public partial class MainViewModel : ObservableObject
         foreach (var m in _registry.Mods) Mods.Add(m);
 
         Ue4ssStatus = _ue4ss.GetCurrentStatus(Game);
+        RefreshUmlStatus();
         UpdateAvailable = false;
         RunCompatibilityCheck();
 

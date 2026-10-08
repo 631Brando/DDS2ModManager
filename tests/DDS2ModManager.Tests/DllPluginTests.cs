@@ -80,8 +80,10 @@ public class DllPluginTests : IDisposable
         var unlocker = loaders.Single(l => l.Loader == ModLoaders.UnrealModUnlocker);
         Assert.Equal(Path.Combine(game.Win64Path, "UnrealModPlugins"), unlocker.PluginFolder);
 
+        // Content\CoreMods: UML's CoreModLoader climbs from the game exe to the project folder and
+        // appends Content\CoreMods. A DLL in Win64\coremods - what this used to say - never loads.
         var uml = loaders.Single(l => l.Loader == ModLoaders.UnrealModLoader);
-        Assert.Equal(Path.Combine(game.Win64Path, "coremods"), uml.PluginFolder);
+        Assert.Equal(Path.Combine(game.ContentPath, "CoreMods"), uml.PluginFolder);
     }
 
     // UE4SS loads lua mods, not arbitrary native DLLs. Reporting a folder for it would send a plugin

@@ -154,5 +154,10 @@ public class GitHubReleaseService
             readTotal += read;
             if (total > 0) progress?.Report((double)readTotal / total * 100.0);
         }
+
+        // A stream that simply ends early is a truncated file, not a download. Everything this feeds
+        // either unpacks it or - for the app's own update - swaps it in for the running exe.
+        if (total > 0 && readTotal != total)
+            throw new IOException($"The download stopped early ({readTotal:N0} of {total:N0} bytes).");
     }
 }

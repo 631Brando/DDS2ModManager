@@ -163,9 +163,12 @@ public class ModLoaderDetectionTests : IDisposable
     // The whole reason InstallableLoaders exists. Stock and experimental UE4SS both crash DDS1 on
     // startup; the build it needs is not published. Detecting it is fine, installing it is not.
     [Fact]
-    public void Dds1_never_offers_to_install_a_loader()
+    public void Dds1_never_offers_to_install_ue4ss()
     {
-        Assert.Equal(ModLoaders.None, GameProfiles.Dds1.InstallableLoaders);
+        // UnrealModLoader - what DDS1's mods are made for - is the one loader it may be given.
+        Assert.Equal(ModLoaders.UnrealModLoader, GameProfiles.Dds1.InstallableLoaders);
+        Assert.False(LoaderCompatibility.ForUE4SS(GameProfiles.Dds1, UE4SSChannel.Experimental).Available);
+        Assert.False(LoaderCompatibility.ForUE4SS(GameProfiles.Dds1, UE4SSChannel.Stable).Available);
         Assert.Equal(ModLoaders.UE4SS, GameProfiles.Dds2.InstallableLoaders);
     }
 

@@ -257,7 +257,9 @@ that the shape was not modelled at all.
 `ModType.DllPlugin = 5`, appended (see R12 — these are serialised as integers).
 
 **The destination is loader-specific and there is no shared convention.** UnrealModUnlocker loads from
-`Binaries\Win64\UnrealModPlugins`; UnrealModLoader loads from `coremods`; UE4SS loads Lua mods, not
+`Binaries\Win64\UnrealModPlugins`; UnrealModLoader loads from `Content\CoreMods` (its CoreModLoader
+climbs from the game exe to the project folder — an earlier note here said `coremods`, which nothing
+reads); UE4SS loads Lua mods, not
 arbitrary native DLLs, so it has no plugin folder at all. So `ModLoaderInstallation.PluginFolder` is
 nullable, resolved per detected loader, and **null is a refusal reason, not a fallback** — placing a
 native DLL somewhere the game never reads is indistinguishable, from the user's side, from the mod
@@ -297,7 +299,8 @@ against foreign assets (which fails silently — paths list, values come back as
 feed, and the folder saved into DDS2's settings slot over the user's real one. A generic profile is
 built from the install and answers "no" to every question disk can't answer. Each DDS-only feature
 fails closed on it: Nexus (`HasNexus` — a blank domain is not "no filter" to Nexus, it returns the
-whole site), UE4SS installs (`InstallableLoaders`), embedded mappings (`HasEmbeddedMappings`), save
+whole site), loader installs (`InstallableLoaders`, computed from the engine version read off disk
+by `LoaderCompatibility.InstallableFor` — each loader's own published range), embedded mappings (`HasEmbeddedMappings`), save
 cloning, and base-pak detection, since nothing directly in `Content\Paks` is a mod or deletable on a
 game nobody studied.
 

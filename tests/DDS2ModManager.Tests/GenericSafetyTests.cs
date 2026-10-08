@@ -129,12 +129,28 @@ public class GenericSafetyTests : IDisposable
         return dir;
     }
 
+    /// A generic game on an engine below UE4SS's published range (4.7), so UE4SS can't be installed.
+    private GameInstallation GameUe4ssCannotRunOn()
+    {
+        var game = Game("Generic", generic: true);
+        var ancient = (CUE4Parse.UE4.Versions.EGame)((4 << 24) | (5 << 16));
+        game.Profile = game.Profile with
+        {
+            EngineVersion = ancient,
+            EngineLabel = "UE 4.5",
+            InstallableLoaders = LoaderCompatibility.InstallableFor(ancient)
+        };
+        Assert.False(game.Profile.InstallableLoaders.HasFlag(ModLoaders.UE4SS));
+        return game;
+    }
+
     // Installing a lua mod onto a game without UE4SS used to create ue4ss\Mods and mods.txt from
-    // nothing - a mod that never loads, and a fake "installed UE4SS" for Reset to act on.
+    // nothing - a mod that never loads, and a fake "installed UE4SS" for Reset to act on. Still the
+    // rule wherever UE4SS can't be installed; where it can, the DDS2 behaviour below applies.
     [Fact]
     public void A_lua_mod_is_refused_where_ue4ss_is_absent_and_cannot_be_installed()
     {
-        var game = Game("Generic", generic: true);
+        var game = GameUe4ssCannotRunOn();
 
         Assert.False(InstallLua(game, LuaMod("CoolMod")));
         Assert.False(Directory.Exists(game.UE4SSRootPath));
@@ -155,10 +171,21 @@ public class GenericSafetyTests : IDisposable
     [Fact]
     public void An_empty_ue4ss_folder_does_not_count_as_ue4ss()
     {
-        var game = Game("Generic", generic: true);
+        var game = GameUe4ssCannotRunOn();
         Directory.CreateDirectory(game.UE4SSModsPath);
 
         Assert.False(InstallLua(game, LuaMod("CoolMod")));
+    }
+
+    // Now that UE4SS is installable on a generic game in its range, a lua mod there behaves like
+    // DDS2's: accepted ahead of UE4SS, which is then one button away.
+    [Fact]
+    public void A_generic_game_in_ue4ss_range_accepts_a_lua_mod_before_ue4ss_is_installed()
+    {
+        var game = Game("Generic", generic: true);
+        Assert.True(game.Profile.InstallableLoaders.HasFlag(ModLoaders.UE4SS));
+
+        Assert.True(InstallLua(game, LuaMod("CoolMod")));
     }
 
     // DDS2 can have UE4SS installed afterwards with one button, so its old behaviour stands.

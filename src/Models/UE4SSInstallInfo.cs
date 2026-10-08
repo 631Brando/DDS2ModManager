@@ -11,8 +11,11 @@ public class UE4SSInstallInfo
     public string? InstalledAssetName { get; set; }
     public DateTime? InstalledAt { get; set; }
 
-    /// We only ever install from experimental-latest, so this mirrors IsManagedByUs.
+    /// True when this manager installed it from the experimental line.
     public bool IsConfirmedExperimental { get; set; }
+
+    /// Which release line this manager installed it from, when it installed it.
+    public UE4SSChannel? Channel { get; set; }
 
     /// Which on-disk arrangement was found. Legacy means UE4SS.dll sits directly in Binaries\Win64
     /// rather than in a ue4ss\ subfolder - the layout DDS1's scene still runs, and one this manager
@@ -32,6 +35,10 @@ public class UE4SSInstallInfo
     /// Version string as UE4SS reports it in its own log, when there is one.
     public string? DetectedVersion { get; set; }
 
+    /// Whether the toolbar card has anything to say. Not installed and not installable leaves nothing
+    /// to act on - the log carries the reason - and the room goes to the cards that do.
+    public bool IsRelevant => IsInstalled || CanInstall;
+
     /// The one-line status shown on the toolbar card.
     ///
     /// Built here rather than from XAML triggers because the honest wording depends on the GAME, not
@@ -44,6 +51,8 @@ public class UE4SSInstallInfo
         {
             if (!IsInstalled)
                 return CanInstall ? "UE4SS not installed" : "UE4SS not installed (managed manually)";
+
+            if (IsManagedByUs && Channel == UE4SSChannel.Stable) return $"UE4SS stable {LoaderCompatibility.StableVersion}";
 
             // The layout IS the identifying fact here: it is what DDS1's mods expect, and it is why
             // this manager reads it but never replaces it.
@@ -63,6 +72,14 @@ public class UE4SSManifest
     public string InstalledTag { get; set; } = "";
     public string InstalledAssetName { get; set; } = "";
     public DateTime InstalledAt { get; set; }
+
+    /// Absent from manifests written before stable could be chosen, all of which were experimental -
+    /// so a missing value reads as experimental, which is what it was.
+    public UE4SSChannel Channel { get; set; } = UE4SSChannel.Experimental;
+
+    /// Only for the older layout, where UE4SS's files sit loose in Binaries\Win64 beside the game:
+    /// every file this manager put there, relative to Win64, so removal takes exactly those.
+    public List<string> Files { get; set; } = [];
 }
 
 /// A UE4SS build set aside before an update replaced it.

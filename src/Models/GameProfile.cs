@@ -25,8 +25,9 @@ public enum ModLoaders
     /// though nothing in DDS1's public mod scene uses it.
     UE4SS = 1 << 0,
 
-    /// UnrealModLoader - loads .pak LogicMods, in-game menu on F1. It READS ModLoaderInfo.ini
-    /// (hand-created by the user); it does not write it. Scans LogicMods flat, not recursively.
+    /// UnrealModLoader - loads .pak LogicMods, in-game menu on F1. UE4 only. It READS
+    /// ModLoaderInfo.ini; it never writes it. Scans LogicMods flat, not recursively, and loads DLL
+    /// "core mods" from Content\CoreMods.
     UnrealModLoader = 1 << 1,
 
     /// UnrealModUnlockerBasic - enables loading loose .uasset files from Content\.
@@ -130,15 +131,18 @@ public sealed record GameProfile
     /// Loaders this manager may DOWNLOAD AND INSTALL. Deliberately separate from SupportedLoaders:
     /// being able to recognise a loader is not permission to install it.
     ///
-    /// DDS1 is empty, and that is a safety rule rather than an omission. **Stock and experimental
-    /// UE4SS both crash DDS1 immediately** - UE&lt;=4.21 needs different container alignment, which is
-    /// what UE4SS's `LessEqual421` build definition exists for, and no prebuilt asset of it ships.
-    /// DDS2 is the mirror image: it needs the experimental build specifically, because stock v3.0.1
-    /// crashes reading its cartel TMaps. Neither game can run the other's UE4SS.
+    /// UE4SS is absent from DDS1's, and that is a safety rule rather than an omission. **Stock and
+    /// experimental UE4SS both crash DDS1 immediately.** DDS1 gets UnrealModLoader instead, which is
+    /// what its mod scene actually runs. DDS2 is the mirror image: it needs the experimental build
+    /// specifically, because stock v3.0.1 crashes reading its cartel TMaps (see UE4SSStableCaveat).
     ///
-    /// So on DDS1 the manager detects and manages what is already there, and never offers to put a
-    /// loader in. Installing the only build we can fetch would break a working game.
+    /// A generic profile computes this from the engine version it read, through
+    /// LoaderCompatibility.InstallableFor - every loader's published version range.
     public required ModLoaders InstallableLoaders { get; init; }
+
+    /// What a player must know before choosing stable UE4SS v3.0.1 on this game, when this game has
+    /// something specific to say. Null falls back to LoaderCompatibility's general advice.
+    public string? UE4SSStableCaveat { get; init; }
 
     /// Nexus Mods game domain slug, used for the mod index, the new-mod feed and browse links.
     public required string NexusDomain { get; init; }
@@ -223,6 +227,8 @@ public static class GameProfiles
         SupportsLooseAssets = false,
         SupportedLoaders    = ModLoaders.UE4SS,
         InstallableLoaders  = ModLoaders.UE4SS,
+        UE4SSStableCaveat   = "Stable v3.0.1 crashes Drug Dealer Simulator 2 when it reads the game's cartel data. " +
+                              "DDS2 needs the experimental build, and its mods are made against it.",
         NexusDomain         = "drugdealersimulator2",
         ManagerNexusModId   = 118,
         SupportsSaveCloning = true,
@@ -231,13 +237,12 @@ public static class GameProfiles
         EngineLabel         = "UE 5.3"
     };
 
-    /// Drug Dealer Simulator 1 - UE 4.21.0 (CL 4753647).
+    /// Drug Dealer Simulator 1 - UE 4.21 on its default Steam branch, UE 4.27 on another.
     ///
-    /// The engine version is worth stating plainly because the install lies about it: a
-    /// "4.27.2" .usmap and a UE4SS log claiming 4.27 are both artifacts of a manual
-    /// [EngineVersionOverride] in UE4SS-settings.ini. The exe's own build string reads
-    /// ++UE4+Release-4.21-CL-4753647, and the pak is version 7 - version 8 arrived in 4.22,
-    /// so the container format alone rules out anything newer.
+    /// The 4.21 here is only the default. GenericGameProfiles.ForInstall replaces it with whatever
+    /// the installed executable's version resource says, so the 4.27 branch is read with 4.27's
+    /// rules. The 4.21 branch's exe reads 4.21.2 and its build string ++UE4+Release-4.21-CL-4753647,
+    /// and its pak is version 7 - version 8 arrived in 4.22.
     public static readonly GameProfile Dds1 = new()
     {
         Id                  = "dds1",
@@ -256,7 +261,7 @@ public static class GameProfiles
         SupportsDllPlugins  = true,
         SupportsLooseAssets = true,
         SupportedLoaders    = ModLoaders.UnrealModLoader | ModLoaders.UnrealModUnlocker | ModLoaders.UE4SS,
-        InstallableLoaders  = ModLoaders.None,
+        InstallableLoaders  = ModLoaders.UnrealModLoader,
         NexusDomain         = "drugdealersimulator",
         SupportsSaveCloning = false,
         IsBuiltIn           = true,

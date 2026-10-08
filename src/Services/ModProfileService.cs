@@ -145,7 +145,7 @@ public class ModProfileService
     {
         try
         {
-            File.WriteAllText(PathFor(profile.Name),
+            AtomicFile.WriteAllText(PathFor(profile.Name),
                 JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true }));
             return true;
         }

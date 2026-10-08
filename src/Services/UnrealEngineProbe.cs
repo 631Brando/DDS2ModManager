@@ -15,6 +15,9 @@ public sealed record EngineGuess(EGame Game, string Label, bool IsExact, string 
 /// their profiles. For any other game it has to come from the install, and no single signal is
 /// reliable on its own, so they are tried strongest first:
 ///
+///   0. The executable's version resource (Explorer's Properties > Details > File version), which
+///      Unreal stamps with the engine version. Exact and cheap; ignored when it isn't a plausible
+///      engine version or contradicts the pak format, since a studio can stamp its own number.
 ///   1. The build string compiled into the executable, e.g. "++UE4+Release-4.21". Exact - this is
 ///      how DDS1 was pinned to 4.21 when every other artifact in its folder claimed 4.27. But
 ///      studios can strip it, and Mordhau's is gone.
@@ -86,6 +89,62 @@ public static class UnrealEngineProbe
             return null;
         }
     }
+
+    /// The engine version in an executable's version resource - what Explorer shows under
+    /// Properties > Details > File version - or null when it isn't a plausible engine version.
+    ///
+    /// Unreal's own Windows resource script stamps FILEVERSION with the engine's major.minor.patch,
+    /// so for a packaged game this IS the engine version: DDS1 reads 4.21.2, MORDHAU 4.26.2 (whose
+    /// pak format alone was read as 4.27). It is also cheap - one resource lookup, not a scan of a
+    /// 100 MB file - so unlike the build string it can be read for every game in the catalogue.
+    /// Only the numeric parts are used: the text field is often blank even where they are set.
+    public static (int Major, int Minor)? ReadExeFileVersion(string exePath)
+    {
+        try
+        {
+            var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(exePath);
+            return IsPlausibleEngineVersion(info.FileMajorPart, info.FileMinorPart)
+                ? (info.FileMajorPart, info.FileMinorPart)
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// A studio can stamp its own version instead ("1.2.0"), which is filtered here by the major.
+    private static bool IsPlausibleEngineVersion(int major, int minor) =>
+        (major == 4 && minor is >= 0 and <= 27) || (major == 5 && minor is >= 0 and <= 20);
+
+    /// The engine versions that could have written a pak of this format version, with a little slack.
+    /// Used only to VETO a version resource that can't be the engine - "4.1" on a pak v8 game is a
+    /// studio's own number, not UE 4.1 - never to choose a version. v11 spans 4.26 to 5.2: MORDHAU
+    /// is 4.26.2 and writes v11, so treating v11 as 4.27-only would reject a true answer.
+    public static bool IsConsistentWithPak((int Major, int Minor) version, int? pakVersion)
+    {
+        if (pakVersion is not { } pak) return true;
+
+        var (min, max) = pak switch
+        {
+            <= 3 => ((4, 0), (4, 15)),
+            4 => ((4, 16), (4, 19)),
+            5 => ((4, 20), (4, 20)),
+            6 or 7 => ((4, 20), (4, 21)),
+            8 => ((4, 22), (4, 24)),
+            9 => ((4, 25), (4, 25)),
+            10 => ((4, 26), (4, 26)),
+            11 => ((4, 26), (5, 2)),
+            _ => ((5, 3), (5, 99))
+        };
+
+        static int Key((int Major, int Minor) v) => v.Major * 100 + v.Minor;
+        return Key(version) >= Key(min) - 1 && Key(version) <= Key(max) + 1;
+    }
+
+    public static EngineGuess FromFileVersion(int major, int minor) =>
+        new(ToEGame(major, minor), $"UE {major}.{minor}", IsExact: true,
+            Evidence: "the version resource of the game's executable");
 
     /// The engine version from the build string compiled into an executable, or null.
     ///
@@ -213,7 +272,8 @@ public static class UnrealEngineProbe
                 8    => Estimate(4, 24, "UE 4.22–4.24", evidence),
                 9    => Estimate(4, 25, "UE 4.25", evidence),
                 10   => Estimate(4, 26, "UE 4.26", evidence),
-                11   => usesIoStore ? Estimate(5, 1, "UE 5.0–5.2", evidence) : Estimate(4, 27, "UE 4.27", evidence),
+                // 4.26.x writes v11 too (MORDHAU, 4.26.2), so it's a range, read with 4.27's rules.
+                11   => usesIoStore ? Estimate(5, 1, "UE 5.0–5.2", evidence) : Estimate(4, 27, "UE 4.26–4.27", evidence),
                 12   => Estimate(5, 3, "UE 5.3", evidence),
                 _    => Estimate(5, 4, "UE 5.4 or newer", evidence)
             };
@@ -233,18 +293,19 @@ public static class UnrealEngineProbe
     /// game the user actually opens.
     public static EngineGuess Probe(string projectPath, bool readExecutable)
     {
-        if (readExecutable)
-        {
-            var exe = UnrealInstallInspector.FindGameExecutable(projectPath);
-            if (exe != null && ReadExeBuildVersion(exe) is { } v)
-                return FromBuildString(v.Major, v.Minor);
-        }
-
         var paks = Path.Combine(projectPath, "Content", "Paks");
         var usesIoStore = UnrealInstallInspector.UsesIoStore(paks);
 
         var mainPak = UnrealInstallInspector.FindMainPak(paks);
         var pakVersion = mainPak == null ? null : ReadPakVersion(mainPak);
+
+        // The version resource first: exact, and cheap enough to read on every scan.
+        var exe = UnrealInstallInspector.FindGameExecutable(projectPath);
+        if (exe != null && ReadExeFileVersion(exe) is { } fileVersion && IsConsistentWithPak(fileVersion, pakVersion))
+            return FromFileVersion(fileVersion.Major, fileVersion.Minor);
+
+        if (readExecutable && exe != null && ReadExeBuildVersion(exe) is { } v)
+            return FromBuildString(v.Major, v.Minor);
 
         int? tocVersion = null;
         if (usesIoStore)

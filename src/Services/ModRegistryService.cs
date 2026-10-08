@@ -70,7 +70,36 @@ public class ModRegistryService
     }
 
     public void Save() =>
-        File.WriteAllText(_registryPath, JsonSerializer.Serialize(Mods, JsonOptions));
+        AtomicFile.WriteAllText(_registryPath, JsonSerializer.Serialize(Mods, JsonOptions));
+
+    /// Points lua mods whose folder moved at where it is now: UE4SS moving between its older layout
+    /// (Binaries\Win64\Mods) and its current one (ue4ss\Mods) carries the folders across, and a row
+    /// left naming the old place can't be enabled, disabled or removed. Only a folder that is gone from
+    /// its recorded place AND present, by the same name, in the current Mods folder is re-linked.
+    public int RelinkMovedLuaMods(string currentModsFolder)
+    {
+        var relinked = 0;
+
+        foreach (var mod in Mods.Where(m => m.Type == ModType.LuaMod && !string.IsNullOrWhiteSpace(m.InstallPath)))
+        {
+            if (Directory.Exists(mod.InstallPath)) continue;
+
+            var name = Path.GetFileName(Path.TrimEndingDirectorySeparator(mod.InstallPath));
+            var moved = Path.Combine(currentModsFolder, name);
+            if (string.IsNullOrWhiteSpace(name) || !Directory.Exists(moved)) continue;
+
+            var old = mod.InstallPath;
+            mod.InstallPath = moved;
+            mod.InstallFiles = mod.InstallFiles
+                .Select(f => string.Equals(Path.TrimEndingDirectorySeparator(f), Path.TrimEndingDirectorySeparator(old),
+                    StringComparison.OrdinalIgnoreCase) ? moved : f)
+                .ToList();
+            relinked++;
+        }
+
+        if (relinked > 0) Save();
+        return relinked;
+    }
 
     public void Upsert(ModInfo mod)
     {

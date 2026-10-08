@@ -115,6 +115,8 @@ public static class UnrealInstallInspector
     {
         var name = Path.GetFileNameWithoutExtension(path);
         return name.Contains("CrashReport", StringComparison.OrdinalIgnoreCase)
+               // UnrealModLoader's launcher, which guides tell people to drop beside the game.
+               || name.Contains("UnrealEngineModLauncher", StringComparison.OrdinalIgnoreCase)
                || name.Contains("UnrealCEFSubProcess", StringComparison.OrdinalIgnoreCase)
                || name.Contains("EpicWebHelper", StringComparison.OrdinalIgnoreCase);
     }

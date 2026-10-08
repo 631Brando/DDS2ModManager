@@ -233,7 +233,7 @@ public class ModBackupService
     {
         try
         {
-            File.WriteAllText(_indexPath,
+            AtomicFile.WriteAllText(_indexPath,
                 JsonSerializer.Serialize(_backups, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch (Exception ex) { LoggingService.Instance.Warn($"Couldn't save the backup index: {ex.Message}"); }
