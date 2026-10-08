@@ -3,6 +3,76 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
+## v1.3.0-exp.4
+
+A mod loader can now be installed on any Unreal game whose engine supports it, the engine version
+is read from the game's own executable, and a round of fixes from a full review — two of which
+could cost you the app itself or your mod list.
+
+### Install a mod loader on any game
+
+Each loader is offered wherever the game's engine version is one it supports, from the loader's own
+published range:
+
+| Loader | Engine versions | Goes into |
+|---|---|---|
+| UE4SS experimental — **recommended** | UE 4.7 – 5.8 | `Binaries\Win64\ue4ss\` |
+| UE4SS stable v3.0.1 | UE 4.12 – 5.3 | `Binaries\Win64` directly (its older layout) |
+| UnrealModLoader v2.2.1 | UE4 only | `Binaries\Win64`, loads itself through `xinput1_3.dll` |
+
+**Install** on the UE4SS card now asks which release as well as which build. Experimental is
+preselected: it supports far more engines, and on UE 5.2 and newer it's the only one whose
+Blueprint mod loader works, so on most UE5 games logic mods need it. Stable is there if you want it,
+greyed out with the reason on a game it doesn't support, and on DDS2 it says plainly that it crashes
+the game. If you move from stable to experimental later, your mods move into `ue4ss\Mods` with it.
+
+**UnrealModLoader** gets its own card on UE4 games — DDS1 included — with Install, Reinstall and
+Remove. It does nothing without a profile named after the game's executable, and it ships profiles
+for only a few dozen games, none of them DDS1, so the manager writes one from the engine version. A
+profile already there, including one you tuned, is never overwritten. Logic mods then install flat
+in `LogicMods`, which is the only place it looks.
+
+UE4SS is still never offered on DDS1: both published builds crash it on startup.
+
+On a game that ships EasyAntiCheat or BattlEye, every loader install asks first: a loader is a DLL
+loaded into the game, which is exactly what anti-cheat looks for.
+
+### The engine version comes from the game's executable
+
+Unreal stamps every game's executable with its engine version — it's what Windows shows under
+Properties → Details → File version. The manager now reads that first, for every game in the
+picker, so far fewer games say "estimated". MORDHAU was shown as UE 4.27 (estimated) from its pak
+format; its executable says 4.26, and that's what it shows now.
+
+It matters most for DDS1, which ships on two branches — 4.21 and 4.27. The version used to be fixed
+at 4.21 whichever you had installed; it now follows the executable, so the 4.27 branch is read with
+4.27's rules and gets the right UnrealModLoader profile.
+
+### Fixed
+
+- **An app update that failed halfway could delete the app.** If the new exe couldn't be moved into
+  place, the old one was deleted anyway. The old one is now put back, and the download is checked
+  against the release's size and for being an executable before anything is replaced.
+- **A crash while saving could empty your mod list.** The mod list, settings, profiles, history and
+  trust lists are now written beside the old file and swapped in, so a save is all or nothing.
+- **Undo update put back the wrong proxy DLL.** The copy was taken after the new `dwmapi.dll` had
+  already landed, so undoing restored the old UE4SS beside the new proxy.
+- **DLL plugins for UnrealModLoader went where it never looks.** It loads them from
+  `Content\CoreMods`, not a `coremods` folder beside the game.
+- **Switching games during the UE4SS update check** could light up Update on the game you switched
+  to, for a check that was about the other one.
+- **"Choose build" appeared on DDS1** for a moment every time a game loaded.
+- **A download cut short was treated as complete.** It's now refused, for mods and UE4SS as well as
+  for app updates.
+- **Updating UE4SS while the game was running** failed partway through with a mix of two builds. It's
+  now refused until the game is closed.
+- **The UE4SS card could show Update and Install together** when UE4SS wasn't installed.
+- **Uninstalling a lua mod with a damaged entry** could delete more than that mod's folder. It's now
+  limited to one folder inside UE4SS's Mods.
+- **A lua mod installed before UE4SS made the card say UE4SS was installed**, hiding the Install
+  button. Only an actual `UE4SS.dll` counts now.
+- The scrollbars are dark, like the rest of the window, instead of Windows' light default.
+
 ## v1.3.0-exp.3
 
 A new way to choose your game, and the first support for Unreal Engine games other than the two Drug
