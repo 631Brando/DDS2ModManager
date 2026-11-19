@@ -43,8 +43,12 @@ public class GitHubReleaseService
         return c;
     }
 
-    public Task<GitHubReleaseInfo?> GetReleaseByTagAsync(string owner, string repo, string tag) =>
-        GetReleaseAsync($"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}", $"{owner}/{repo}@{tag}");
+    /// <param name="missingIsExpected">True when asking whether a tag exists at all, so a 404 answers
+    /// "no" quietly instead of logging an error the user can do nothing about.</param>
+    public Task<GitHubReleaseInfo?> GetReleaseByTagAsync(string owner, string repo, string tag,
+        bool missingIsExpected = false) =>
+        GetReleaseAsync($"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}", $"{owner}/{repo}@{tag}",
+            missingIsExpected);
 
     /// The most recent non-prerelease, non-draft release - what GitHub's own "Latest" badge points to.
     public Task<GitHubReleaseInfo?> GetLatestReleaseAsync(string owner, string repo) =>
@@ -82,12 +86,13 @@ public class GitHubReleaseService
         }
     }
 
-    private async Task<GitHubReleaseInfo?> GetReleaseAsync(string url, string logLabel)
+    private async Task<GitHubReleaseInfo?> GetReleaseAsync(string url, string logLabel, bool missingIsExpected = false)
     {
         var log = LoggingService.Instance;
         try
         {
             using var resp = await _http.GetAsync(url);
+            if (missingIsExpected && resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
             resp.EnsureSuccessStatusCode();
             var json = await resp.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);

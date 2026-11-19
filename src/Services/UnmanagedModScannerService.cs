@@ -30,7 +30,7 @@ public class UnmanagedModScannerService
     /// Mod folders UE4SS itself ships inside ue4ss\Mods. These are part of UE4SS, not user mods,
     /// and adopting them would let the user "uninstall" pieces of UE4SS from the mod list.
     /// "shared" is a support folder rather than a mod, and mods.txt/mods.json are config files.
-    private static readonly HashSet<string> UE4SSBuiltInMods = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly HashSet<string> UE4SSBuiltInMods = new(StringComparer.OrdinalIgnoreCase)
     {
         "ActorDumperMod", "BPML_GenericFunctions", "BPModLoaderMod", "CheatManagerEnablerMod",
         "ConsoleCommandsMod", "ConsoleEnablerMod", "EventViewerMod", "Keybinds", "KismetDebuggerMod",

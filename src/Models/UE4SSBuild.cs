@@ -16,6 +16,9 @@ public partial class UE4SSBuild
     public required string DownloadUrl { get; init; }
     public long Size { get; init; }
 
+    /// The archive release this build was found in ("experimental", "experimental2", ...).
+    public string ReleaseTag { get; init; } = "experimental";
+
     public int Major { get; init; }
     public int Minor { get; init; }
     public int Patch { get; init; }
@@ -43,7 +46,8 @@ public partial class UE4SSBuild
     /// UE4SS_Xinput_…, UE4SS-2.XDev-windows.zip - from an era with a different archive layout, and
     /// the installer expects dwmapi.dll beside a ue4ss\ folder. Offering a build that cannot
     /// install is worse than not listing it: it fails after the download, not before.
-    public static UE4SSBuild? FromAssetName(string name, string downloadUrl, long size)
+    public static UE4SSBuild? FromAssetName(string name, string downloadUrl, long size,
+        string releaseTag = "experimental")
     {
         var m = AssetPattern().Match(name);
         if (!m.Success) return null;
@@ -53,6 +57,7 @@ public partial class UE4SSBuild
             AssetName = name,
             DownloadUrl = downloadUrl,
             Size = size,
+            ReleaseTag = releaseTag,
             IsDevBuild = m.Groups[1].Success,
             Major = int.Parse(m.Groups[2].Value),
             Minor = int.Parse(m.Groups[3].Value),

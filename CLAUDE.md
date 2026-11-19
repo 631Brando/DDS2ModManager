@@ -41,19 +41,26 @@ Anything the setup project links — `AppPaths.cs`, `LoggingService.cs`, `GitHub
 
 **Never offer to install UE4SS on DDS1.** Stock and experimental UE4SS both crash it immediately;
 it needs a custom `LessEqual421` build that ships no prebuilt asset. DDS1 gets UnrealModLoader
-instead. DDS2 is the mirror image — stable v3.0.1 crashes it, so the picker offers stable there only
-behind `UE4SSStableCaveat`. `GameProfile.InstallableLoaders` is the gate and is deliberately
+instead. DDS2 runs UE4SS v4.0.0 and later from either line (only the old stable v3.0.1 crashed it,
+so DDS2 has no `UE4SSStableCaveat`). `GameProfile.InstallableLoaders` is the gate and is deliberately
 separate from `SupportedLoaders`: recognising a loader is not permission to install it. A generic
 profile computes it from the engine version read off disk (`LoaderCompatibility.InstallableFor` —
-experimental 4.7–5.8, stable 4.12–5.3, UML UE4 only, each loader's own published range), and every
+UE4SS 4.7–5.8 on both lines, UML UE4 only, each loader's own published range), and every
 loader install on an anti-cheat game is confirmed, every time.
 
-**UE4SS stable installs in its older layout and is only ever touched through its manifest.** v3.0.1
-ships `UE4SS.dll`, its settings and `Mods\` loose in `Binaries\Win64`, beside the game exe. The
-manifest there (`.dds2modmanager_manifest.json`) lists every file it wrote; removal and the move to
-experimental take exactly those (never an `.exe`, never outside Win64). An older-layout UE4SS with no
-manifest was installed by hand and nothing is installed over it or moved out of it. Experimental →
-stable is refused; stable → experimental moves `Mods\` into `ue4ss\` and re-links lua mod rows.
+**Stable UE4SS is `LoaderCompatibility.StableVersion` (v4.0.0), fetched by its tag, never as GitHub's
+"latest".** Every claim attached to the channel — range, label, caveats — is about that tag, so moving
+it is a deliberate code change. v4.0.0 uses the same `ue4ss\` layout as experimental, so moving
+between the lines either way is an ordinary install with an undo copy.
+
+**A v3.0.1 install (the old stable) is older-layout and only ever touched through its manifest.**
+v3.0.1 ships `UE4SS.dll`, its settings and `Mods\` loose in `Binaries\Win64`, beside the game exe.
+Earlier versions of this app installed it with a manifest there (`.dds2modmanager_manifest.json`)
+listing every file it wrote; removal and the move to `ue4ss\` take exactly those (never an `.exe`,
+never outside Win64). An older-layout UE4SS with no manifest was installed by hand and nothing is
+installed over it or moved out of it. Installing either line over a managed v3.0.1 moves `Mods\` into
+`ue4ss\` and re-links lua mod rows; an older-layout payload over a `ue4ss\` folder is refused. The
+status label shows the installed tag (`InstalledVersionTag`), not the constant.
 
 **UnrealModLoader needs a profile named after the game exe, or it does nothing.** It reads
 `Profiles\<exe>.profile` beside itself and logs "Profile Not Detected!" otherwise. When UML ships
@@ -104,8 +111,16 @@ recursively. Never tell a user a mod parked there is switched off — the game i
 
 **UnrealModLoader scans `LogicMods` flat.** DDS1 logic mods install flat; DDS2's go in per-mod
 subfolders for UE4SS. Gated by `GameProfile.LogicModsUseSubfolders` in both install and enable — and
-overridden to flat wherever UML is installed (`ModInstallerService.LogicModsNested`), since UE4SS's
-BPModLoaderMod reads both the top level and one folder down.
+overridden to flat wherever UML is installed (`ModInstallerService.LogicModsNested`), since
+UE4SS's BPModLoaderMod (experimental, and v4.0.0+) reads both the top level and one folder down. **The
+old v3.0.1's does not** — it reads subfolders for `config.lua` only — so the installed script is checked
+(`BlueprintLoaderReadsSubfolders`). UML also strips a trailing `_P` from the pak name to find
+`/Game/Mods/<name>/ModActor`; UE4SS does not.
+
+**UnrealModLoader is ANSI end to end.** The AutoInjector reads `ModLoaderInfo.ini` with a narrow
+`std::ifstream` and passes `LoaderPath` to `LoadLibraryA`, and UML derives LogicMods/CoreMods from
+`GetModuleFileNameA`. The ini is written in the system ANSI code page, and a game path that code page
+can't spell is refused (`FitsAnsiCodePage`).
 
 **A fingerprint may only advance when the analysis it describes does.** `RefreshFileState` must not
 re-arm on the pass that detected drift; `DeepScan` is the writer, because it is what re-read the mod.

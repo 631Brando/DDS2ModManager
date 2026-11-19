@@ -52,7 +52,10 @@ public class UE4SSInstallInfo
             if (!IsInstalled)
                 return CanInstall ? "UE4SS not installed" : "UE4SS not installed (managed manually)";
 
-            if (IsManagedByUs && Channel == UE4SSChannel.Stable) return $"UE4SS stable {LoaderCompatibility.StableVersion}";
+            // The tag it was installed from, not the current constant: a v3.0.1 install made before
+            // stable moved to v4.0.0 is still v3.0.1 until it is updated.
+            if (IsManagedByUs && Channel == UE4SSChannel.Stable)
+                return $"UE4SS stable {(string.IsNullOrWhiteSpace(InstalledVersionTag) ? LoaderCompatibility.StableVersion : InstalledVersionTag)}";
 
             // The layout IS the identifying fact here: it is what DDS1's mods expect, and it is why
             // this manager reads it but never replaces it.

@@ -554,7 +554,60 @@ public class ModInstallerService
     /// call this, so a disable/enable cycle can never re-nest a mod UML was loading.
     private bool LogicModsNested() =>
         _game.Profile.LogicModsUseSubfolders
-        && !File.Exists(Path.Combine(_game.Win64Path, UnrealModLoaderService.LoaderInfoFileName));
+        && !File.Exists(Path.Combine(_game.Win64Path, UnrealModLoaderService.LoaderInfoFileName))
+        && BlueprintLoaderReadsSubfolders(_game);
+
+    /// Whether the UE4SS installed here loads a logic mod from its own subfolder of LogicMods.
+    ///
+    /// Not every UE4SS does. Stable v3.0.1's BPModLoaderMod only reads config.lua from subfolders;
+    /// the .pak files it spawns ModActors for come from `pairs(LogicModsDir.__files)` - LogicMods' own
+    /// top level. Experimental gathers each subfolder's files too. Under stable a nested logic mod is
+    /// still MOUNTED (Unreal reads Paks recursively), so nothing errors - its actor just never
+    /// spawns. So the installed loader's own script is read, and only the flat-only loop says no.
+    /// With no UE4SS installed yet the answer is yes: the profile's default stands.
+    public static bool BlueprintLoaderReadsSubfolders(GameInstallation game)
+    {
+        var script = Path.Combine(game.UE4SSModsPath, "BPModLoaderMod", "Scripts", "main.lua");
+        try
+        {
+            return !File.Exists(script) || !FlatOnlyBlueprintLoop.IsMatch(File.ReadAllText(script));
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    /// Logic mods in their own subfolder of LogicMods, named, once a loader that reads only LogicMods'
+    /// top level has just been installed. They were placed for the loader that was there before (or
+    /// for none), and nothing else will ever say why they stopped spawning. Disable + Enable re-places
+    /// a managed one, because Enable follows LogicModsNested.
+    public static void WarnAboutNestedLogicMods(GameInstallation game, string loaderName)
+    {
+        try
+        {
+            if (!Directory.Exists(game.LogicModsPath)) return;
+
+            var nested = Directory.GetDirectories(game.LogicModsPath)
+                .Where(d => Directory.EnumerateFiles(d, "*.pak").Any())
+                .Select(Path.GetFileName)
+                .ToList();
+            if (nested.Count == 0) return;
+
+            LoggingService.Instance.Warn(
+                $"{loaderName} only loads logic mods whose .pak sits directly in Content\\Paks\\LogicMods, and " +
+                $"{nested.Count} are in a subfolder of their own: {string.Join(", ", nested.Take(6))}" +
+                (nested.Count > 6 ? ", ..." : "") + ". Those won't spawn. Disable and re-enable each one in the mod " +
+                "list to move it up a level (or move its .pak up by hand).");
+        }
+        catch
+        {
+            // advice only - an unreadable folder isn't worth failing an install over
+        }
+    }
+
+    private static readonly Regex FlatOnlyBlueprintLoop =
+        new(@"pairs\s*\(\s*LogicModsDir\s*\.\s*__files\s*\)", RegexOptions.Compiled);
 
     private void InstallPakTriple(string workingDir, string destFolder, ModInfo mod)
     {
@@ -953,6 +1006,11 @@ public class ModInstallerService
             }
             else if (mod.Type == ModType.LuaMod)
             {
+                // Named BEFORE the folder goes: LuaFolderName reads it off the folder on disk, and
+                // once that is deleted it falls back to the display name - "X (LuaMod)" for half of a
+                // two-part mod - leaving the real "X : 1" line behind in mods.txt.
+                var folderName = LuaFolderName(mod);
+
                 // A recursive delete, so it has to be ONE mod's folder: strictly inside the Mods folder
                 // UE4SS reads. A registry entry naming the Mods folder itself, or somewhere else
                 // entirely, would otherwise take every lua mod - or worse - with it.
@@ -964,7 +1022,7 @@ public class ModInstallerService
                         log.Warn($"Didn't delete {mod.InstallPath} for '{mod.Name}' - it isn't a mod folder inside " +
                                  $"{_game.UE4SSModsPath}. Remove it by hand if it really is this mod.");
                 }
-                _lua.RemoveEntry(_game, LuaFolderName(mod));
+                _lua.RemoveEntry(_game, folderName);
             }
 
             var cachePath = Path.Combine(_disabledCacheDir, mod.Id);

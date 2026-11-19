@@ -102,6 +102,11 @@ public class UnrealModLoaderService
         if (ProfileNameFor(game) == null)
             return "The game's executable wasn't found in Binaries\\Win64, and UnrealModLoader needs its name to find its profile.";
 
+        if (!FitsAnsiCodePage(game.Win64Path))
+            return "UnrealModLoader finds its own files and the game's with Windows' older (ANSI) path functions, and this " +
+                   "game's folder has characters those can't spell on this PC. It would fail to load without saying why. " +
+                   "Moving the game to a library folder whose path uses plain letters fixes it.";
+
         var manifest = ReadManifest(game);
 
         // Someone else's working setup. Its LoaderPath may point at a loader elsewhere on disk, and
@@ -258,8 +263,12 @@ public class UnrealModLoaderService
                      $"Binaries\\Win64\\{ProfilesFolderName}\\{profileName}.");
         }
 
+        // In the ANSI code page, never UTF-8: the AutoInjector reads LoaderPath with a narrow
+        // std::ifstream and hands the bytes straight to LoadLibraryA. A UTF-8 "è" in a library path is
+        // two bytes LoadLibraryA reads as two other characters, and UML then never loads.
         var infoPath = Path.Combine(game.Win64Path, LoaderInfoFileName);
-        File.WriteAllText(infoPath, BuildLoaderInfo(Path.Combine(game.Win64Path, LoaderDllName), ReadUseConsole(infoPath)));
+        File.WriteAllText(infoPath, BuildLoaderInfo(Path.Combine(game.Win64Path, LoaderDllName), ReadUseConsole(infoPath)),
+            AnsiCodePage());
         written.Add(LoaderInfoFileName);
 
         var manifest = new UnrealModLoaderManifest
@@ -270,7 +279,7 @@ public class UnrealModLoaderService
             Files = written,
             GeneratedProfile = generated
         };
-        File.WriteAllText(ManifestPath(game), JsonSerializer.Serialize(manifest));
+        AtomicFile.WriteAllText(ManifestPath(game), JsonSerializer.Serialize(manifest));
 
         log.Success($"UnrealModLoader {tag} installed. Launch the game normally - it loads itself " +
                     $"through {ProxyDllName}. Press F1 in game for its menu.");
@@ -340,6 +349,39 @@ public class UnrealModLoaderService
         "#Enables the default console, used for debugging and finding errors, Set to 1 for true",
         $"UseConsole={(useConsole ? 1 : 0)}",
         "");
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern uint GetACP();
+
+    private static readonly Lazy<System.Text.Encoding> _ansi = new(() =>
+    {
+        var acp = (int)GetACP();
+        if (acp == 65001) return new System.Text.UTF8Encoding(false, throwOnInvalidBytes: true);
+
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+        return System.Text.Encoding.GetEncoding(acp,
+            System.Text.EncoderFallback.ExceptionFallback, System.Text.DecoderFallback.ExceptionFallback);
+    });
+
+    /// The system's ANSI code page - what every narrow-string Win32 call UML makes (GetModuleFileNameA,
+    /// LoadLibraryA) speaks. UTF-8 when Windows' "Use Unicode UTF-8" option is on.
+    public static System.Text.Encoding AnsiCodePage() => _ansi.Value;
+
+    /// Whether a path survives the ANSI code page. When it doesn't, UML's GetModuleFileNameA returns
+    /// '?' in its place and every folder it derives from the exe - LogicMods, CoreMods, Profiles -
+    /// points nowhere.
+    public static bool FitsAnsiCodePage(string path)
+    {
+        try
+        {
+            AnsiCodePage().GetBytes(path);
+            return true;
+        }
+        catch (System.Text.EncoderFallbackException)
+        {
+            return false;
+        }
+    }
 
     /// The player's console choice from an earlier install, so updating doesn't reset it.
     private static bool ReadUseConsole(string infoPath)

@@ -135,9 +135,11 @@ internal static class Program
         Activate(vm, null);
         await RenderMainAsync(vm, 1760, 980, "main-nogame.png");
 
-        // The UE4SS install dialog, for the cases its wording differs on: DDS2 (stable named as a crash),
-        // a generic UE4 game, and a UE5.5 game past stable's range.
+        // The UE4SS install dialog, for the cases its wording differs on: DDS2, DDS2 with an old
+        // v3.0.1 install whose mods will move, a generic UE4 game, and a UE5.5 game.
         await RenderUe4ssDialogAsync(GameProfiles.Dds2, "ue4ss-dialog-dds2.png");
+        await RenderUe4ssDialogAsync(GameProfiles.Dds2, "ue4ss-dialog-dds2-from-v3.png",
+            installedChannel: UE4SSChannel.Stable, olderLayoutInstalled: true);
         if (generic != null) await RenderUe4ssDialogAsync(generic.Game.ToInstallation().Profile, "ue4ss-dialog-generic.png");
         var ue55 = (CUE4Parse.UE4.Versions.EGame)((5 << 24) | (5 << 16));
         await RenderUe4ssDialogAsync(GameProfiles.Dds2 with
@@ -167,9 +169,10 @@ internal static class Program
         vm.UmlStatus = vm.Game == null ? null : UnrealModLoaderService.GetStatus(vm.Game);
     }
 
-    private static async Task RenderUe4ssDialogAsync(GameProfile profile, string file)
+    private static async Task RenderUe4ssDialogAsync(GameProfile profile, string file,
+        UE4SSChannel installedChannel = UE4SSChannel.Experimental, bool olderLayoutInstalled = false)
     {
-        var dialog = new UE4SSBuildSelectionWindow(profile, preferDev: false, installedChannel: UE4SSChannel.Experimental);
+        var dialog = new UE4SSBuildSelectionWindow(profile, preferDev: false, installedChannel, olderLayoutInstalled);
         var content = (FrameworkElement)dialog.Content;
         dialog.Content = null;
 

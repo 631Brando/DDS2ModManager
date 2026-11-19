@@ -2,10 +2,14 @@ namespace DDS2ModManager.Services;
 
 /// Handles detecting, installing and updating UE4SS, from either release line.
 ///
-/// Experimental ("experimental-latest") is recommended everywhere and preselected. Stable is v3.0.1,
-/// which ships the OLDER layout - UE4SS.dll, its settings and Mods\ loose in Binaries\Win64 rather
-/// than under ue4ss\ - so it is installed that way, with a manifest of every file put there, and a
-/// later move to experimental carries the player's mods across into ue4ss\Mods.
+/// Experimental ("experimental-latest") is recommended everywhere and preselected. Stable is the
+/// numbered release v4.0.0, fetched by tag, in the same ue4ss\ layout - so moving between the two
+/// lines is an ordinary install either way, with the same undo copy.
+///
+/// The previous stable, v3.0.1, shipped the OLDER layout - UE4SS.dll, its settings and Mods\ loose in
+/// Binaries\Win64 - and earlier versions of this manager installed it that way, with a manifest of
+/// every file. Those installs are still read and removed by that manifest, and the next install of
+/// either line carries the player's mods across into ue4ss\Mods.
 public class UE4SSManagerService
 {
     private const string Owner = "UE4SS-RE";
@@ -15,10 +19,16 @@ public class UE4SSManagerService
     /// The archive of every experimental build ever published, as opposed to the rolling
     /// "experimental-latest" tag whose four assets are replaced in place.
     ///
-    /// Nearly 900 assets, ~300 builds per channel for the 3.0.1 line alone. This is what makes
-    /// going back to a specific build possible at all: a user broken by an update can be returned
-    /// to the exact build they were on, by name, even if they never kept a copy of it.
+    /// This is what makes going back to a specific build possible at all: a user broken by an update
+    /// can be returned to the exact build they were on, by name, even if they never kept a copy of it.
+    ///
+    /// The archive is SEVERAL releases, not one. GitHub caps a release at 1,000 assets; "experimental"
+    /// reached 999 on 5 November 2026 and UE4SS-RE started "experimental2" ("UE4SS Experimental Release
+    /// Archive 2") the same day. Reading only the first froze the picker on the last 3.0.1 builds, with
+    /// every 4.0.0 build missing and nothing on screen to say so. Later volumes are found by probing
+    /// experimental3, experimental4, ... until one doesn't exist, so the next rollover needs no release.
     private const string ArchiveTag = "experimental";
+    private const int MaxArchiveVolumes = 20;
 
     private readonly GitHubReleaseService _github = new();
 
@@ -26,7 +36,7 @@ public class UE4SSManagerService
         _github.GetReleaseByTagAsync(Owner, Repo, Tag);
 
     /// Stable is fetched by its TAG, not as GitHub's "latest". Everything said about it - the range
-    /// it supports, the older layout, the DDS2 crash, the label - is about v3.0.1, so whatever
+    /// it supports, the DDS2 caveat, the label - is about LoaderCompatibility.StableVersion, so whatever
     /// UE4SS-RE marks as latest next must not be installed under that description.
     public Task<GitHubReleaseInfo?> GetLatestReleaseAsync(UE4SSChannel channel) =>
         channel == UE4SSChannel.Stable
@@ -40,17 +50,38 @@ public class UE4SSManagerService
     /// A build that cannot install is worse than one that is absent - it fails after the download.
     public async Task<IReadOnlyList<UE4SSBuild>> GetArchivedBuildsAsync()
     {
-        var release = await _github.GetReleaseByTagAsync(Owner, Repo, ArchiveTag);
-        if (release == null) return [];
+        var volumes = new List<GitHubReleaseInfo>();
 
-        var builds = release.Assets
-            .Select(a => UE4SSBuild.FromAssetName(a.Name, a.BrowserDownloadUrl, a.Size))
-            .Where(b => b != null)
-            .Select(b => b!)
-            .ToList();
+        var first = await _github.GetReleaseByTagAsync(Owner, Repo, ArchiveTag);
+        if (first == null) return [];
+        volumes.Add(first);
 
-        builds.Sort(UE4SSBuild.Newest);
-        return builds;
+        for (var n = 2; n <= MaxArchiveVolumes; n++)
+        {
+            var next = await _github.GetReleaseByTagAsync(Owner, Repo, ArchiveTag + n, missingIsExpected: true);
+            if (next == null) break;
+            volumes.Add(next);
+        }
+
+        return BuildsFromArchive(volumes);
+    }
+
+    /// Every installable build across the archive's volumes, newest first. An asset name is a build's
+    /// identity, so one that appears in two volumes is listed once.
+    public static List<UE4SSBuild> BuildsFromArchive(IEnumerable<GitHubReleaseInfo> volumes)
+    {
+        var builds = new Dictionary<string, UE4SSBuild>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var volume in volumes)
+        foreach (var asset in volume.Assets)
+        {
+            if (UE4SSBuild.FromAssetName(asset.Name, asset.BrowserDownloadUrl, asset.Size, volume.TagName) is { } build)
+                builds.TryAdd(build.AssetName, build);
+        }
+
+        var list = builds.Values.ToList();
+        list.Sort(UE4SSBuild.Newest);
+        return list;
     }
 
     /// Installs one specific build from the archive.
@@ -61,7 +92,7 @@ public class UE4SSManagerService
     public Task<bool> InstallSpecificBuildAsync(GameInstallation game, UE4SSBuild build,
         IProgress<double>? progress = null)
     {
-        var release = new GitHubReleaseInfo { TagName = ArchiveTag, Name = build.AssetName };
+        var release = new GitHubReleaseInfo { TagName = build.ReleaseTag, Name = build.AssetName };
         var asset = new GitHubAsset
         {
             Name = build.AssetName,
@@ -294,8 +325,8 @@ public class UE4SSManagerService
     /// Puts an extracted UE4SS release onto the game. Split from the download so it can be tested
     /// against a payload built on disk, and so both layouts go through one set of rules.
     ///
-    /// Two archive shapes exist. The modern one (experimental) is dwmapi.dll beside a ue4ss\ folder.
-    /// The older one (stable v3.0.1) is dwmapi.dll, UE4SS.dll, its settings and Mods\ all at the root,
+    /// Two archive shapes exist. The modern one (experimental, and stable v4.0.0) is dwmapi.dll beside a
+    /// ue4ss\ folder. The older one (v3.0.1) is dwmapi.dll, UE4SS.dll, its settings and Mods\ at the root,
     /// installed loose into Binaries\Win64. Which one arrived decides everything below.
     public static bool ApplyExtracted(GameInstallation game, string extractDir, string tag, string assetName,
         UE4SSChannel channel)
@@ -332,7 +363,7 @@ public class UE4SSManagerService
         if (incomingLegacy)
             return ApplyLegacy(game, extractDir, tag, assetName, channel, legacyManifest);
 
-        // Moving from stable to experimental: carry the player's mods and settings into ue4ss\ first,
+        // Moving out of the older layout (v3.0.1): carry the player's mods and settings into ue4ss\ first,
         // so the ordinary update below preserves and merges them exactly as it would its own.
         var migrated = false;
         if (legacyManifest != null)
@@ -362,8 +393,8 @@ public class UE4SSManagerService
             // What sits in ue4ss\ now is only the player's mods and settings, not a build - setting
             // that aside as "the previous UE4SS" would make Undo restore half of one.
             DiscardPreviousBuild(game);
-            log.Info("Moving from stable to experimental can't be undone with Undo update - Choose build installs any " +
-                     "experimental build, and stable can be installed again after removing UE4SS.");
+            log.Info("Moving UE4SS out of its older layout can't be undone with Undo update. Choose build installs any " +
+                     "experimental build, and either line can be installed again from the UE4SS card.");
         }
         else
         {
@@ -381,13 +412,15 @@ public class UE4SSManagerService
             InstalledAt = DateTime.Now,
             Channel = channel
         };
-        File.WriteAllText(GetManifestPath(game), JsonSerializer.Serialize(manifest));
+        AtomicFile.WriteAllText(GetManifestPath(game), JsonSerializer.Serialize(manifest));
 
         log.Success($"UE4SS ({assetName}) installed/updated successfully.");
         return true;
     }
 
-    /// Installs the older layout (stable v3.0.1) loose into Binaries\Win64, recording every file.
+    /// Installs an older-layout build (v3.0.1, or an early archive build) loose into Binaries\Win64,
+    /// recording every file. Neither line this manager offers ships that shape any more; it stays so a
+    /// payload that does is installed by the same rules rather than refused as unknown.
     private static bool ApplyLegacy(GameInstallation game, string extractDir, string tag, string assetName,
         UE4SSChannel channel, UE4SSManifest? previous)
     {
@@ -399,9 +432,9 @@ public class UE4SSManagerService
         {
             if (File.Exists(Path.Combine(game.UE4SSRootPath, "UE4SS.dll")))
             {
-                log.Error($"UE4SS experimental is installed here. Stable {LoaderCompatibility.StableVersion} uses the older " +
-                          "layout, and going back to it isn't automatic - your mods live in ue4ss\\Mods and would have to " +
-                          "move. Choose build installs any experimental build instead, including older ones.");
+                log.Error($"UE4SS is installed here in its ue4ss\\ folder, and {assetName} uses the older layout. Going " +
+                          "back to that isn't automatic - your mods live in ue4ss\\Mods and would have to move. Choose " +
+                          "build installs any experimental build instead, including older ones.");
                 return false;
             }
 
@@ -414,7 +447,7 @@ public class UE4SSManagerService
         var settingsBefore = ReadExistingSettings(game.Win64Path, incomingIni);
 
         log.Info(previous == null
-            ? $"Installing {assetName} (stable, older layout: its files go directly in Binaries\\Win64)."
+            ? $"Installing {assetName} (older layout: its files go directly in Binaries\\Win64)."
             : $"Replacing {previous.InstalledAssetName} with {assetName}.");
 
         var written = new List<string>();
@@ -452,15 +485,17 @@ public class UE4SSManagerService
             Channel = channel,
             Files = written
         };
-        File.WriteAllText(LegacyManifestPath(game), JsonSerializer.Serialize(manifest));
+        AtomicFile.WriteAllText(LegacyManifestPath(game), JsonSerializer.Serialize(manifest));
 
-        log.Success($"UE4SS ({assetName}) installed. Stable keeps no undo copy - it hasn't changed since " +
-                    $"{LoaderCompatibility.StableVersion}, and experimental is one Choose build away.");
+        log.Success($"UE4SS ({assetName}) installed in its older layout, which keeps no undo copy.");
+
+        if (!ModInstallerService.BlueprintLoaderReadsSubfolders(game))
+            ModInstallerService.WarnAboutNestedLogicMods(game, $"UE4SS ({assetName})");
         return true;
     }
 
-    /// Stable -> experimental: Mods\ and the settings move into ue4ss\, then the rest of what stable
-    /// put loose in Win64 is removed by its manifest. Moves rather than copies, on one volume, so a
+    /// Older layout -> ue4ss\ (v3.0.1 to either line): Mods\ and the settings move into ue4ss\, then the
+    /// rest of what v3.0.1 put loose in Win64 is removed by its manifest. Moves rather than copies, on one volume, so a
     /// failure leaves every mod in exactly one place.
     private static bool MigrateLegacyToModern(GameInstallation game, UE4SSManifest legacy)
     {
@@ -486,19 +521,19 @@ public class UE4SSManagerService
         }
         catch (Exception ex)
         {
-            // Stable is still the build that loads, and it reads Binaries\Win64\Mods - so everything
+            // The older-layout build still loads, and it reads Binaries\Win64\Mods - so everything
             // that moved goes back, and a ue4ss\ this created goes too, or every path would flip to a
             // folder nothing reads.
             var putBack = RollBack(moved);
             if (createdRoot) RemoveIfEmpty(game.UE4SSRootPath);
 
             log.Error($"Couldn't move your UE4SS mods into ue4ss\\: {ex.Message}. " + (putBack
-                ? "Everything that had moved was put back, and stable UE4SS is as it was."
+                ? "Everything that had moved was put back, and the UE4SS you had is as it was."
                 : $"Not everything could be put back - check Binaries\\Win64\\Mods and {game.UE4SSRootPath}\\Mods."));
             return false;
         }
 
-        // Every move succeeded, so only now does what stable put loose in Win64 go.
+        // Every move succeeded, so only now does what v3.0.1 put loose in Win64 go.
         var notRemoved = new List<string>();
         foreach (var path in LegacyFilesOnRecord(game, legacy))
         {
@@ -506,10 +541,10 @@ public class UE4SSManagerService
             catch { notRemoved.Add(Path.GetRelativePath(game.Win64Path, path)); }
         }
 
-        log.Info("Moved your UE4SS mods and settings from Binaries\\Win64 into ue4ss\\, where experimental reads them.");
+        log.Info("Moved your UE4SS mods and settings from Binaries\\Win64 into ue4ss\\, where UE4SS now reads them.");
         if (notRemoved.Count > 0)
-            log.Warn($"Couldn't remove {string.Join(", ", notRemoved.Take(6))} left by stable UE4SS in Binaries\\Win64. " +
-                     "Experimental doesn't use them - remove them by hand.");
+            log.Warn($"Couldn't remove {string.Join(", ", notRemoved.Take(6))} left by the older-layout UE4SS in " +
+                     "Binaries\\Win64. The UE4SS now installed doesn't use them - remove them by hand.");
         return true;
     }
 
@@ -545,7 +580,7 @@ public class UE4SSManagerService
         catch { /* best effort: an empty folder left behind is harmless */ }
     }
 
-    /// For stable onto a game where a lua mod created ue4ss\Mods before any UE4SS existed.
+    /// For an older-layout build onto a game where a lua mod created ue4ss\Mods before any UE4SS existed.
     private static bool AdoptModsFromEmptyModernFolder(GameInstallation game)
     {
         var log = LoggingService.Instance;
@@ -557,7 +592,7 @@ public class UE4SSManagerService
         if (others.Count > 0)
         {
             log.Error($"{root} holds files that aren't mods ({Path.GetFileName(others[0])}), so it isn't safe to treat as " +
-                      "empty. Stable uses the older layout, which only works without that folder - remove it first.");
+                      "empty. This build uses the older layout, which only works without that folder - remove it first.");
             return false;
         }
 
@@ -566,7 +601,7 @@ public class UE4SSManagerService
             var mods = Path.Combine(root, "Mods");
             if (Directory.Exists(mods)) MoveContents(mods, Path.Combine(game.Win64Path, "Mods"));
             if (!Directory.EnumerateFileSystemEntries(root).Any()) Directory.Delete(root);
-            log.Info("Moved the mods waiting in ue4ss\\Mods to Binaries\\Win64\\Mods, where stable UE4SS reads them.");
+            log.Info("Moved the mods waiting in ue4ss\\Mods to Binaries\\Win64\\Mods, where this UE4SS reads them.");
             return !Directory.Exists(root);
         }
         catch (Exception ex)
@@ -684,10 +719,17 @@ public class UE4SSManagerService
 
     /// Puts the previous UE4SS back.
     ///
-    /// Deliberately NOT a merge. This is "undo the update", so the whole payload goes back exactly
-    /// as it was, settings included - the point is to return to a state the user knows worked, and
-    /// carrying anything forward from the build being removed would make that state something they
-    /// have never actually run.
+    /// Deliberately NOT a merge for UE4SS's own files. This is "undo the update", so the build goes
+    /// back exactly as it was, settings included - the point is to return to a state the user knows
+    /// worked, and carrying anything forward from the build being removed would make that state
+    /// something they have never actually run.
+    ///
+    /// The PLAYER's files are the opposite: they stay exactly as they are now. The copy was taken of
+    /// the whole ue4ss\ folder, so it also holds the lua mods and mods.txt as they were on the day of
+    /// the update. Restoring those wholesale used to delete every lua mod installed since, bring back
+    /// every one removed since, and leave the mod list pointing at folders that no longer matched -
+    /// while the log said mod folders "were not touched". Only the mod folders UE4SS itself ships
+    /// (BPModLoaderMod, Keybinds, ...) come from the copy.
     ///
     /// The copy is left in place afterwards rather than consumed, so a restore that turns out not to
     /// have been the problem can be repeated.
@@ -717,8 +759,66 @@ public class UE4SSManagerService
 
         try
         {
-            if (Directory.Exists(game.UE4SSRootPath)) Directory.Delete(game.UE4SSRootPath, true);
-            CopyDirectoryPlain(Path.Combine(previous.RootPath, "ue4ss"), game.UE4SSRootPath);
+            var root = game.UE4SSRootPath;
+            var liveMods = Path.Combine(root, "Mods");
+
+            // The player's own files inside folders that are about to be replaced, read first.
+            var keep = UserOwnedFiles
+                .Select(rel => (rel, path: Path.Combine(root, rel)))
+                .Where(f => File.Exists(f.path))
+                .Select(f => (f.rel, bytes: File.ReadAllBytes(f.path)))
+                .ToList();
+
+            // Out goes UE4SS's own payload: everything beside Mods\, and in Mods\ only what UE4SS ships.
+            if (Directory.Exists(root))
+            {
+                foreach (var entry in Directory.EnumerateFileSystemEntries(root).ToList())
+                {
+                    if (Directory.Exists(entry))
+                    {
+                        if (string.Equals(Path.GetFileName(entry), "Mods", StringComparison.OrdinalIgnoreCase)) continue;
+                        Directory.Delete(entry, true);
+                    }
+                    else File.Delete(entry);
+                }
+
+                // shared\ is overlaid below rather than cleared: UE4SS ships UEHelpers there, but lua
+                // mods drop their own libraries beside it, and those are the player's.
+                if (Directory.Exists(liveMods))
+                    foreach (var dir in Directory.GetDirectories(liveMods))
+                    {
+                        var name = Path.GetFileName(dir);
+                        if (string.Equals(name, "shared", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (UnmanagedModScannerService.UE4SSBuiltInMods.Contains(name)) Directory.Delete(dir, true);
+                    }
+            }
+
+            var kept = Path.Combine(previous.RootPath, "ue4ss");
+            foreach (var file in Directory.GetFiles(kept, "*", SearchOption.AllDirectories))
+            {
+                var rel = Path.GetRelativePath(kept, file);
+                var parts = rel.Split(Path.DirectorySeparatorChar);
+                var target = Path.Combine(root, rel);
+
+                if (string.Equals(parts[0], "Mods", StringComparison.OrdinalIgnoreCase))
+                {
+                    // mods.txt / mods.json: the player's list stays; the copy's only fills a gap.
+                    if (parts.Length == 2 && File.Exists(target)) continue;
+
+                    // A mod folder of the player's, as it was on the day of the update - not restored.
+                    if (parts.Length > 2 && !UnmanagedModScannerService.UE4SSBuiltInMods.Contains(parts[1])) continue;
+                }
+
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target, true);
+            }
+
+            foreach (var (rel, bytes) in keep)
+            {
+                var target = Path.Combine(root, rel);
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.WriteAllBytes(target, bytes);
+            }
 
             var proxy = Path.Combine(previous.RootPath, "dwmapi.dll");
             if (File.Exists(proxy)) File.Copy(proxy, Path.Combine(game.Win64Path, "dwmapi.dll"), true);

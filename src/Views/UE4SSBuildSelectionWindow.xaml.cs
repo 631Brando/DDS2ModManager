@@ -18,8 +18,10 @@ public partial class UE4SSBuildSelectionWindow : Window
     public bool UseDevBuild { get; private set; }
     public UE4SSChannel Channel { get; private set; } = UE4SSChannel.Experimental;
 
+    /// <param name="olderLayoutInstalled">A v3.0.1 install in Binaries\Win64 that this manager made.
+    /// Either line moves its mods into ue4ss\Mods, so that is said before the choice, not after.</param>
     public UE4SSBuildSelectionWindow(GameProfile profile, bool preferDev, UE4SSChannel installedChannel,
-        bool experimentalLayoutInstalled = false)
+        bool olderLayoutInstalled = false)
     {
         InitializeComponent();
         _profile = profile;
@@ -29,12 +31,15 @@ public partial class UE4SSBuildSelectionWindow : Window
         var experimental = LoaderCompatibility.ForUE4SS(profile, UE4SSChannel.Experimental);
         var stable = LoaderCompatibility.ForUE4SS(profile, UE4SSChannel.Stable);
 
-        // Said here rather than after a download: the install refuses this, because stable's older
-        // layout can't sit beside a ue4ss\ folder and the mods in it would have to move back.
-        if (experimentalLayoutInstalled && stable.Available)
-            stable = new LoaderCompatibility.Choice(false,
-                "Experimental is installed here, and going back to stable isn't automatic - your mods live in " +
-                "ue4ss\\Mods. Choose build installs any experimental build, including older ones.", null);
+        // Both lines now ship the ue4ss\ layout, so moving between them is an ordinary install. Only
+        // the old v3.0.1 layout changes shape on the way, and the player's mods move with it.
+        if (olderLayoutInstalled)
+        {
+            const string moves = "Your UE4SS mods and settings will move from Binaries\\Win64 into ue4ss\\, where " +
+                                 "this version keeps them.";
+            experimental = WithNote(experimental, moves);
+            stable = WithNote(stable, moves);
+        }
         Describe(ExperimentalCard, ExperimentalOption, ExperimentalNote, experimental);
         Describe(StableCard, StableOption, StableNote, stable);
 
@@ -44,6 +49,11 @@ public partial class UE4SSBuildSelectionWindow : Window
         if (preferDev) DevOption.IsChecked = true;
         else StandardOption.IsChecked = true;
     }
+
+    private static LoaderCompatibility.Choice WithNote(LoaderCompatibility.Choice choice, string note) =>
+        choice.Available
+            ? choice with { Warning = string.IsNullOrWhiteSpace(choice.Warning) ? note : $"{choice.Warning} {note}" }
+            : choice;
 
     /// An unavailable line stays visible with its reason, so the choice is explained rather than missing.
     private void Describe(Border card, RadioButton option, TextBlock note, LoaderCompatibility.Choice choice)

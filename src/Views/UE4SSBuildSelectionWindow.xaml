@@ -22,8 +22,7 @@
                 <StackPanel MaxWidth="420">
                     <TextBlock Text="Experimental (recommended)" FontWeight="SemiBold" FontSize="14"/>
                     <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0">
-                        The build UE4SS publishes as it fixes things. Supports UE 4.7 to 5.8, and is the only release
-                        whose Blueprint mod loader works on UE 5.2 and newer.
+                        The build UE4SS publishes as it fixes things, so it gets fixes first. Supports UE 4.7 to 5.8.
                     </TextBlock>
                     <TextBlock x:Name="ExperimentalNote" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
                 </StackPanel>
@@ -37,8 +36,8 @@
                 <StackPanel MaxWidth="420">
                     <TextBlock x:Name="StableTitle" FontWeight="SemiBold" FontSize="14"/>
                     <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0">
-                        The last numbered release, from February 2024. Supports UE 4.12 to 5.3. Uses the older layout:
-                        its files go directly in Binaries\Win64.
+                        UE4SS's numbered release, from November 2026: one fixed build, so it never changes
+                        underneath your mods. Supports UE 4.7 to 5.8.
                     </TextBlock>
                     <TextBlock x:Name="StableNote" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
                 </StackPanel>

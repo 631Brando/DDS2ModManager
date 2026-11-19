@@ -133,15 +133,16 @@ public sealed record GameProfile
     ///
     /// UE4SS is absent from DDS1's, and that is a safety rule rather than an omission. **Stock and
     /// experimental UE4SS both crash DDS1 immediately.** DDS1 gets UnrealModLoader instead, which is
-    /// what its mod scene actually runs. DDS2 is the mirror image: it needs the experimental build
-    /// specifically, because stock v3.0.1 crashes reading its cartel TMaps (see UE4SSStableCaveat).
+    /// what its mod scene actually runs. DDS2 is the mirror image: it runs UE4SS v4.0.0 and later from
+    /// either line. (The old stable, v3.0.1, crashed it reading its cartel TMaps.)
     ///
     /// A generic profile computes this from the engine version it read, through
     /// LoaderCompatibility.InstallableFor - every loader's published version range.
     public required ModLoaders InstallableLoaders { get; init; }
 
-    /// What a player must know before choosing stable UE4SS v3.0.1 on this game, when this game has
-    /// something specific to say. Null falls back to LoaderCompatibility's general advice.
+    /// What a player must know before choosing stable UE4SS on this game, when this game has something
+    /// specific to say. The picker asks a yes/no about it outright, so it must name a real, known risk
+    /// - none of the built-in games has one today.
     public string? UE4SSStableCaveat { get; init; }
 
     /// Nexus Mods game domain slug, used for the mod index, the new-mod feed and browse links.
@@ -227,8 +228,9 @@ public static class GameProfiles
         SupportsLooseAssets = false,
         SupportedLoaders    = ModLoaders.UE4SS,
         InstallableLoaders  = ModLoaders.UE4SS,
-        UE4SSStableCaveat   = "Stable v3.0.1 crashes Drug Dealer Simulator 2 when it reads the game's cartel data. " +
-                              "DDS2 needs the experimental build, and its mods are made against it.",
+        // No stable caveat. Stable v3.0.1 crashed DDS2 reading its cartel data, because it had drifted
+        // far from the experimental line nobody was cutting releases from. v4.0.0 is a release OF that
+        // line, and it and everything after it are supported here like experimental.
         NexusDomain         = "drugdealersimulator2",
         ManagerNexusModId   = 118,
         SupportsSaveCloning = true,

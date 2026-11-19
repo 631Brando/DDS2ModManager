@@ -66,7 +66,7 @@ public class ModLoaderService
 
         if (File.Exists(legacyDll))
         {
-            // Stable UE4SS v3.0.1 ships this layout, and when THIS manager installed it the exact file
+            // UE4SS v3.0.1 (the old stable) ships this layout, and when THIS manager installed it the exact file
             // list is on record - so it can be removed file by file without touching the game's own
             // executable or the player's mods in Mods\. Anything else here stays hands-off.
             var stable = UE4SSManagerService.ReadLegacyManifest(game);

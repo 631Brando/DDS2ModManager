@@ -4,10 +4,13 @@ namespace DDS2ModManager.Services;
 
 /// Which UE4SS release line to install from.
 ///
-/// Experimental is the rolling "experimental-latest" tag and the one recommended everywhere: it
-/// targets far more engine versions, and it carries the BPModLoaderMod fix without which Blueprint
-/// mods don't load on UE 5.2 and newer. Stable is v3.0.1, published February 2024 and not updated
-/// since - offered because some players want it, never preselected.
+/// Experimental is the rolling "experimental-latest" tag and the one recommended everywhere: it is
+/// what UE4SS publishes as it fixes things, and what DDS2's mods are made against. Stable is the
+/// numbered release v4.0.0 (12 November 2026), fetched by its tag - offered because some players want
+/// a build that doesn't move, never preselected. It replaced v3.0.1 (February 2024), which used the
+/// older loose-in-Win64 layout; installs of that are still read, removed and migrated by manifest.
+///
+/// Stored as an integer in UE4SS manifests on disk - append only.
 public enum UE4SSChannel
 {
     Experimental = 0,
@@ -21,22 +24,25 @@ public enum UE4SSChannel
 ///   - UE4SS experimental: "Targeting UE Versions: From 4.7 To 5.8" (README on the main branch).
 ///     Its LessEqual421 build definition is optional - the release notes say using it on
 ///     UE&lt;=4.21 "is not mandatory for UE4SS to function", it only fixes container alignment.
-///   - UE4SS stable v3.0.1: "From 4.12 To 5.3" (README at the v3.0.1 tag).
+///   - UE4SS stable v4.0.0: "From 4.7 To 5.8" (README at the v4.0.0 tag). Its BPModLoaderMod is
+///     byte-identical to experimental's at release, so the v3.0.1-era warning that stable's Blueprint
+///     loader fails on UE 5.2+ no longer applies.
 ///   - UnrealModLoader v2.2.1: Unreal Engine 4 only. It reads a per-game profile named after the
 ///     game's executable and does nothing at all without one ("Profile ... Not Detected!"), and the
 ///     minimal profile it ships is three engine-version flags - which is what makes writing one
 ///     from a detected version possible.
 ///
-/// Knowledge about ONE game - "stable UE4SS crashes DDS2" - lives in that game's profile, not here.
+/// Knowledge about ONE game - what stable UE4SS does on DDS2 - lives in that game's profile, not here.
 public static class LoaderCompatibility
 {
     public static readonly (int Major, int Minor) ExperimentalMin = (4, 7);
     public static readonly (int Major, int Minor) ExperimentalMax = (5, 8);
-    public static readonly (int Major, int Minor) StableMin = (4, 12);
-    public static readonly (int Major, int Minor) StableMax = (5, 3);
+    public static readonly (int Major, int Minor) StableMin = (4, 7);
+    public static readonly (int Major, int Minor) StableMax = (5, 8);
 
-    /// The stable release's tag. Shown in the picker so "stable" never reads as "newer".
-    public const string StableVersion = "v3.0.1";
+    /// The stable release's tag, which is also how it is fetched - never as GitHub's "latest", so a
+    /// later release can't arrive under claims made about this one. Shown in the picker.
+    public const string StableVersion = "v4.0.0";
 
     /// The engine version an EGame stands for. CUE4Parse encodes base versions as
     /// (major &lt;&lt; 24) | (minor &lt;&lt; 16) - see UnrealEngineProbe.ToEGame, which builds them that way.
@@ -72,14 +78,8 @@ public static class LoaderCompatibility
             warnings.Add("UE 4.21 and older are best served by UE4SS's LessEqual421 build, which isn't published as a " +
                          "download. The standard build can crash these games on startup - it does on Drug Dealer Simulator 1.");
 
-        if (channel == UE4SSChannel.Stable)
-        {
-            if (!string.IsNullOrWhiteSpace(profile.UE4SSStableCaveat))
-                warnings.Add(profile.UE4SSStableCaveat!);
-            else if (version.Major >= 5)
-                warnings.Add("On most UE5 games Blueprint (logic) mods need the experimental build: the Blueprint mod " +
-                             "loader in stable v3.0.1 doesn't work on UE 5.2 and newer.");
-        }
+        if (channel == UE4SSChannel.Stable && !string.IsNullOrWhiteSpace(profile.UE4SSStableCaveat))
+            warnings.Add(profile.UE4SSStableCaveat!);
 
         if (profile.EngineIsEstimated)
             warnings.Add($"This game's engine version ({profile.EngineLabel}) was worked out from its files, not read exactly.");

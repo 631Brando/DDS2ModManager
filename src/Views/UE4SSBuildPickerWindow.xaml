@@ -27,8 +27,8 @@
 
         <TextBlock Grid.Row="0" Text="Choose a UE4SS build" FontSize="18" FontWeight="Bold" Margin="0,0,0,6"/>
         <TextBlock Grid.Row="1" TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,12">
-            Every experimental build is kept, so you can go back to one that worked. They all call
-            themselves "v3.0.1" — the build number and the commit after it are what actually tell
+            Every experimental build is kept, so you can go back to one that worked. Hundreds share
+            each version number — the build number and the commit after it are what actually tell
             them apart, and they're what a bug report will ask you for.
         </TextBlock>
 

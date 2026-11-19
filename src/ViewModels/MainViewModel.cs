@@ -1023,8 +1023,11 @@ public partial class MainViewModel : ObservableObject
         }
         else if (ue4ss is { IsManagedByUs: true, Channel: UE4SSChannel.Stable })
         {
-            log.Info($"UE4SS stable {LoaderCompatibility.StableVersion} is installed. Experimental is the recommended " +
-                     "line - Choose build installs any experimental build and moves your mods across.");
+            // The label names the installed tag: an older-layout v3.0.1 install stays that until updated.
+            log.Info(ue4ss.Layout == LoaderLayout.Legacy
+                ? $"{ue4ss.StatusLabel} is installed, in its older layout. Updating to stable {LoaderCompatibility.StableVersion} " +
+                  "or to experimental moves your UE4SS mods into ue4ss\\Mods along the way."
+                : $"{ue4ss.StatusLabel} is installed. Choose build installs any experimental build instead.");
         }
         else if (ue4ss.Layout == LoaderLayout.Legacy)
         {
@@ -1798,7 +1801,7 @@ public partial class MainViewModel : ObservableObject
         var installedChannel = Ue4ssStatus is { IsManagedByUs: true, Channel: { } c } ? c : UE4SSChannel.Experimental;
 
         var dialog = new UE4SSBuildSelectionWindow(Game.Profile, installedIsDev, installedChannel,
-            experimentalLayoutInstalled: Ue4ssStatus is { IsInstalled: true, Layout: LoaderLayout.Modern })
+            olderLayoutInstalled: Ue4ssStatus is { IsInstalled: true, IsManagedByUs: true, Layout: LoaderLayout.Legacy })
         {
             Owner = System.Windows.Application.Current.MainWindow
         };

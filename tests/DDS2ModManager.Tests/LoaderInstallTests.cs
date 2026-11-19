@@ -66,35 +66,44 @@ public class LoaderInstallTests : IDisposable
         Assert.Equal(expected, LoaderCompatibility.InstallableFor(Ue(major, minor)));
     }
 
+    /// Stable is v4.0.0, a release of the same line as experimental - supported on DDS2 just like it.
+    /// (Only the old v3.0.1 stable crashed DDS2, and nothing offers that any more.)
     [Fact]
-    public void Stable_is_offered_on_dds2_only_with_its_crash_named()
+    public void Stable_is_offered_on_dds2_like_experimental()
     {
+        Assert.Equal("v4.0.0", LoaderCompatibility.StableVersion);
+
         var stable = LoaderCompatibility.ForUE4SS(GameProfiles.Dds2, UE4SSChannel.Stable);
         Assert.True(stable.Available);
-        Assert.Contains("crashes Drug Dealer Simulator 2", stable.Warning);
+        Assert.Null(stable.Warning);
+        Assert.Null(GameProfiles.Dds2.UE4SSStableCaveat);
 
         var experimental = LoaderCompatibility.ForUE4SS(GameProfiles.Dds2, UE4SSChannel.Experimental);
         Assert.True(experimental.Available);
         Assert.Null(experimental.Warning);
     }
 
+    /// v4.0.0's README: "Targeting UE Versions: From 4.7 To 5.8". Its Blueprint loader is
+    /// experimental's, so the v3.0.1-era "Blueprint mods break on UE 5.2+" warning is gone.
     [Fact]
-    public void Stable_warns_about_blueprint_mods_on_ue5_and_stops_at_5_3()
+    public void Stable_covers_ue_4_7_to_5_8_with_no_blueprint_warning()
     {
         var generic = GameProfiles.Dds2 with
         {
-            Id = "steam:1", IsBuiltIn = false, UE4SSStableCaveat = null, EngineLabel = "UE 5.1",
-            EngineVersion = Ue(5, 1), InstallableLoaders = LoaderCompatibility.InstallableFor(Ue(5, 1))
+            Id = "steam:1", IsBuiltIn = false, UE4SSStableCaveat = null, EngineLabel = "UE 5.4",
+            EngineVersion = Ue(5, 4), InstallableLoaders = LoaderCompatibility.InstallableFor(Ue(5, 4))
         };
 
-        var onUe51 = LoaderCompatibility.ForUE4SS(generic, UE4SSChannel.Stable);
-        Assert.True(onUe51.Available);
-        Assert.Contains("Blueprint", onUe51.Warning);
+        var onUe54 = LoaderCompatibility.ForUE4SS(generic, UE4SSChannel.Stable);
+        Assert.True(onUe54.Available);
+        Assert.Null(onUe54.Warning);
 
-        var onUe54 = LoaderCompatibility.ForUE4SS(generic with { EngineVersion = Ue(5, 4), EngineLabel = "UE 5.4" },
+        Assert.True(LoaderCompatibility.ForUE4SS(generic with { EngineVersion = Ue(5, 8) }, UE4SSChannel.Stable).Available);
+
+        var onUe59 = LoaderCompatibility.ForUE4SS(generic with { EngineVersion = Ue(5, 9), EngineLabel = "UE 5.9" },
             UE4SSChannel.Stable);
-        Assert.False(onUe54.Available);
-        Assert.Contains("UE 4.12 to 5.3", onUe54.BlockedReason);
+        Assert.False(onUe59.Available);
+        Assert.Contains("UE 4.7 to 5.8", onUe59.BlockedReason);
     }
 
     [Fact]
@@ -463,8 +472,53 @@ public class LoaderInstallTests : IDisposable
         Assert.True(File.Exists(Path.Combine(game.UE4SSModsPath, "Other", "Scripts", "main.lua")));
     }
 
+    /// Both lines ship the ue4ss\ layout now, so experimental -> stable is an ordinary install: the
+    /// player's mods stay, the build it replaces is kept for Undo, and the card names the stable tag.
     [Fact]
-    public void Going_back_from_experimental_to_stable_is_refused()
+    public void Moving_from_experimental_to_stable_v4_is_an_ordinary_install()
+    {
+        var game = Dds2();
+        UE4SSManagerService.ApplyExtracted(game, ExperimentalPayload(), "experimental-latest",
+            "UE4SS_v4.0.0-14-g682a75f1.zip", UE4SSChannel.Experimental);
+        Write(Path.Combine(game.UE4SSRootPath, "Mods", "MyMod", "Scripts", "main.lua"), "mine");
+
+        Assert.True(UE4SSManagerService.ApplyExtracted(game, ExperimentalPayload("v4"), "v4.0.0",
+            "UE4SS_v4.0.0.zip", UE4SSChannel.Stable));
+
+        Assert.Equal("v4", File.ReadAllText(Path.Combine(game.UE4SSRootPath, "UE4SS.dll")));
+        Assert.Equal("mine", File.ReadAllText(Path.Combine(game.UE4SSRootPath, "Mods", "MyMod", "Scripts", "main.lua")));
+        Assert.Equal("UE4SS_v4.0.0-14-g682a75f1.zip", UE4SSManagerService.FindPreviousBuild(game)!.AssetName);
+
+        var status = new UE4SSManagerService().GetCurrentStatus(game);
+        Assert.Equal(UE4SSChannel.Stable, status.Channel);
+        Assert.Equal(LoaderLayout.Modern, status.Layout);
+        Assert.Equal("UE4SS stable v4.0.0", status.StatusLabel);
+    }
+
+    /// A v3.0.1 install an earlier version of this manager made stays labelled v3.0.1, and updating it
+    /// to stable v4.0.0 carries its mods out of Binaries\Win64 into ue4ss\Mods.
+    [Fact]
+    public void Updating_stable_v3_to_v4_moves_the_players_mods_into_ue4ss()
+    {
+        var game = Dds2();
+        UE4SSManagerService.ApplyExtracted(game, StablePayload(), "v3.0.1", "UE4SS_v3.0.1.zip", UE4SSChannel.Stable);
+        Write(Path.Combine(game.Win64Path, "Mods", "MyMod", "Scripts", "main.lua"), "mine");
+        Assert.Equal("UE4SS stable v3.0.1", new UE4SSManagerService().GetCurrentStatus(game).StatusLabel);
+
+        Assert.True(UE4SSManagerService.ApplyExtracted(game, ExperimentalPayload("v4"), "v4.0.0",
+            "UE4SS_v4.0.0.zip", UE4SSChannel.Stable));
+
+        Assert.Equal("mine", File.ReadAllText(Path.Combine(game.UE4SSRootPath, "Mods", "MyMod", "Scripts", "main.lua")));
+        Assert.False(File.Exists(Path.Combine(game.Win64Path, "UE4SS.dll")));
+        Assert.Null(UE4SSManagerService.ReadLegacyManifest(game));
+
+        var status = new UE4SSManagerService().GetCurrentStatus(game);
+        Assert.Equal(LoaderLayout.Modern, status.Layout);
+        Assert.Equal("UE4SS stable v4.0.0", status.StatusLabel);
+    }
+
+    [Fact]
+    public void An_older_layout_build_is_refused_over_a_ue4ss_folder()
     {
         var game = Dds2();
         UE4SSManagerService.ApplyExtracted(game, ExperimentalPayload(), "experimental-latest", "a.zip", UE4SSChannel.Experimental);
