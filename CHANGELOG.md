@@ -3,85 +3,40 @@
 Each version's section is published verbatim as that release's notes on GitHub, and is what the
 in-app "Update available" prompt shows before you agree to install it.
 
-## v1.3.0-exp.4
+## v1.3.0
 
-A mod loader can now be installed on any Unreal game whose engine supports it, the engine version
-is read from the game's own executable, and a round of fixes from a full review — two of which
-could cost you the app itself or your mod list.
+Drug Dealer Simulator 1 is now supported alongside DDS2, in the same app — and any other Unreal
+Engine game can be opened too, with basic support. A picker chooses between them. A mod loader can
+be installed on any game whose engine it supports: UE4SS (experimental, recommended, or stable) and
+UnrealModLoader for UE4 games. UE4SS updates keep your settings and can be undone, any UE4SS build
+can be installed, and mods shipped in two halves install whole.
 
-### Install a mod loader on any game
+The app is now called **DDS Mod Manager**, since it is no longer about one game.
 
-Each loader is offered wherever the game's engine version is one it supports, from the loader's own
-published range:
+### Two games, one app
 
-| Loader | Engine versions | Goes into |
+**Switch game** (Ctrl+G) at the top of the window changes which game you're managing, and
+everything below it — the mod list, conflicts, saves, config, Nexus, backups — follows. Only the
+differences live in a per-game profile; the rest of the manager is shared, so a fix in one is a fix
+in both.
+
+DDS1 is not a variant of DDS2 — it is a different engine with a different container format:
+
+| | DDS1 | DDS2 |
 |---|---|---|
-| UE4SS experimental — **recommended** | UE 4.7 – 5.8 | `Binaries\Win64\ue4ss\` |
-| UE4SS stable v3.0.1 | UE 4.12 – 5.3 | `Binaries\Win64` directly (its older layout) |
-| UnrealModLoader v2.2.1 | UE4 only | `Binaries\Win64`, loads itself through `xinput1_3.dll` |
+| Engine | Unreal Engine 4.21 | Unreal Engine 5.3 |
+| Mods ship as | one `.pak`, or loose files, or a DLL | `.pak` + `.ucas` + `.utoc` |
+| Loader | UnrealModLoader / UnrealModUnlocker | UE4SS |
+| Config | `Saved\Config\WindowsNoEditor` | `Saved\Config\Windows` |
+| Saves | `Saved\Serialized\` and `Saved\SaveGames\` | `Saved\SaveGames\Cartels\` |
 
-**Install** on the UE4SS card now asks which release as well as which build. Experimental is
-preselected: it supports far more engines, and on UE 5.2 and newer it's the only one whose
-Blueprint mod loader works, so on most UE5 games logic mods need it. Stable is there if you want it,
-greyed out with the reason on a game it doesn't support, and on DDS2 it says plainly that it crashes
-the game. If you move from stable to experimental later, your mods move into `ue4ss\Mods` with it.
-
-**UnrealModLoader** gets its own card on UE4 games — DDS1 included — with Install, Reinstall and
-Remove. It does nothing without a profile named after the game's executable, and it ships profiles
-for only a few dozen games, none of them DDS1, so the manager writes one from the engine version. A
-profile already there, including one you tuned, is never overwritten. Logic mods then install flat
-in `LogicMods`, which is the only place it looks.
-
-UE4SS is still never offered on DDS1: both published builds crash it on startup.
-
-On a game that ships EasyAntiCheat or BattlEye, every loader install asks first: a loader is a DLL
-loaded into the game, which is exactly what anti-cheat looks for.
-
-### The engine version comes from the game's executable
-
-Unreal stamps every game's executable with its engine version — it's what Windows shows under
-Properties → Details → File version. The manager now reads that first, for every game in the
-picker, so far fewer games say "estimated". MORDHAU was shown as UE 4.27 (estimated) from its pak
-format; its executable says 4.26, and that's what it shows now.
-
-It matters most for DDS1, which ships on two branches — 4.21 and 4.27. The version used to be fixed
-at 4.21 whichever you had installed; it now follows the executable, so the 4.27 branch is read with
-4.27's rules and gets the right UnrealModLoader profile.
-
-### Fixed
-
-- **An app update that failed halfway could delete the app.** If the new exe couldn't be moved into
-  place, the old one was deleted anyway. The old one is now put back, and the download is checked
-  against the release's size and for being an executable before anything is replaced.
-- **A crash while saving could empty your mod list.** The mod list, settings, profiles, history and
-  trust lists are now written beside the old file and swapped in, so a save is all or nothing.
-- **Undo update put back the wrong proxy DLL.** The copy was taken after the new `dwmapi.dll` had
-  already landed, so undoing restored the old UE4SS beside the new proxy.
-- **DLL plugins for UnrealModLoader went where it never looks.** It loads them from
-  `Content\CoreMods`, not a `coremods` folder beside the game.
-- **Switching games during the UE4SS update check** could light up Update on the game you switched
-  to, for a check that was about the other one.
-- **"Choose build" appeared on DDS1** for a moment every time a game loaded.
-- **A download cut short was treated as complete.** It's now refused, for mods and UE4SS as well as
-  for app updates.
-- **Updating UE4SS while the game was running** failed partway through with a mix of two builds. It's
-  now refused until the game is closed.
-- **The UE4SS card could show Update and Install together** when UE4SS wasn't installed.
-- **Uninstalling a lua mod with a damaged entry** could delete more than that mod's folder. It's now
-  limited to one folder inside UE4SS's Mods.
-- **A lua mod installed before UE4SS made the card say UE4SS was installed**, hiding the Install
-  button. Only an actual `UE4SS.dll` counts now.
-- The scrollbars are dark, like the rest of the window, instead of Windows' light default.
-
-## v1.3.0-exp.3
-
-A new way to choose your game, and the first support for Unreal Engine games other than the two Drug
-Dealer Simulators. Anything that would be a guess on a game the manager doesn't know is switched
-off, rather than borrowed from DDS2.
+Each game keeps its own mod registry, profiles, backups, history, disabled mods, Nexus cache and
+settings. Your DDS2 mods are moved into their new per-game home the first time you run this version
+— nothing is deleted, and nothing needs re-importing.
 
 ### Choose a game
 
-The DDS1 / DDS2 tabs are gone. The top of the window now shows the game you have open: its box art,
+The top of the window shows the game you have open: its box art,
 its artwork behind it, its name, and chips saying how well it's supported, which engine version it
 runs, where it came from (Steam, Epic or GOG) and whether it ships anti-cheat.
 
@@ -97,11 +52,11 @@ The game folder is no longer typed into Settings. It's shown there, and changed 
 ### Other Unreal Engine games: basic support
 
 Any Unreal Engine game can now be opened. You get what works the same on every Unreal game:
-installing pak mods, and conflict detection by reading every pak. Everything that needs knowledge of
-one particular game — Nexus, installing UE4SS, save cloning — is off, and a **Basic support** chip
-says so.
+installing pak mods, conflict detection by reading every pak, and installing a mod loader its engine
+version supports (below). What needs knowledge of one particular game — Nexus, save cloning — is
+off, and a **Basic support** chip says so.
 
-Until now, a game the manager didn't recognise was quietly treated as DDS2. It was offered DDS2's
+Until now, any game folder you pointed the manager at was quietly treated as DDS2. It was offered DDS2's
 experimental UE4SS, which crashes other engines and on an anti-cheat game is a ban risk. It was read
 with DDS2's mappings file, shown DDS2's Nexus mods, and its folder was saved over your real DDS2
 folder. All of that is gone. Specifically:
@@ -118,26 +73,156 @@ folder. All of that is gone. Specifically:
 - Play launches Epic games through the Epic launcher, and other non-Steam games through their own
   exe.
 
-### Fixed
+### DDS1 mods come in five shapes, and all five install
 
-- **An uninstalled game still counted as installed.** Steam removes only the files it installed, so
-  UE4SS, its dumps and your mods stay behind — and the manager would reopen that leftover folder as
-  the game and install into it. A game now needs its executable and its own paks to count.
-- **The wrong folder could be taken as the game's project.** Every packaged Unreal game has an
-  `Engine` folder, and on a game whose name sorts after "E" it was picked instead, pointing every
-  path into the engine. DDS1 only escaped because its name sorts first.
-- **Clicking while a game was still opening could start a second setup alongside the first.** Every
-  change of game now goes through one gate.
-- **An older build could save a browsed folder into DDS2's slot** and open it as DDS2 from then on.
-  Such a slot is cleared on startup, with a line in the log saying so.
-- **A mod archive that opened but listed no files was treated as an empty mod**, silently dropping
-  its conflicts. It's now reported as a failed read.
+Two of them do not exist on DDS2 at all:
 
-## v1.3.0-exp.2
+**Loose `.uasset` files** — how most DDS1 mods ship. The folder tree inside the archive *is* the
+mod: a loose asset only replaces the packed original when it sits at exactly the same relative
+path, so the tree is preserved rather than flattened. Uninstall removes only the files that mod
+recorded when it was installed, because ownership of a loose file cannot be worked out from where
+it sits.
 
-Fixes for two things that broke real installs: mods shipped in two halves, and a UE4SS update
-quietly keeping a setting that UE4SS had deliberately changed. Plus a way back to any previous
-UE4SS build, because until now there wasn't one.
+**Native DLL plugins** — a `.dll` that a mod loader loads, usually with a data folder it creates
+beside itself. There is no shared convention for where these go: UnrealModUnlocker reads
+`Binaries\Win64\UnrealModPlugins`, UnrealModLoader reads `Content\CoreMods`. The manager works it out from
+the loader you actually have, and **refuses the install outright when nothing installed can load a
+DLL** — putting a native DLL somewhere the game never reads looks exactly like a mod that doesn't
+work.
+
+Only the DLLs get placed. If the archive also carries a settings or content folder, you are told
+what it contains and where the mod's own instructions say it goes, rather than the manager
+guessing at a layout only that framework documents.
+
+### Mod loaders are detected, not assumed
+
+UE4SS, UnrealModLoader and UnrealModUnlocker are all recognised, including UE4SS's older layout
+where its files sit directly in `Binaries\Win64` — that is what DDS1's scene runs, and it was
+previously invisible, so the manager offered to install something already there.
+
+**The manager will never offer to install UE4SS on DDS1.** Both the stock and experimental builds
+crash it on startup; it needs a custom build that ships no download. Recognising a loader and
+being allowed to install it are two separate questions — and on DDS1 the loader it installs is
+UnrealModLoader, which is what DDS1's mods are made for.
+
+### Install a mod loader on any game
+
+Each loader is offered wherever the game's engine version is one it supports, from the loader's own
+published range:
+
+| Loader | Engine versions | Goes into |
+|---|---|---|
+| UE4SS experimental — **recommended** | UE 4.7 – 5.8 | `Binaries\Win64\ue4ss\` |
+| UE4SS stable v4.0.0 | UE 4.7 – 5.8 | `Binaries\Win64\ue4ss\` |
+| UnrealModLoader v2.2.1 | UE4 only | `Binaries\Win64`, loads itself through `xinput1_3.dll` |
+
+**Install** on the UE4SS card now asks which release as well as which build. Experimental is
+preselected: it's the build UE4SS publishes as it fixes things, so fixes reach it first. Stable is
+**v4.0.0**, UE4SS's first numbered release in almost three years — one fixed build that never
+changes underneath your mods. Both run DDS2 (it was only the old v3.0.1 stable that crashed it), both
+use the same `ue4ss\` folder, and you can move between them either way at any time; your mods,
+`mods.txt` and settings stay put. A line a game's engine doesn't support is greyed out with the
+reason.
+
+**UnrealModLoader** gets its own card on UE4 games, with Install, Reinstall and Remove. It does
+nothing without a profile named after the game's executable, and it ships profiles for only a few
+dozen games — none of them DDS1 — so the manager writes one from the engine version. A profile
+already there, including one you tuned, is never overwritten. Logic mods then install flat in
+`LogicMods`, which is the only place it looks.
+
+UnrealModLoader finds its files with Windows' older text functions, which can't spell every
+character. Its settings file is written the way it reads it, so a library folder with an accented
+name works; a path those functions can't represent at all is refused at Install with the reason,
+instead of installing a loader that silently never starts.
+
+Logic mods go where the Blueprint loader you actually have reads them: in their own folder under
+`LogicMods` for UE4SS, flat for UnrealModLoader — and flat for an older hand-installed UE4SS whose
+Blueprint loader only reads the top of `LogicMods`.
+
+On a game that ships EasyAntiCheat or BattlEye, every loader install asks first: a loader is a DLL
+loaded into the game, which is exactly what anti-cheat looks for.
+
+UnrealModUnlocker is identified by reading the file, not by its name. `dxgi.dll` is one of the
+most-reused filenames in PC modding — ReShade and half a dozen overlays use it — and that matters
+now that the answer decides where a DLL plugin gets installed.
+
+### The engine version comes from the game's executable
+
+Unreal stamps every game's executable with its engine version — it's what Windows shows under
+Properties → Details → File version. The manager now reads that first, for every game in the
+picker, so far fewer games say "estimated". MORDHAU was shown as UE 4.27 (estimated) from its pak
+format; its executable says 4.26, and that's what it shows now.
+
+It matters most for DDS1, which ships on two branches — 4.21 and 4.27. The version used to be fixed
+at 4.21 whichever you had installed; it now follows the executable, so the 4.27 branch is read with
+4.27's rules and gets the right UnrealModLoader profile.
+
+### Tell the manager which Nexus page a mod is
+
+Mods are matched to their Nexus page by name, which works when the mod installs under the name it
+is published as, and cannot work otherwise. "AERR" is published as "AE Revolutions Reloaded"; no
+amount of matching gets from one to the other.
+
+Rows that didn't match now have a **link** button. Paste the mod's Nexus address, or just its mod
+number, or search the list of published mods — you see the real title, author and picture before
+you commit to it. From then on that mod gets its page link, its card and its picture like any
+other, and it is remembered.
+
+There is also **Not on Nexus**, for a mod you know has no page, which stops the manager trying.
+
+Nexus mod ids restart per game — mod 79 is a different mod on each — so a link records which game
+it belongs to and is refused if it turns up under the other one.
+
+### UE4SS updates keep your settings
+
+Updating UE4SS used to overwrite `UE4SS-settings.ini`, quietly resetting everything you'd set. The
+values you changed are now carried across and everything else comes from the new version, so options
+a newer UE4SS adds arrive too, along with the comments that explain them.
+
+Which values count as yours matters. Settings you edited through Saves & Config are recorded, and
+kept. A file the manager has no record of you editing is treated as untouched and takes the new
+version's values — between two UE4SS builds `SecondsToScanBeforeGivingUp` went from 30 to 120,
+because 30 wasn't long enough, and carrying an old 30 forward stops UE4SS hooking the game and every
+mod loading. If your file did differ, each line that wasn't carried is listed in the log so you can
+set it back.
+
+`Mods\BPModLoaderMod\load_order.txt` is kept across an update too. Only a person ever writes that
+file, and losing it drops the Blueprint loader back to loading mods in an arbitrary order.
+
+### You can install a specific UE4SS build
+
+Every experimental UE4SS build ever published is kept, so **Choose build** next to the UE4SS card now
+lists them and installs whichever you pick — including an older one. That matters because the
+ordinary Update button only ever moves forward, and if a new build breaks your mods, forward is the
+wrong direction.
+
+Hundreds of them share each version number, so the list is built around the build number and the
+commit instead — which are the two things a bug report will ask you for. UE4SS's archive has grown
+past what one GitHub release can hold and continues in a second one; both are read, so the 4.0.0
+builds are there. You can search by either. The
+build you already have is marked, console builds can be filtered to on their own, and switching
+between a console and a non-console build is called out before you commit to it, because that
+difference is invisible in the version and is easy to change without noticing.
+
+Installing an older build goes through the same path as any other update, so it keeps your mods,
+`mods.txt` and settings, sets the build it replaces aside, and can itself be undone.
+
+### A UE4SS update can be undone
+
+UE4SS comes from a single rolling release whose files are replaced in place, so the build you were
+on can't be downloaded again once a newer one lands. Until now an update overwrote it and deleted
+the download, which meant an update that broke your mods left you with no way back.
+
+The build being replaced is now set aside first, and an **Undo update** button appears next to the
+UE4SS card. It puts back exactly the UE4SS you had — proxy DLL, settings and the mods UE4SS itself
+ships — and leaves your own Lua mods, `mods.txt`, load order and shared libraries exactly as they
+are now, including anything installed or removed since the update. One copy is kept, and it survives being restored, so if going back
+turns out not to have been the problem you can update again.
+
+The log now also names both ends of the change — *"Replacing X with Y"* — because UE4SS's own version
+string doesn't identify a build. Several different ones all report themselves as `v3.0.1 Beta`, and
+only the release filename tells them apart. For the same reason, a diagnostics bundle now records
+the build you actually have; it used to record the release tag, which is always the same words.
 
 ### Fixed: being asked to choose between the two halves of one mod
 
@@ -165,209 +250,66 @@ The prompt's wording is also corrected: it used to assert the copies were "likel
 such as different multiplier strengths", which it cannot know, and each row now says whether it is a
 pak or a script mod.
 
-### Fixed: a UE4SS update could pin a setting UE4SS had deliberately changed
+### Fixed
 
-This one broke people's entire mod list, so it's worth explaining.
+- **The Standard/Dev build picker forgot which one you had.** It was pre-selected from a saved
+  preference that defaults to Standard, so a Dev-build user who accepted an update was silently
+  moved to Standard and lost their console window. It now reflects the build you have.
+- **Mods installed from an archive could be named after a temporary folder** — `DDS2MM_Install_`
+  and 32 random characters, written into `ue4ss\Mods\` and `mods.txt` for a Lua mod with no folder
+  around `Scripts\`. Mods are now named from the archive's own contents, a `.dds2mod.json` name
+  first, and an install that genuinely can't be named is refused with an explanation.
+- **Updating a mod discarded your notes, tags and favourite.** They now survive an update, along
+  with the Nexus link.
+- **`Content\Paks\DisabledMods` was described as disabling mods.** It never did: Unreal loads every
+  `.pak` under `Content\Paks` however deeply it's nested. Mods parked there are now reported as
+  loaded, with what to do about it.
+- **A mod could stay analysed as an older version of itself.** The record of a mod's files was
+  refreshed by the check that detects a change, so a changed mod could be marked unchanged before
+  anything re-read it.
+- **An uninstalled game still counted as installed.** Steam removes only the files it installed, so
+  UE4SS, its dumps and your mods stay behind — and the manager would reopen that leftover folder as
+  the game and install into it. A game now needs its executable and its own paks to count.
+- **A folder picked with Browse was saved as your DDS2 folder** whatever game it held. A DDS2 slot
+  holding a folder that isn't DDS2 is cleared on startup, with a line in the log saying so.
+- **Picking a folder while the game was still loading could start a second setup alongside the
+  first.** Every change of game now goes through one gate.
+- **A mod archive that opened but listed no files was treated as an empty mod**, silently dropping
+  its conflicts. It's now reported as a failed read.
+- **An app update that failed halfway could delete the app.** If the new exe couldn't be moved into
+  place, the old one was deleted anyway. The old one is now put back, and the download is checked
+  against the release's size and for being an executable before anything is replaced.
+- **A crash while saving could empty your mod list.** The mod list, settings, profiles, history and
+  trust lists are now written beside the old file and swapped in, so a save is all or nothing.
+- **A download cut short was treated as complete.** It's now refused, for mods and UE4SS as well as
+  for app updates.
+- **Updating UE4SS while the game was running** failed partway through with a mix of two builds. It's
+  now refused until the game is closed.
+- **A lua mod installed before UE4SS made the card say UE4SS was installed**, hiding the Install
+  button. Only an actual `UE4SS.dll` counts now.
+- **The UE4SS card could show Update and Install together** when UE4SS wasn't installed.
+- **Uninstalling a Lua mod with a damaged entry could delete more than that mod's folder.** It's now
+  limited to one folder inside UE4SS's `Mods`.
+- **Uninstalling a Lua mod could leave its line in `mods.txt`** when its name in the list differed
+  from its folder.
 
-When UE4SS updates, the manager keeps the values you changed and takes everything else from the new
-version. To know which values are yours, it compares your file against the one UE4SS shipped. If it
-had no record of that original — which was the case the first time it updated UE4SS for you — it
-assumed anything differing from the new defaults was your choice.
+### On DDS1 specifically
 
-That assumption is wrong in a way that matters. Between two UE4SS builds, `SecondsToScanBeforeGivingUp`
-went from 30 to 120, because 30 wasn't long enough and scans were failing. The old 30 was read as your
-preference and carried onto the new file. UE4SS then gave up scanning before it finished, couldn't
-hook the game, and **every** mod stopped loading — with nothing on screen connecting it to the update.
-
-The manager now assumes a settings file it has no record of you editing is untouched, and takes the
-new version's values. If the file did differ, every line that wasn't carried is listed in the log so
-you can set it back. Settings you edited through Saves & Config are unaffected — those have always
-been recorded, and they're still kept.
-
-### You can install a specific UE4SS build
-
-Every experimental UE4SS build ever published is kept, so **Choose build** next to the UE4SS card now
-lists them and installs whichever you pick — including an older one. That matters because the
-ordinary Update button only ever moves forward, and if a new build breaks your mods, forward is the
-wrong direction.
-
-They all call themselves "v3.0.1", so the list is built around the build number and the commit
-instead — which are the two things a bug report will ask you for. You can search by either. The
-build you already have is marked, console builds can be filtered to on their own, and switching
-between a console and a non-console build is called out before you commit to it, because that
-difference is invisible in the version and is easy to change without noticing.
-
-Installing an older build goes through the same path as any other update, so it keeps your mods,
-`mods.txt` and settings, sets the build it replaces aside, and can itself be undone.
-
-### A UE4SS update can be undone
-
-UE4SS comes from a single rolling release whose files are replaced in place, so the build you were
-on can't be downloaded again once a newer one lands. Until now an update overwrote it and deleted
-the download, which meant an update that broke your mods left you with no way back.
-
-The build being replaced is now set aside first, and an **Undo update** button appears next to the
-UE4SS card. It puts back exactly what you had, proxy DLL included, and leaves your mods, `mods.txt`
-and settings folders alone. One copy is kept, and it survives being restored, so if going back
-turns out not to have been the problem you can update again.
-
-The log now also names both ends of the change — *"Replacing X with Y"* — because UE4SS's own version
-string doesn't identify a build. Several different ones all report themselves as `v3.0.1 Beta`, and
-only the release filename tells them apart. For the same reason, a diagnostics bundle now records
-the build you actually have; it used to record the release tag, which is always the same words.
-
-`Mods\BPModLoaderMod\load_order.txt` is now kept across an update too. Only a person ever writes
-that file, and losing it drops the Blueprint loader back to loading mods in an arbitrary order.
-
-### Fixed: the Standard/Dev build picker forgot which one you had
-
-The picker shown before every UE4SS update was pre-selected from a saved preference that defaults to
-**Standard**, not from what's actually installed. If you were running the Dev build — the one that
-opens a live console window — and had never opened that dialog, accepting an update silently moved
-you to Standard and your console disappeared, while your mods still loaded normally. It now reflects
-the build you have.
-
-## v1.3.0-exp.1
-
-Drug Dealer Simulator 1 is now supported, alongside DDS2, in the same app. A tab at the top of the
-window switches between them, and everything below it — the mod list, conflicts, saves, config,
-Nexus, backups — follows the game you picked.
-
-The app is now called **DDS Mod Manager**, since it is no longer about one game.
-
-### Both games, one app
-
-Pick the game from the tabs at the top left. Only the differences live in a per-game profile; the
-rest of the manager is shared, so a fix in one is a fix in both.
-
-DDS1 is not a variant of DDS2 — it is a different engine with a different container format:
-
-| | DDS1 | DDS2 |
-|---|---|---|
-| Engine | Unreal Engine 4.21 | Unreal Engine 5.3 |
-| Mods ship as | one `.pak`, or loose files, or a DLL | `.pak` + `.ucas` + `.utoc` |
-| Loader | UnrealModLoader / UnrealModUnlocker | UE4SS |
-| Config | `Saved\Config\WindowsNoEditor` | `Saved\Config\Windows` |
-| Saves | `Saved\Serialized\` and `Saved\SaveGames\` | `Saved\SaveGames\Cartels\` |
-
-Each game keeps its own mod registry, profiles, backups, history, disabled mods, Nexus cache and
-settings. If you had DDS2 mods installed already, they are moved into their new per-game home the
-first time you run this build — nothing is deleted, and nothing needs re-importing.
-
-### DDS1 mods come in five shapes, and all five install
-
-Two of them do not exist on DDS2 at all:
-
-**Loose `.uasset` files** — how most DDS1 mods ship. The folder tree inside the archive *is* the
-mod: a loose asset only replaces the packed original when it sits at exactly the same relative
-path, so the tree is preserved rather than flattened. Uninstall removes only the files that mod
-recorded when it was installed, because ownership of a loose file cannot be worked out from where
-it sits.
-
-**Native DLL plugins** — a `.dll` that a mod loader loads, usually with a data folder it creates
-beside itself. There is no shared convention for where these go: UnrealModUnlocker reads
-`Binaries\Win64\UnrealModPlugins`, UnrealModLoader reads `coremods`. The manager works it out from
-the loader you actually have, and **refuses the install outright when nothing installed can load a
-DLL** — putting a native DLL somewhere the game never reads looks exactly like a mod that doesn't
-work.
-
-Only the DLLs get placed. If the archive also carries a settings or content folder, you are told
-what it contains and where the mod's own instructions say it goes, rather than the manager
-guessing at a layout only that framework documents.
-
-### Mod loaders are detected, not assumed
-
-UE4SS, UnrealModLoader and UnrealModUnlocker are all recognised, including UE4SS's older layout
-where its files sit directly in `Binaries\Win64` — that is what DDS1's scene runs, and it was
-previously invisible, so the manager offered to install something already there.
-
-**The manager will never offer to install UE4SS on DDS1.** Both the stock and experimental builds
-crash it on startup; it needs a custom build that ships no download. Recognising a loader and
-being allowed to install it are now two separate questions, and the answer to the second is no.
-
-UnrealModUnlocker is identified by reading the file, not by its name. `dxgi.dll` is one of the
-most-reused filenames in PC modding — ReShade and half a dozen overlays use it — and that matters
-now that the answer decides where a DLL plugin gets installed.
-
-### Tell the manager which Nexus page a mod is
-
-Mods are matched to their Nexus page by name, which works when the mod installs under the name it
-is published as, and cannot work otherwise. "AERR" is published as "AE Revolutions Reloaded"; no
-amount of matching gets from one to the other.
-
-Rows that didn't match now have a **link** button. Paste the mod's Nexus address, or just its mod
-number, or search the list of published mods — you see the real title, author and picture before
-you commit to it. From then on that mod gets its page link, its card and its picture like any
-other, and it is remembered.
-
-There is also **Not on Nexus**, for a mod you know has no page, which stops the manager trying.
-
-Nexus mod ids restart per game — mod 79 is a different mod on each — so a link records which game
-it belongs to and is refused if it turns up under the other one.
-
-### Your UE4SS settings survive a UE4SS update
-
-Updating UE4SS used to overwrite `UE4SS-settings.ini`, quietly resetting everything you'd set. Your
-settings are now carried across — but the new file is still the one you end up with, so options a
-newer UE4SS adds arrive too, along with the comments that explain them.
-
-### Fixed: mods installed from an archive could be named after a temporary folder
-
-A mod with no `.pak` and no `Scripts` folder — which means every loose-asset and DLL mod — was
-named after the temporary folder it was unpacked into, so it appeared in the list as
-`DDS2MM_Install_` followed by 32 random characters. That name is not cosmetic: it is what
-duplicate detection, profiles and Nexus matching all key on, and nothing in the app could rename
-it afterwards.
-
-Mods are now named from the archive's own contents, and an install that genuinely cannot be named
-is refused with an explanation rather than given a meaningless one. If a mod ships a
-`.dds2mod.json`, the name its author put there is used ahead of anything guessed from filenames.
-
-This also affected Lua mods whose archive had no folder around `Scripts\`, where the random name
-was written into `ue4ss\Mods\` and into `mods.txt` — the one place the wrong name stops the mod
-loading at all.
-
-### Fixed: updating a mod discarded your notes, tags and favourite
-
-Updating a mod replaces its entry, and everything you had added to it — the star, your notes, your
-tags — went with it. They now survive an update, along with the Nexus link.
-
-### Fixed: `Content\Paks\DisabledMods` was described as disabling mods
-
-It never did. Unreal loads every `.pak` under `Content\Paks` no matter how deeply nested, so a mod
-parked in a folder named `DisabledMods` is still running. The manager used to say otherwise. It
-now reports those mods as loaded, and says what to do about it.
-
-### Fixed: a mod could stay analysed as an older version of itself
-
-The record of what a mod's files looked like was refreshed by the check that *detects* a change,
-so a mod could be seen to have changed and then be marked unchanged before anything re-read it.
-One mod on the development machine was being conflict-checked against an analysis two builds old,
-hiding nine data table changes.
-
-### Fixed on DDS1 specifically
-
-- **Logic mods installed where the loader never looks.** UnrealModLoader scans `LogicMods` flat,
-  while UE4SS reads per-mod subfolders. A DDS1 logic mod installed into a subfolder mounted fine
-  and then did nothing, with no error to explain it.
-- **Saves wouldn't open.** UE4 save files have one fewer field in their header than UE5 ones, so
-  every offset after it shifted by four bytes. DDS1's real saves live in `Saved\Serialized\`, which
-  wasn't being read at all.
+- **Logic mods install flat.** UnrealModLoader scans `LogicMods` flat, while UE4SS reads per-mod
+  subfolders; a DDS1 logic mod in a subfolder would mount fine and then do nothing.
+- **Saves open.** UE4 save files have one fewer field in their header than UE5 ones, and DDS1's
+  real saves live in `Saved\Serialized\` — both are handled.
 - **Cloning a save is refused, and says why.** DDS1 loads a fixed set of slots, so a renamed copy
-  is written successfully and then never appears in game. Back Up does what people wanted.
-- **The base game pak can't be deleted.** Anything sitting directly in `Content\Paks` that looks
-  like the game's own — or anything over 2 GB — is refused by Reset, whatever it is called.
+  would be written and then never appear in game. Back Up does what people want.
+- **The base game pak can't be deleted.** Anything directly in `Content\Paks` that looks like the
+  game's own — or anything over 2 GB — is refused by Reset, whatever it is called.
 
 ### Smaller things
 
-- The mod list now finds loose assets somebody installed by hand, and reports when a loose file and
-  a pak mod both claim the same asset. Neither is named as the winner, because which one the engine
+- The mod list finds loose assets somebody installed by hand, and reports when a loose file and a
+  pak mod both claim the same asset. Neither is named as the winner, because which one the engine
   serves has to be observed in game.
 - Uninstalling a mod no longer deletes a file another installed mod also lists.
-- Trusted Mods used to report "check your connection" when the real answer was that nobody had
-  curated a list for that game yet.
-- One game's mod picture could appear on the other game's card, since Nexus ids restart per game.
-- Switching games mid-scan could apply one game's results to the other.
 
 ## v1.2.0
 
